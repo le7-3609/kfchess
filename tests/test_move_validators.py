@@ -225,14 +225,16 @@ class TestPawnMoveValidator(unittest.TestCase):
         # Move diagonally up 1 square (left & right)
         self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 2), Color.WHITE))
         self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 4), Color.WHITE))
+        # Move two spaces forward from start row (row 6)
+        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(4, 3), Color.WHITE))
 
     def test_white_pawn_illegal_geometry(self) -> None:
         # Move down (opposite direction)
         self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(7, 3), Color.WHITE))
         # Move sideways
         self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(6, 4), Color.WHITE))
-        # Move two spaces forward
-        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(4, 3), Color.WHITE))
+        # Move two spaces forward from non-start row (e.g. row 5)
+        self.assertFalse(self.v.is_legal(_pos(5, 3), _pos(3, 3), Color.WHITE))
         # Move diagonally two spaces
         self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(4, 1), Color.WHITE))
 
@@ -242,14 +244,16 @@ class TestPawnMoveValidator(unittest.TestCase):
         # Move diagonally down 1 square (left & right)
         self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 2), Color.BLACK))
         self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 4), Color.BLACK))
+        # Move two spaces forward from start row (row 1)
+        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(3, 3), Color.BLACK))
 
     def test_black_pawn_illegal_geometry(self) -> None:
         # Move up (opposite direction)
         self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(0, 3), Color.BLACK))
         # Move sideways
         self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(1, 4), Color.BLACK))
-        # Move two spaces forward
-        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(3, 3), Color.BLACK))
+        # Move two spaces forward from non-start row (e.g. row 2)
+        self.assertFalse(self.v.is_legal(_pos(2, 3), _pos(4, 3), Color.BLACK))
         # Move diagonally two spaces
         self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(3, 1), Color.BLACK))
 

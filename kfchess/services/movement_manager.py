@@ -213,6 +213,13 @@ class MovementManager(MovementManagerInterface):
 
                         board.set_piece(mov.frm, None)
                         board.set_piece(mov.to, mov.piece)
+
+                        # Pawn promotion to Queen on reaching the last row
+                        if mov.piece.piece_type == PieceType.PAWN:
+                            if (mov.piece.color == Color.WHITE and mov.to.row == 0) or \
+                               (mov.piece.color == Color.BLACK and mov.to.row == board.rows - 1):
+                                mov.piece.piece_type = PieceType.QUEEN
+
                         mov.piece.transition_to_idle()
                         self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
                     else:

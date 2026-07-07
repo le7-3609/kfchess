@@ -350,7 +350,7 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.QUEEN))
         self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
 
     def test_movement_conflict_blocker(self) -> None:
@@ -377,7 +377,7 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 1)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 1)), Piece(Color.WHITE, PieceType.QUEEN))
         self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
         self.assertIsNone(board.get_piece(Position(0, 2)))
 

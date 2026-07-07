@@ -25,6 +25,7 @@ _SLIDING_TYPES: FrozenSet[PieceType] = frozenset({
     PieceType.ROOK,
     PieceType.BISHOP,
     PieceType.QUEEN,
+    PieceType.PAWN,
 })
 
 

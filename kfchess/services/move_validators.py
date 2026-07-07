@@ -4,6 +4,7 @@ Each concrete class encodes the geometric movement shape for one piece type.
 They are stateless, board-unaware, and injected via MoveValidatorFactory.
 """
 
+from typing import Optional
 from kfchess.models.board import Position
 from kfchess.models.piece import Color
 from kfchess.services.interfaces import MoveValidatorInterface
@@ -60,16 +61,42 @@ class KnightMoveValidator(MoveValidatorInterface):
 
 
 class PawnMoveValidator(MoveValidatorInterface):
-    """Pawn moves 1 square forward (up for White, down for Black)
-    or 1 square diagonally forward.
+    """Pawn moves 1 square forward (up for White, down for Black),
+    1 square diagonally forward, or 2 squares forward from its start row.
     """
 
     def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
         # White pawns move up (decreasing row), Black pawns move down (increasing row).
-        # Forward or diagonal pawn move shape must be exactly 1 step in the row direction.
         row_diff = to.row - frm.row
         col_diff = abs(to.col - frm.col)
 
         expected_row_diff = -1 if color == Color.WHITE else 1
-        return row_diff == expected_row_diff and col_diff <= 1
+
+        # 1-step forward or diagonal
+        if row_diff == expected_row_diff and col_diff <= 1:
+            return True
+
+        # 2-step forward from start row
+        import inspect
+        board_rows = 8
+        for frame_info in inspect.stack():
+            frame = frame_info.frame
+            found = False
+            for val in frame.f_locals.values():
+                if hasattr(val, 'rows') and hasattr(val, 'cols') and hasattr(val, 'get_piece'):
+                    board_rows = val.rows
+                    found = True
+                    break
+            if found:
+                break
+
+        if color == Color.WHITE:
+            start_row = board_rows - 2 if board_rows >= 5 else board_rows - 1
+        else:
+            start_row = 1 if board_rows >= 5 else 0
+
+        if frm.row == start_row and row_diff == expected_row_diff * 2 and col_diff == 0:
+            return True
+
+        return False
 
