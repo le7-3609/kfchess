@@ -1,1 +1,1 @@
-# kfchess package init
+"""KungFu Chess — layered engine package."""

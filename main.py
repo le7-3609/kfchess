@@ -1,35 +1,39 @@
 import sys
-from kfchess.repository import InMemoryBoardRepository
-from kfchess.services import (
-    SimpleBoardParser,
-    BoardValidator,
-    ConsoleBoardPrinter,
-    GameService
-)
 
-def main():
-    # Composition Root: Wires up all components using Dependency Injection (DI)
-    repository = InMemoryBoardRepository()
+from kfchess.repository.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
+from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.validator import BoardValidator
+from kfchess.services.printer import ConsoleBoardPrinter
+from kfchess.services.command_executor import CommandExecutor
+from kfchess.services.game_service import GameService
+
+
+def main() -> None:
+    # Composition Root: wire all concrete classes via Dependency Injection.
+    board_repo = InMemoryBoardRepository()
+    state_repo = InMemoryGameStateRepository()
     parser = SimpleBoardParser()
     validator = BoardValidator()
     printer = ConsoleBoardPrinter()
-
+    command_executor = CommandExecutor(
+        board_repo=board_repo,
+        state_repo=state_repo,
+        printer=printer,
+    )
     service = GameService(
-        repository=repository,
+        board_repo=board_repo,
+        state_repo=state_repo,
         parser=parser,
         validator=validator,
-        printer=printer
+        command_executor=command_executor,
     )
 
-    # Read from standard input
     input_lines = sys.stdin.readlines()
-
-    # Execute service logic
     result = service.execute(input_lines)
 
-    # Hand off error output handling
     if not result.is_ok:
         print(f"ERROR {result.error}")
+
 
 if __name__ == "__main__":
     main()
