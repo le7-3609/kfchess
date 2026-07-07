@@ -1,0 +1,197 @@
+import unittest
+
+from kfchess.models.board import Position
+from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
+from kfchess.services.command_executor import CommandExecutor
+from kfchess.services.event_publisher import MoveEventPublisher
+from kfchess.services.game_service import GameService
+from kfchess.services.move_validator_factory import MoveValidatorFactory
+from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.path_checker import PathChecker
+from kfchess.services.printer import ConsoleBoardPrinter
+from kfchess.services.validator import BoardValidator
+from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
+
+
+def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, InMemoryGameStaterepositories, MoveEventPublisher]:
+    board_repo = InMemoryBoardrepositories()
+    state_repo = InMemoryGameStaterepositories()
+    parser = SimpleBoardParser()
+    validator = BoardValidator()
+    printer = ConsoleBoardPrinter()
+    publisher = MoveEventPublisher()
+    movement_manager = MovementManager(
+        duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
+        move_event_publisher=publisher
+    )
+    executor = CommandExecutor(
+        board_repo,
+        state_repo,
+        printer,
+        move_validator_factory=MoveValidatorFactory(),
+        move_event_publisher=publisher,
+        path_checker=PathChecker(),
+        movement_manager=movement_manager,
+    )
+    service = GameService(board_repo, state_repo, parser, validator, executor)
+    return service, board_repo, state_repo, publisher
+
+
+class TestRealtimeMovement(unittest.TestCase):
+    def test_movement_delay_and_arrival(self) -> None:
+        """A piece takes time to travel. It only arrives after wait."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # 1. Initialize board: White Rook at (0, 0)
+        # Distance to (0, 2) is 2 squares -> Chebyshev distance = 2 -> duration = 2000 ms.
+        res = service.execute([
+            "Board:",
+            "wR . .",
+            "Commands:",
+            "click 50 50",   # select wR
+            "click 250 50",  # move to (0, 2)
+            "print board"
+        ])
+        self.assertTrue(res.is_ok)
+
+        # Verify that before waiting, the board still has the piece at the original position (0, 0)
+        board = board_repo.get_board()
+        self.assertIsNotNone(board)
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertIsNone(board.get_piece(Position(0, 2)))
+
+        # 2. Wait 1000 ms (less than 2000 ms arrival)
+        res = service.execute([
+            "Board:",
+            "wR . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",
+            "wait 1000",
+            "print board"
+        ])
+        self.assertTrue(res.is_ok)
+
+        # Still at original position
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertIsNone(board.get_piece(Position(0, 2)))
+
+        # 3. Wait another 1000 ms (total 2000 ms, equal to arrival)
+        res = service.execute([
+            "Board:",
+            "wR . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",
+            "wait 1000",
+            "wait 1000",
+            "print board"
+        ])
+        self.assertTrue(res.is_ok)
+
+        # Arrived at target position!
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+
+    def test_cannot_select_moving_piece(self) -> None:
+        """A piece currently in transit cannot be selected again."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        service.execute([
+            "Board:",
+            "wR . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",  # starts moving to (0, 2), duration 2000 ms
+            "click 50 50",   # try to select again at origin
+        ])
+
+        state = state_repo.get_state()
+        self.assertIsNone(state.selected_pos)  # Should be None because selecting moving piece is ignored
+
+    def test_capture_at_arrival_time(self) -> None:
+        """Capture happens when the piece arrives, not when the move starts."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # White Rook at (0, 0), Black Pawn at (0, 2)
+        # Move Rook to (0, 2) -> Chebyshev distance = 2 -> duration = 2000 ms
+        service.execute([
+            "Board:",
+            "wR . bP",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",
+        ])
+
+        # Before arrival, bP is still at (0, 2)
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.BLACK, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+
+        # Wait 2000 ms
+        service.execute([
+            "Board:",
+            "wR . bP",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",
+            "wait 2000",
+        ])
+
+        # Now captured!
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+
+    def test_aborted_movement_on_capture(self) -> None:
+        """If a moving piece is captured at its source position, its movement is aborted."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # White Rook at (0, 0) moving to (0, 2) (duration 2000 ms)
+        # Black Queen at (1, 0) captures White Rook at (0, 0) (duration 1000 ms)
+        # Queen arrives at (0, 0) at t=1000, capturing the Rook.
+        # At t=2000, Rook's move should not resolve (it is captured/dead).
+        service.execute([
+            "Board:",
+            "wR . .",
+            "bQ . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",  # wR (0,0) -> (0,2) starts at t=0, arrives t=2000
+            "click 50 150",
+            "click 50 50",   # bQ (1,0) -> (0,0) starts at t=0, arrives t=1000
+            "wait 1000",     # bQ arrives at (0,0), captures wR
+        ])
+
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.BLACK, PieceType.QUEEN))
+        self.assertIsNone(board.get_piece(Position(0, 2)))
+
+        # Now wait another 1000 ms (total 2000 ms since start)
+        service.execute([
+            "Board:",
+            "wR . .",
+            "bQ . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",
+            "click 50 150",
+            "click 50 50",
+            "wait 1000",
+            "wait 1000",
+        ])
+
+        board = board_repo.get_board()
+        assert board is not None
+        # Queen is still at (0, 0), and (0, 2) is still empty (Rook move did not resolve/teleport)
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.BLACK, PieceType.QUEEN))
+        self.assertIsNone(board.get_piece(Position(0, 2)))

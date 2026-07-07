@@ -6,7 +6,7 @@ Pure domain types — no I/O, no services.
 from kfchess.models.piece import Color, PieceType, Piece
 from kfchess.models.board import Position, Board
 from kfchess.models.result import Result
-from kfchess.models.game_state import GameState
+from kfchess.models.game_state import GameState, Movement
 
 __all__ = [
     'Color',
@@ -16,4 +16,6 @@ __all__ = [
     'Board',
     'Result',
     'GameState',
+    'Movement',
 ]
+

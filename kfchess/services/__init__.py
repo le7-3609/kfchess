@@ -18,6 +18,11 @@ from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
 from kfchess.services.path_checker import PathChecker
+from kfchess.services.movement_manager import (
+    MovementManager,
+    InstantMovementDuration,
+    ChebyshevDistanceDuration,
+)
 
 __all__ = [
     'BoardParserInterface',
@@ -33,4 +38,8 @@ __all__ = [
     'CommandExecutor',
     'GameService',
     'PathChecker',
+    'MovementManager',
+    'InstantMovementDuration',
+    'ChebyshevDistanceDuration',
 ]
+

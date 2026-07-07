@@ -15,6 +15,7 @@ from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
+from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 
 
 def main() -> None:
@@ -37,6 +38,12 @@ def main() -> None:
     # Board-aware path and capture checker (Strategy pattern).
     path_checker = PathChecker()
 
+    # Movement Manager (Strategy pattern for duration & real-time movement).
+    movement_manager = MovementManager(
+        duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
+        move_event_publisher=move_event_publisher
+    )
+
     command_executor = CommandExecutor(
         board_repo=board_repo,
         state_repo=state_repo,
@@ -44,6 +51,7 @@ def main() -> None:
         move_validator_factory=move_validator_factory,
         move_event_publisher=move_event_publisher,
         path_checker=path_checker,
+        movement_manager=movement_manager,
     )
     service = GameService(
         board_repo=board_repo,

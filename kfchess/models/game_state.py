@@ -1,11 +1,23 @@
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 from kfchess.models.board import Position
+from kfchess.models.piece import Piece
+
+
+@dataclass
+class Movement:
+    frm: Position
+    to: Position
+    piece: Piece
+    start_ms: int
+    arrival_ms: int
 
 
 @dataclass
 class GameState:
-    """Tracks mutable game state: the clock and the currently selected piece."""
+    """Tracks mutable game state: the clock, the selected piece, and movements in transit."""
     clock_ms: int = 0
     selected_pos: Optional[Position] = None
+    active_movements: List[Movement] = field(default_factory=list)
+

@@ -4,12 +4,14 @@ from typing import List, Optional, Tuple
 from kfchess.models.board import Board, Position
 from kfchess.models.piece import Color, Piece, PieceType
 from kfchess.models.result import Result
+from kfchess.models.game_state import GameState
 
 
 class BoardParserInterface(ABC):
     @abstractmethod
     def parse(self, input_lines: List[str]) -> Tuple[List[List[str]], List[str]]:
         """Parse raw input lines into (board_token_rows, command_strings)."""
+
 
 
 class BoardValidatorInterface(ABC):
@@ -112,3 +114,28 @@ class PathCheckerInterface(ABC):
         It **may** land on an empty square or a square occupied by an enemy
         (capture).
         """
+
+
+# ---------------------------------------------------------------------------
+# Real-time Movement over Time
+# ---------------------------------------------------------------------------
+
+class MovementDurationInterface(ABC):
+    """Calculates the travel duration for a piece moving between positions."""
+
+    @abstractmethod
+    def calculate_duration(self, frm: Position, to: Position, piece: Piece) -> int:
+        """Return the travel duration in milliseconds."""
+
+
+class MovementManagerInterface(ABC):
+    """Manages active movements in transit, resolves arrivals, and updates the board."""
+
+    @abstractmethod
+    def calculate_arrival(self, frm: Position, to: Position, piece: Piece, start_ms: int) -> int:
+        """Return the arrival timestamp in milliseconds."""
+
+    @abstractmethod
+    def resolve_movements(self, board: Board, state: GameState, current_ms: int) -> None:
+        """Update the board with any pieces that have finished transit by current_ms."""
+

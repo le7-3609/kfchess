@@ -1,3 +1,4 @@
+from typing import Optional
 from kfchess.models.board import Position
 from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
 from kfchess.services.event_publisher import MoveEventPublisher
@@ -6,6 +7,7 @@ from kfchess.services.interfaces import (
     CommandExecutorInterface,
     MoveValidatorFactoryInterface,
     PathCheckerInterface,
+    MovementManagerInterface,
 )
 
 # Each board cell is 100×100 pixels.
@@ -13,6 +15,7 @@ _CELL_SIZE_PX: int = 100
 
 
 class CommandExecutor(CommandExecutorInterface):
+
     """
     Executes the three supported text commands against the board and game state.
 
@@ -50,6 +53,7 @@ class CommandExecutor(CommandExecutorInterface):
         move_validator_factory: MoveValidatorFactoryInterface,
         move_event_publisher: MoveEventPublisher,
         path_checker: PathCheckerInterface,
+        movement_manager: Optional[MovementManagerInterface] = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -57,6 +61,14 @@ class CommandExecutor(CommandExecutorInterface):
         self._move_validator_factory = move_validator_factory
         self._move_event_publisher = move_event_publisher
         self._path_checker = path_checker
+
+        if movement_manager is None:
+            from kfchess.services.movement_manager import MovementManager, InstantMovementDuration
+            movement_manager = MovementManager(
+                duration_strategy=InstantMovementDuration(),
+                move_event_publisher=move_event_publisher,
+            )
+        self._movement_manager = movement_manager
 
     # ------------------------------------------------------------------
     # CommandExecutorInterface
@@ -79,7 +91,18 @@ class CommandExecutor(CommandExecutorInterface):
     # Private command handlers
     # ------------------------------------------------------------------
 
+    def _resolve_pending(self) -> None:
+        board = self._board_repo.get_board()
+        if board is None:
+            return
+        state = self._state_repo.get_state()
+        self._movement_manager.resolve_movements(board, state, state.clock_ms)
+        self._board_repo.save_board(board)
+        self._state_repo.save_state(state)
+
     def _handle_click(self, x: int, y: int) -> None:
+        self._resolve_pending()
+
         board = self._board_repo.get_board()
         if board is None:
             return
@@ -97,6 +120,9 @@ class CommandExecutor(CommandExecutorInterface):
         if state.selected_pos is None:
             # ── No active selection ──────────────────────────────────
             if target_piece is not None:
+                # If target is currently moving, do not select it.
+                if any(mov.frm == target for mov in state.active_movements):
+                    return
                 state.selected_pos = target  # Select this piece.
             # else: empty cell with no selection → ignored.
         else:
@@ -106,13 +132,17 @@ class CommandExecutor(CommandExecutorInterface):
             if selected_piece is None:
                 # Stale selection: selected cell is empty (already moved).
                 # Start fresh — select the newly clicked piece if any.
-                state.selected_pos = target if target_piece is not None else None
+                if target_piece is not None and not any(mov.frm == target for mov in state.active_movements):
+                    state.selected_pos = target
+                else:
+                    state.selected_pos = None
             elif (
                 target_piece is not None
                 and target_piece.color == selected_piece.color
             ):
-                # Friendly piece — replace the selection.
-                state.selected_pos = target
+                # Friendly piece — replace the selection if it is not moving.
+                if not any(mov.frm == target for mov in state.active_movements):
+                    state.selected_pos = target
             else:
                 # ── Attempt to move ──────────────────────────────────
                 validator = self._move_validator_factory.get_validator(
@@ -134,12 +164,24 @@ class CommandExecutor(CommandExecutorInterface):
                     # Friendly piece on target — keep selection.
                     return
 
-                # Legal move: commit and fire an event.
-                board.set_piece(target, selected_piece)
-                board.set_piece(origin, None)
+                # Queue the movement. Do NOT modify the board immediately.
+                arrival_ms = self._movement_manager.calculate_arrival(
+                    origin, target, selected_piece, state.clock_ms
+                )
+                from kfchess.models.game_state import Movement
+                mov = Movement(
+                    frm=origin,
+                    to=target,
+                    piece=selected_piece,
+                    start_ms=state.clock_ms,
+                    arrival_ms=arrival_ms,
+                )
+                state.active_movements.append(mov)
                 state.selected_pos = None
-                self._board_repo.save_board(board)
-                self._move_event_publisher.publish(selected_piece, origin, target)
+                self._state_repo.save_state(state)
+
+                # Instantly resolve if duration was 0
+                self._resolve_pending()
 
         self._state_repo.save_state(state)
 
@@ -147,8 +189,11 @@ class CommandExecutor(CommandExecutorInterface):
         state = self._state_repo.get_state()
         state.clock_ms += ms
         self._state_repo.save_state(state)
+        self._resolve_pending()
 
     def _handle_print_board(self) -> None:
+        self._resolve_pending()
         board = self._board_repo.get_board()
         if board is not None:
             self._printer.print_board(board)
+
