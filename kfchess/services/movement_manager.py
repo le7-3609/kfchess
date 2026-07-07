@@ -59,6 +59,9 @@ class MovementManager(MovementManagerInterface):
             if current_piece == mov.piece:
                 board.set_piece(mov.frm, None)
                 board.set_piece(mov.to, mov.piece)
+                mov.piece.transition_to_idle()
                 self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
+            else:
+                mov.piece.transition_to_idle()
 
         state.active_movements = remaining

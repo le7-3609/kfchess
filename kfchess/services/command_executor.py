@@ -121,7 +121,7 @@ class CommandExecutor(CommandExecutorInterface):
             # ── No active selection ──────────────────────────────────
             if target_piece is not None:
                 # If target is currently moving, do not select it.
-                if any(mov.frm == target for mov in state.active_movements):
+                if not target_piece.can_select():
                     return
                 state.selected_pos = target  # Select this piece.
             # else: empty cell with no selection → ignored.
@@ -132,7 +132,7 @@ class CommandExecutor(CommandExecutorInterface):
             if selected_piece is None:
                 # Stale selection: selected cell is empty (already moved).
                 # Start fresh — select the newly clicked piece if any.
-                if target_piece is not None and not any(mov.frm == target for mov in state.active_movements):
+                if target_piece is not None and target_piece.can_select():
                     state.selected_pos = target
                 else:
                     state.selected_pos = None
@@ -141,10 +141,20 @@ class CommandExecutor(CommandExecutorInterface):
                 and target_piece.color == selected_piece.color
             ):
                 # Friendly piece — replace the selection if it is not moving.
-                if not any(mov.frm == target for mov in state.active_movements):
+                if target_piece.can_select():
                     state.selected_pos = target
             else:
                 # ── Attempt to move ──────────────────────────────────
+                if not selected_piece.can_move():
+                    return
+
+                from kfchess.models.piece import Color
+                opp_color = Color.BLACK if selected_piece.color == Color.WHITE else Color.WHITE
+                is_capture = target_piece is not None and target_piece.color == opp_color
+                if not is_capture:
+                    if any(mov.piece.color == opp_color for mov in state.active_movements):
+                        return
+
                 validator = self._move_validator_factory.get_validator(
                     selected_piece.piece_type
                 )
@@ -177,6 +187,7 @@ class CommandExecutor(CommandExecutorInterface):
                     arrival_ms=arrival_ms,
                 )
                 state.active_movements.append(mov)
+                selected_piece.transition_to_moving()
                 state.selected_pos = None
                 self._state_repo.save_state(state)
 

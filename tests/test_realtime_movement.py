@@ -195,3 +195,102 @@ class TestRealtimeMovement(unittest.TestCase):
         # Queen is still at (0, 0), and (0, 2) is still empty (Rook move did not resolve/teleport)
         self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.BLACK, PieceType.QUEEN))
         self.assertIsNone(board.get_piece(Position(0, 2)))
+
+    def test_cannot_redirect_moving_piece(self) -> None:
+        """A piece already in motion cannot be redirected by clicking it again and choosing a new target."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # White Rook at (0, 0).
+        # Move Rook to (0, 2) -> Chebyshev distance = 2 -> duration = 2000 ms.
+        # At t=1000, attempt to select it at (0, 0) and redirect it to (0, 1).
+        service.execute([
+            "Board:",
+            "wR . . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",  # Starts moving to (0, 2), arrives t=2000
+            "wait 1000",     # wait 1000 ms (t=1000)
+            "click 50 50",   # attempt selection of Rook at origin (0, 0)
+            "click 150 50",  # attempt redirect to (0, 1)
+        ])
+
+        # At t=1000, selection should remain None and the redirect command is ignored.
+        state = state_repo.get_state()
+        self.assertIsNone(state.selected_pos)
+
+        # Wait another 1000 ms (total 2000 ms from start)
+        service.execute([
+            "Board:",
+            "wR . . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",
+            "wait 1000",
+            "click 50 50",
+            "click 150 50",
+            "wait 1000",  # total wait 2000 ms
+        ])
+
+        # The Rook should arrive at its original destination (0, 2) and NOT at (0, 1)
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+        self.assertIsNone(board.get_piece(Position(0, 1)))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+
+    def test_move_again_immediately_after_arrival(self) -> None:
+        """A piece can start moving again immediately after it has arrived at its destination."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # Rook at (0, 0) moves to (0, 2) -> duration 2000 ms.
+        # It arrives at t=2000.
+        # Immediately at t=2000, select it at (0, 2) and move it to (2, 2) -> duration 2000 ms.
+        # Wait another 2000 ms (arrives at t=4000).
+        service.execute([
+            "Board:",
+            "wR . .",
+            ". . .",
+            ". . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",  # starts moving to (0, 2)
+            "wait 2000",     # arrives at (0, 2) at t=2000
+            "click 250 50",  # select at (0, 2)
+            "click 250 250", # move to (2, 2)
+            "wait 2000",     # arrives at (2, 2) at t=4000
+        ])
+
+        # Verify the Rook has successfully arrived at the second destination (2, 2)
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+        self.assertIsNone(board.get_piece(Position(0, 2)))
+        self.assertEqual(board.get_piece(Position(2, 2)), Piece(Color.WHITE, PieceType.ROOK))
+
+    def test_opposite_colors_do_not_move_concurrently(self) -> None:
+        """Opposite colors do not move concurrently."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # wR at (0, 0), bR at (2, 0)
+        # wR moves to (0, 2) -> duration 2000 ms
+        # bR tries to move to (2, 2) -> duration 2000 ms
+        service.execute([
+            "Board:",
+            "wR . .",
+            ". . .",
+            "bR . .",
+            "Commands:",
+            "click 50 50",
+            "click 250 50",  # wR starts moving
+            "click 50 250", # select bR
+            "click 250 250",# try to move bR
+            "wait 2000",
+            "print board"
+        ])
+
+        # wR should have arrived at (0, 2), but bR remains at (2, 0)
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(2, 0)), Piece(Color.BLACK, PieceType.ROOK))
+        self.assertIsNone(board.get_piece(Position(2, 2)))
