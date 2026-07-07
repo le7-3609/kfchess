@@ -57,6 +57,16 @@ class MovingState(PieceState):
         return False
 
 
+class JumpingState(PieceState):
+    """State of a piece that is currently jumping (airborne)."""
+
+    def can_select(self) -> bool:
+        return False
+
+    def can_move(self) -> bool:
+        return False
+
+
 class Piece:
     def __init__(self, color: Color, piece_type: PieceType) -> None:
         self.color = color
@@ -66,6 +76,10 @@ class Piece:
     def transition_to_moving(self) -> None:
         """Transition the piece to MovingState."""
         self._state = MovingState()
+
+    def transition_to_jumping(self) -> None:
+        """Transition the piece to JumpingState."""
+        self._state = JumpingState()
 
     def transition_to_idle(self) -> None:
         """Transition the piece back to IdleState."""

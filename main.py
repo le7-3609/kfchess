@@ -44,7 +44,7 @@ def main() -> None:
 
     # Movement Manager (Strategy pattern for duration & real-time movement).
     movement_manager = MovementManager(
-        duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
+        duration_strategy=ChebyshevDistanceDuration(ms_per_square=500),
         move_event_publisher=move_event_publisher,
         path_checker=path_checker
     )

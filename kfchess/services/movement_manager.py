@@ -157,17 +157,25 @@ class MovementManager(MovementManagerInterface):
 
                     if same_square or crossing:
                         # Determine winner and loser
-                        if mov1.start_ms < mov2.start_ms:
+                        is_mov1_jump = (mov1.frm == mov1.to)
+                        is_mov2_jump = (mov2.frm == mov2.to)
+
+                        if is_mov1_jump and not is_mov2_jump and mov1.piece.color != mov2.piece.color:
                             winner, loser = mov1, mov2
-                        elif mov2.start_ms < mov1.start_ms:
+                        elif is_mov2_jump and not is_mov1_jump and mov1.piece.color != mov2.piece.color:
                             winner, loser = mov2, mov1
                         else:
-                            idx1 = state.active_movements.index(mov1)
-                            idx2 = state.active_movements.index(mov2)
-                            if idx1 < idx2:
+                            if mov1.start_ms < mov2.start_ms:
                                 winner, loser = mov1, mov2
-                            else:
+                            elif mov2.start_ms < mov1.start_ms:
                                 winner, loser = mov2, mov1
+                            else:
+                                idx1 = state.active_movements.index(mov1)
+                                idx2 = state.active_movements.index(mov2)
+                                if idx1 < idx2:
+                                    winner, loser = mov1, mov2
+                                else:
+                                    winner, loser = mov2, mov1
 
                         aborted_or_captured.add(id(loser))
 
@@ -195,36 +203,60 @@ class MovementManager(MovementManagerInterface):
             for mov in arriving:
                 current_piece = board.get_piece(mov.frm)
                 if current_piece == mov.piece:
-                    # Construct effective board at t excluding mov
-                    eff_board = self._get_effective_board(board, state, t, exclude_mov=mov)
-
-                    # Verify path and landing
-                    path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-                    can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to)
-
-                    if path_clear and can_land:
-                        # Successful arrival!
-                        target_piece = board.get_piece(mov.to)
-                        if target_piece is not None:
-                            if state.selected_pos == mov.to:
-                                state.selected_pos = None
-                            if target_piece.piece_type == PieceType.KING:
-                                state.game_over = True
-
-                        board.set_piece(mov.frm, None)
-                        board.set_piece(mov.to, mov.piece)
-
-                        # Pawn promotion to Queen on reaching the last row
-                        if mov.piece.piece_type == PieceType.PAWN:
-                            if (mov.piece.color == Color.WHITE and mov.to.row == 0) or \
-                               (mov.piece.color == Color.BLACK and mov.to.row == board.rows - 1):
-                                mov.piece.piece_type = PieceType.QUEEN
-
+                    if mov.frm == mov.to:
+                        # Successful landing of jump!
                         mov.piece.transition_to_idle()
-                        self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
                     else:
-                        # Aborted: path blocked or landing invalid (friendly piece)
-                        mov.piece.transition_to_idle()
+                        # Check if there is an active airborne enemy piece at the destination cell
+                        airborne_enemy_jump = None
+                        for active_mov in state.active_movements:
+                            if (active_mov.frm == active_mov.to and 
+                                active_mov.frm == mov.to and 
+                                active_mov.start_ms <= t <= active_mov.arrival_ms and 
+                                active_mov.piece.color != mov.piece.color):
+                                airborne_enemy_jump = active_mov
+                                break
+
+                        if airborne_enemy_jump is not None:
+                            # The airborne piece captures the arriving enemy!
+                            # The arriving enemy is removed.
+                            board.set_piece(mov.frm, None)
+                            mov.piece.transition_to_idle()
+                            if state.selected_pos == mov.frm:
+                                state.selected_pos = None
+                            if mov.piece.piece_type == PieceType.KING:
+                                state.game_over = True
+                        else:
+                            # Construct effective board at t excluding mov
+                            eff_board = self._get_effective_board(board, state, t, exclude_mov=mov)
+
+                            # Verify path and landing
+                            path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
+                            can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to)
+
+                            if path_clear and can_land:
+                                # Successful arrival!
+                                target_piece = board.get_piece(mov.to)
+                                if target_piece is not None:
+                                    if state.selected_pos == mov.to:
+                                        state.selected_pos = None
+                                    if target_piece.piece_type == PieceType.KING:
+                                        state.game_over = True
+
+                                board.set_piece(mov.frm, None)
+                                board.set_piece(mov.to, mov.piece)
+
+                                # Pawn promotion to Queen on reaching the last row
+                                if mov.piece.piece_type == PieceType.PAWN:
+                                    if (mov.piece.color == Color.WHITE and mov.to.row == 0) or \
+                                       (mov.piece.color == Color.BLACK and mov.to.row == board.rows - 1):
+                                        mov.piece.piece_type = PieceType.QUEEN
+
+                                mov.piece.transition_to_idle()
+                                self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
+                            else:
+                                # Aborted: path blocked or landing invalid (friendly piece)
+                                mov.piece.transition_to_idle()
                 else:
                     mov.piece.transition_to_idle()
 

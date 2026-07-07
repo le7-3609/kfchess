@@ -13,6 +13,10 @@ class GamePlayState(ABC):
     def handle_click(self, executor: CommandExecutor, x: int, y: int) -> None:
         """Handle a click command."""
 
+    @abstractmethod
+    def handle_jump(self, executor: CommandExecutor, x: int, y: int) -> None:
+        """Handle a jump command."""
+
 
 class ActivePlayState(GamePlayState):
     """State where the game is active, so click commands are executed normally."""
@@ -20,12 +24,19 @@ class ActivePlayState(GamePlayState):
     def handle_click(self, executor: CommandExecutor, x: int, y: int) -> None:
         executor._execute_active_click(x, y)
 
+    def handle_jump(self, executor: CommandExecutor, x: int, y: int) -> None:
+        executor._execute_active_jump(x, y)
+
 
 class GameOverPlayState(GamePlayState):
     """State where the game is over, so subsequent move/click commands are ignored."""
 
     def handle_click(self, executor: CommandExecutor, x: int, y: int) -> None:
         # Move commands are ignored after game over.
+        pass
+
+    def handle_jump(self, executor: CommandExecutor, x: int, y: int) -> None:
+        # Jump commands are ignored after game over.
         pass
 
 

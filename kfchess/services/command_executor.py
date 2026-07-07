@@ -88,6 +88,8 @@ class CommandExecutor(CommandExecutorInterface):
 
         if parts[0] == "click" and len(parts) == 3:
             self._handle_click(int(parts[1]), int(parts[2]))
+        elif parts[0] == "jump" and len(parts) == 3:
+            self._handle_jump(int(parts[1]), int(parts[2]))
         elif parts[0] == "wait" and len(parts) == 2:
             self._handle_wait(int(parts[1]))
         elif command == "print board":
@@ -147,6 +149,9 @@ class CommandExecutor(CommandExecutorInterface):
                     state.selected_pos = target
                 else:
                     state.selected_pos = None
+            elif target == state.selected_pos:
+                # Clicking the currently selected piece again triggers a jump.
+                self._execute_active_jump(x, y)
             elif (
                 target_piece is not None
                 and target_piece.color == selected_piece.color
@@ -209,6 +214,50 @@ class CommandExecutor(CommandExecutorInterface):
                 self._resolve_pending()
 
         self._state_repo.save_state(state)
+
+    def _handle_jump(self, x: int, y: int) -> None:
+        self._resolve_pending()
+        state = self._state_repo.get_state()
+        play_state = self._game_play_state_factory.get_state(state.game_over)
+        play_state.handle_jump(self, x, y)
+
+    def _execute_active_jump(self, x: int, y: int) -> None:
+        board = self._board_repo.get_board()
+        if board is None:
+            return
+
+        col = x // _CELL_SIZE_PX
+        row = y // _CELL_SIZE_PX
+        target = Position(row, col)
+
+        if not board.is_valid_position(target):
+            return
+
+        state = self._state_repo.get_state()
+        piece = board.get_piece(target)
+
+        if piece is not None:
+            # Check constraints:
+            # "A moving piece cannot jump." -> represented by not piece.can_move()
+            # "A captured piece cannot jump." -> if it is on the board, it's not captured.
+            if not piece.can_move():
+                return
+
+            arrival_ms = state.clock_ms + 1000
+            from kfchess.models.game_state import Movement
+            mov = Movement(
+                frm=target,
+                to=target,
+                piece=piece,
+                start_ms=state.clock_ms,
+                arrival_ms=arrival_ms,
+            )
+            state.active_movements.append(mov)
+            piece.transition_to_jumping()
+            # Clear selection if we are jumping the selected piece
+            if state.selected_pos == target:
+                state.selected_pos = None
+            self._state_repo.save_state(state)
 
     def _handle_wait(self, ms: int) -> None:
         state = self._state_repo.get_state()
