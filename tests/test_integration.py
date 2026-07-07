@@ -8,6 +8,7 @@ from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_service import GameService
 from kfchess.services.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
 
@@ -25,6 +26,7 @@ def _build_service() -> GameService:
         printer,
         move_validator_factory=MoveValidatorFactory(),
         move_event_publisher=MoveEventPublisher(),
+        path_checker=PathChecker(),
     )
     return GameService(board_repo, state_repo, parser, validator, executor)
 

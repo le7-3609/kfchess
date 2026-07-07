@@ -10,6 +10,7 @@ from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGa
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
 from kfchess.services.command_executor import CommandExecutor
@@ -33,12 +34,16 @@ def main() -> None:
     # Factory: maps PieceType → MoveValidatorInterface (Strategy pattern).
     move_validator_factory = MoveValidatorFactory()
 
+    # Board-aware path and capture checker (Strategy pattern).
+    path_checker = PathChecker()
+
     command_executor = CommandExecutor(
         board_repo=board_repo,
         state_repo=state_repo,
         printer=printer,
         move_validator_factory=move_validator_factory,
         move_event_publisher=move_event_publisher,
+        path_checker=path_checker,
     )
     service = GameService(
         board_repo=board_repo,

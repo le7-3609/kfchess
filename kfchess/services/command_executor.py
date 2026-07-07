@@ -5,6 +5,7 @@ from kfchess.services.interfaces import (
     BoardPrinterInterface,
     CommandExecutorInterface,
     MoveValidatorFactoryInterface,
+    PathCheckerInterface,
 )
 
 # Each board cell is 100×100 pixels.
@@ -48,12 +49,14 @@ class CommandExecutor(CommandExecutorInterface):
         printer: BoardPrinterInterface,
         move_validator_factory: MoveValidatorFactoryInterface,
         move_event_publisher: MoveEventPublisher,
+        path_checker: PathCheckerInterface,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
         self._printer = printer
         self._move_validator_factory = move_validator_factory
         self._move_event_publisher = move_event_publisher
+        self._path_checker = path_checker
 
     # ------------------------------------------------------------------
     # CommandExecutorInterface
@@ -119,8 +122,19 @@ class CommandExecutor(CommandExecutorInterface):
                     # Illegal move shape — keep selection, do nothing.
                     return
 
-                # Legal move: commit and fire an event.
                 origin = state.selected_pos
+
+                # Check that the path between origin and target is clear.
+                if not self._path_checker.is_path_clear(board, origin, target):
+                    # Blocked by an intervening piece — keep selection.
+                    return
+
+                # Check that landing is allowed (no friendly piece on target).
+                if not self._path_checker.can_land(board, selected_piece, target):
+                    # Friendly piece on target — keep selection.
+                    return
+
+                # Legal move: commit and fire an event.
                 board.set_piece(target, selected_piece)
                 board.set_piece(origin, None)
                 state.selected_pos = None

@@ -27,6 +27,7 @@ from kfchess.services.move_validators import (
     QueenMoveValidator,
     RookMoveValidator,
 )
+from kfchess.services.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 
 
@@ -42,7 +43,7 @@ def _make_executor(board: Board) -> tuple[CommandExecutor,
                                           InMemoryBoardrepositories,
                                           InMemoryGameStaterepositories,
                                           MoveEventPublisher]:
-    """Wire a full CommandExecutor with a real factory and publisher."""
+    """Wire a full CommandExecutor with a real factory, path checker, and publisher."""
     board_repo = InMemoryBoardrepositories()
     state_repo = InMemoryGameStaterepositories()
     board_repo.save_board(board)
@@ -59,6 +60,7 @@ def _make_executor(board: Board) -> tuple[CommandExecutor,
         _NullPrinter(),
         move_validator_factory=MoveValidatorFactory(),
         move_event_publisher=publisher,
+        path_checker=PathChecker(),
     )
     return executor, board_repo, state_repo, publisher
 

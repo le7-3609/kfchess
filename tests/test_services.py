@@ -11,6 +11,7 @@ from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
 from kfchess.services.game_service import GameService
@@ -131,6 +132,7 @@ def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardreposito
         _NullPrinter(),
         move_validator_factory=MoveValidatorFactory(),
         move_event_publisher=MoveEventPublisher(),
+        path_checker=PathChecker(),
     )
     return executor, board_repo, state_repo
 
@@ -243,6 +245,7 @@ class TestCommandExecutor(unittest.TestCase):
             printer,
             move_validator_factory=MoveValidatorFactory(),
             move_event_publisher=MoveEventPublisher(),
+            path_checker=PathChecker(),
         )
 
         old_stdout, sys.stdout = sys.stdout, StringIO()
@@ -278,6 +281,7 @@ class TestGameService(unittest.TestCase):
             printer,
             move_validator_factory=MoveValidatorFactory(),
             move_event_publisher=MoveEventPublisher(),
+            path_checker=PathChecker(),
         )
         service = GameService(board_repo, state_repo, parser, validator, executor)
         return service, board_repo, state_repo

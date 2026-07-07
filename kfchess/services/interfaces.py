@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from kfchess.models.board import Board, Position
-from kfchess.models.piece import Piece, PieceType
+from kfchess.models.piece import Color, Piece, PieceType
 from kfchess.models.result import Result
 
 
@@ -37,8 +37,10 @@ class CommandExecutorInterface(ABC):
 class MoveValidatorInterface(ABC):
     """Decides whether a move from *frm* to *to* is geometrically legal.
 
-    Implementations encode the movement shape for a single piece type.
-    They are stateless and board-unaware (no path-blocking in this iteration).
+    Implementations encode the movement *shape* for a single piece type.
+    They are **stateless and board-unaware** — they know nothing about other
+    pieces on the board.  Path-blocking and capture legality are handled by
+    PathCheckerInterface.
     """
 
     @abstractmethod
@@ -68,3 +70,44 @@ class MoveEventListener(ABC):
     @abstractmethod
     def on_move(self, piece: Piece, frm: Position, to: Position) -> None:
         """Called after a legal move has been committed to the board."""
+
+
+# ---------------------------------------------------------------------------
+# Strategy pattern — board-aware path and capture checks
+# ---------------------------------------------------------------------------
+
+class PathCheckerInterface(ABC):
+    """Board-aware validator for path-blocking and capture legality.
+
+    This is a separate Strategy from MoveValidatorInterface.  Geometry is
+    checked first (is the shape valid?); only then does the path checker
+    examine the actual board state (is the path clear? can we land there?).
+    """
+
+    @abstractmethod
+    def is_path_clear(
+        self,
+        board: Board,
+        frm: Position,
+        to: Position,
+    ) -> bool:
+        """Return True if every intermediate square between *frm* and *to* is empty.
+
+        *frm* and *to* themselves are **excluded** from the check.
+        Non-sliding pieces (Knight, King) always return True because they are
+        never blocked by intervening pieces.
+        """
+
+    @abstractmethod
+    def can_land(
+        self,
+        board: Board,
+        moving_piece: Piece,
+        to: Position,
+    ) -> bool:
+        """Return True if *moving_piece* is allowed to land on square *to*.
+
+        A piece may **not** land on a square occupied by a friendly piece.
+        It **may** land on an empty square or a square occupied by an enemy
+        (capture).
+        """

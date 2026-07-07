@@ -8,21 +8,29 @@ from kfchess.services.interfaces import (
     BoardValidatorInterface,
     BoardPrinterInterface,
     CommandExecutorInterface,
+    MoveValidatorInterface,
+    MoveValidatorFactoryInterface,
+    PathCheckerInterface,
 )
 from kfchess.services.parser import SimpleBoardParser
 from kfchess.services.validator import BoardValidator
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
+from kfchess.services.path_checker import PathChecker
 
 __all__ = [
     'BoardParserInterface',
     'BoardValidatorInterface',
     'BoardPrinterInterface',
     'CommandExecutorInterface',
+    'MoveValidatorInterface',
+    'MoveValidatorFactoryInterface',
+    'PathCheckerInterface',
     'SimpleBoardParser',
     'BoardValidator',
     'ConsoleBoardPrinter',
     'CommandExecutor',
     'GameService',
+    'PathChecker',
 ]
