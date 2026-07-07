@@ -46,7 +46,7 @@ class MoveValidatorInterface(ABC):
     """
 
     @abstractmethod
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
         """Return True iff the move shape is valid for this piece type."""
 
 

@@ -23,7 +23,7 @@ class KingMoveValidator(MoveValidatorInterface):
 class RookMoveValidator(MoveValidatorInterface):
     """Rook moves any number of squares along a rank or file."""
 
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
         dr = to.row - frm.row
         dc = to.col - frm.col
         # Exactly one of the deltas must be zero (straight line, non-zero).
@@ -33,7 +33,7 @@ class RookMoveValidator(MoveValidatorInterface):
 class BishopMoveValidator(MoveValidatorInterface):
     """Bishop moves any number of squares diagonally."""
 
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
         dr = abs(to.row - frm.row)
         dc = abs(to.col - frm.col)
         # Equal non-zero deltas ⟹ diagonal.
@@ -47,14 +47,14 @@ class QueenMoveValidator(MoveValidatorInterface):
         self._rook = RookMoveValidator()
         self._bishop = BishopMoveValidator()
 
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
-        return self._rook.is_legal(frm, to, color) or self._bishop.is_legal(frm, to, color)
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
+        return self._rook.is_legal(frm, to, color, board_rows) or self._bishop.is_legal(frm, to, color, board_rows)
 
 
 class KnightMoveValidator(MoveValidatorInterface):
     """Knight moves in an L-shape: 2 squares on one axis, 1 on the other."""
 
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
         dr = abs(to.row - frm.row)
         dc = abs(to.col - frm.col)
         return {dr, dc} == {1, 2}
@@ -65,7 +65,7 @@ class PawnMoveValidator(MoveValidatorInterface):
     1 square diagonally forward, or 2 squares forward from its start row.
     """
 
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
         # White pawns move up (decreasing row), Black pawns move down (increasing row).
         row_diff = to.row - frm.row
         col_diff = abs(to.col - frm.col)
@@ -77,19 +77,6 @@ class PawnMoveValidator(MoveValidatorInterface):
             return True
 
         # 2-step forward from start row
-        import inspect
-        board_rows = 8
-        for frame_info in inspect.stack():
-            frame = frame_info.frame
-            found = False
-            for val in frame.f_locals.values():
-                if hasattr(val, 'rows') and hasattr(val, 'cols') and hasattr(val, 'get_piece'):
-                    board_rows = val.rows
-                    found = True
-                    break
-            if found:
-                break
-
         if color == Color.WHITE:
             start_row = board_rows - 2 if board_rows >= 5 else board_rows - 1
         else:
