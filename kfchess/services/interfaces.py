@@ -139,3 +139,7 @@ class MovementManagerInterface(ABC):
     def resolve_movements(self, board: Board, state: GameState, current_ms: int) -> None:
         """Update the board with any pieces that have finished transit by current_ms."""
 
+    @abstractmethod
+    def get_effective_board(self, board: Board, state: GameState, t: int) -> Board:
+        """Return a Board containing the locations of all pieces at time t, accounting for in-transit pieces."""
+

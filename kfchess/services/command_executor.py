@@ -67,6 +67,7 @@ class CommandExecutor(CommandExecutorInterface):
             movement_manager = MovementManager(
                 duration_strategy=InstantMovementDuration(),
                 move_event_publisher=move_event_publisher,
+                path_checker=path_checker,
             )
         self._movement_manager = movement_manager
 
@@ -164,13 +165,16 @@ class CommandExecutor(CommandExecutorInterface):
 
                 origin = state.selected_pos
 
+                # Use effective board at current clock time to perform checks
+                eff_board = self._movement_manager.get_effective_board(board, state, state.clock_ms)
+
                 # Check that the path between origin and target is clear.
-                if not self._path_checker.is_path_clear(board, origin, target):
+                if not self._path_checker.is_path_clear(eff_board, origin, target):
                     # Blocked by an intervening piece — keep selection.
                     return
 
                 # Check that landing is allowed (no friendly piece on target).
-                if not self._path_checker.can_land(board, selected_piece, origin, target):
+                if not self._path_checker.can_land(eff_board, selected_piece, origin, target):
                     # Friendly piece on target — keep selection.
                     return
 

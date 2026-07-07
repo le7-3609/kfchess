@@ -21,9 +21,11 @@ def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, I
     validator = BoardValidator()
     printer = ConsoleBoardPrinter()
     publisher = MoveEventPublisher()
+    path_checker = PathChecker()
     movement_manager = MovementManager(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
-        move_event_publisher=publisher
+        move_event_publisher=publisher,
+        path_checker=path_checker
     )
     executor = CommandExecutor(
         board_repo,
@@ -31,7 +33,7 @@ def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, I
         printer,
         move_validator_factory=MoveValidatorFactory(),
         move_event_publisher=publisher,
-        path_checker=PathChecker(),
+        path_checker=path_checker,
         movement_manager=movement_manager,
     )
     service = GameService(board_repo, state_repo, parser, validator, executor)
@@ -294,3 +296,149 @@ class TestRealtimeMovement(unittest.TestCase):
         self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
         self.assertEqual(board.get_piece(Position(2, 0)), Piece(Color.BLACK, PieceType.ROOK))
         self.assertIsNone(board.get_piece(Position(2, 2)))
+
+    def test_enemy_collision_mid_path(self) -> None:
+        """Two opposing pieces moving towards each other collide mid-path; first-mover captures the other."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # wR at (0, 0), bR at (0, 2)
+        # wR moves to (0, 2) (duration 2000 ms). Starts at t=0.
+        # At t=500, bR moves to (0, 0) to capture wR (duration 2000 ms).
+        # They collide at (0, 1) at t=1500.
+        # wR (t=0) captures bR (t=500). bR is removed from board, move aborted.
+        # wR arrives at (0, 2) at t=2000.
+        service.execute([
+            "Board:",
+            "wR . bR",
+            "Commands:",
+            "click 50 50",   # select wR at (0, 0)
+            "click 250 50",  # move wR to (0, 2) (starts at t=0)
+            "wait 500",      # clock = 500 ms
+            "click 250 50",  # select bR at (0, 2)
+            "click 50 50",   # move bR to (0, 0) (starts at t=500)
+            "wait 1500",     # clock = 2000 ms
+            "print board"
+        ])
+
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+        self.assertIsNone(board.get_piece(Position(0, 1)))
+
+    def test_friendly_piece_landing_aborts(self) -> None:
+        """If a friendly piece occupies the destination square when the moving piece arrives, the move is aborted."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # wR at (0, 0), wP at (1, 2)
+        # wR moves to (0, 2) -> duration 2000 ms. Starts at t=0.
+        # wP moves to (0, 2) -> duration 1000 ms. Starts at t=0.
+        # wP arrives at (0, 2) at t=1000.
+        # wR arrives at (0, 2) at t=2000, but wP (friendly) is there, so wR's move is aborted.
+        service.execute([
+            "Board:",
+            "wR . .",
+            ". . wP",
+            "Commands:",
+            "click 250 150", # select wP at (1, 2)
+            "click 250 50",  # move wP to (0, 2)
+            "click 50 50",   # select wR at (0, 0)
+            "click 250 50",  # move wR to (0, 2)
+            "wait 2000",
+            "print board"
+        ])
+
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+
+    def test_movement_conflict_blocker(self) -> None:
+        """If a piece's path becomes blocked during transit, its movement is aborted at arrival."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # wR at (0, 0), wP at (1, 1)
+        # wR moves to (0, 2) -> duration 2000 ms. Starts at t=0.
+        # wP moves to (0, 1) -> duration 1000 ms. Starts at t=0.
+        # wP arrives at (0, 1) at t=1000.
+        # wR arrives at (0, 2) at t=2000, but path is blocked by wP at (0, 1), so wR's move is aborted.
+        service.execute([
+            "Board:",
+            "wR . .",
+            ". wP .",
+            "Commands:",
+            "click 150 150", # select wP at (1, 1)
+            "click 150 50",  # move wP to (0, 1)
+            "click 50 50",   # select wR at (0, 0)
+            "click 250 50",  # move wR to (0, 2)
+            "wait 2000",
+            "print board"
+        ])
+
+        board = board_repo.get_board()
+        assert board is not None
+        self.assertEqual(board.get_piece(Position(0, 1)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertIsNone(board.get_piece(Position(0, 2)))
+
+    def test_selection_invalidation_on_capture(self) -> None:
+        """If a selected piece is captured, the selection is cleared."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # wK at (0, 0), bQ at (0, 2)
+        service.execute([
+            "Board:",
+            "wK . bQ",
+            "Commands:",
+            "click 250 50",  # select bQ at (0, 2)
+            "click 50 50",   # move bQ to (0, 0) (starts at t=0, duration 2000 ms)
+            "wait 1000",     # clock = 1000 ms
+            "click 50 50",   # select wK at (0, 0)
+        ])
+
+        state = state_repo.get_state()
+        self.assertEqual(state.selected_pos, Position(0, 0))
+
+        service.execute([
+            "Board:",
+            "wK . bQ",
+            "Commands:",
+            "click 250 50",
+            "click 50 50",
+            "wait 1000",
+            "click 50 50",
+            "wait 1000",     # clock = 2000 ms, bQ arrives at (0, 0), captures wK
+        ])
+
+        state = state_repo.get_state()
+        self.assertIsNone(state.selected_pos)
+
+    def test_same_arrival_conflict(self) -> None:
+        """Two friendly moves to the same target start at t=0. They collide at arrival; first-mover wins and the other is aborted."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # wR at (0, 0), wQ at (2, 2)
+        # wR moves to (0, 2) (starts t=0, arrives t=2000).
+        # wQ moves to (0, 2) (starts t=0, arrives t=2000).
+        # wR wins because it is registered first.
+        # wQ's move is aborted at arrival because of the collision.
+        service.execute([
+            "Board:",
+            "wR . .",
+            ". . .",
+            ". . wQ",
+            "Commands:",
+            "click 50 50",   # select wR
+            "click 250 50",  # move to (0, 2)
+            "click 250 250", # select wQ
+            "click 250 50",  # move to (0, 2)
+            "wait 2000",
+            "print board"
+        ])
+
+        board = board_repo.get_board()
+        assert board is not None
+        # wR arrived at (0, 2), wQ remained at (2, 2) because its move was aborted
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(2, 2)), Piece(Color.WHITE, PieceType.QUEEN))
+        self.assertIsNone(board.get_piece(Position(0, 0)))
