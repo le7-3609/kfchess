@@ -16,6 +16,7 @@ from kfchess.services.validator import BoardValidator
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
+from kfchess.services.game_play_state import GamePlayStateFactory
 
 
 def main() -> None:
@@ -38,6 +39,9 @@ def main() -> None:
     # Board-aware path and capture checker (Strategy pattern).
     path_checker = PathChecker()
 
+    # State & Factory patterns for game play status
+    game_play_state_factory = GamePlayStateFactory()
+
     # Movement Manager (Strategy pattern for duration & real-time movement).
     movement_manager = MovementManager(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
@@ -53,6 +57,7 @@ def main() -> None:
         move_event_publisher=move_event_publisher,
         path_checker=path_checker,
         movement_manager=movement_manager,
+        game_play_state_factory=game_play_state_factory,
     )
     service = GameService(
         board_repo=board_repo,

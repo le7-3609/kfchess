@@ -2,6 +2,7 @@ from typing import Optional
 from kfchess.models.board import Position
 from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
 from kfchess.services.event_publisher import MoveEventPublisher
+from kfchess.services.game_play_state import GamePlayStateFactory
 from kfchess.services.interfaces import (
     BoardPrinterInterface,
     CommandExecutorInterface,
@@ -54,6 +55,7 @@ class CommandExecutor(CommandExecutorInterface):
         move_event_publisher: MoveEventPublisher,
         path_checker: PathCheckerInterface,
         movement_manager: Optional[MovementManagerInterface] = None,
+        game_play_state_factory: Optional[GamePlayStateFactory] = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -70,6 +72,10 @@ class CommandExecutor(CommandExecutorInterface):
                 path_checker=path_checker,
             )
         self._movement_manager = movement_manager
+
+        if game_play_state_factory is None:
+            game_play_state_factory = GamePlayStateFactory()
+        self._game_play_state_factory = game_play_state_factory
 
     # ------------------------------------------------------------------
     # CommandExecutorInterface
@@ -103,7 +109,11 @@ class CommandExecutor(CommandExecutorInterface):
 
     def _handle_click(self, x: int, y: int) -> None:
         self._resolve_pending()
+        state = self._state_repo.get_state()
+        play_state = self._game_play_state_factory.get_state(state.game_over)
+        play_state.handle_click(self, x, y)
 
+    def _execute_active_click(self, x: int, y: int) -> None:
         board = self._board_repo.get_board()
         if board is None:
             return

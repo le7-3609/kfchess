@@ -20,4 +20,5 @@ class GameState:
     clock_ms: int = 0
     selected_pos: Optional[Position] = None
     active_movements: List[Movement] = field(default_factory=list)
+    game_over: bool = False
 

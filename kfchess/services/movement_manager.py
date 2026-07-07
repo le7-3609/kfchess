@@ -1,7 +1,7 @@
 from typing import Optional
 from kfchess.models.board import Board, Position
 from kfchess.models.game_state import GameState, Movement
-from kfchess.models.piece import Piece, PieceType
+from kfchess.models.piece import Color, Piece, PieceType
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import (
     MovementDurationInterface,
@@ -177,6 +177,8 @@ class MovementManager(MovementManagerInterface):
                             loser.piece.transition_to_idle()
                             if state.selected_pos == loser.frm:
                                 state.selected_pos = None
+                            if loser.piece.piece_type == PieceType.KING:
+                                state.game_over = True
                         else:
                             # Friendly Collision: loser's move is aborted
                             loser.piece.transition_to_idle()
@@ -206,6 +208,8 @@ class MovementManager(MovementManagerInterface):
                         if target_piece is not None:
                             if state.selected_pos == mov.to:
                                 state.selected_pos = None
+                            if target_piece.piece_type == PieceType.KING:
+                                state.game_over = True
 
                         board.set_piece(mov.frm, None)
                         board.set_piece(mov.to, mov.piece)
