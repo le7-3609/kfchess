@@ -76,15 +76,33 @@ class PathChecker(PathCheckerInterface):
         self,
         board: Board,
         moving_piece: Piece,
+        frm: Position,
         to: Position,
     ) -> bool:
-        """Return True if *moving_piece* is allowed to land on square *to*.
+        """Return True if *moving_piece* is allowed to land on square *to* from *frm*.
 
         Returns False only when *to* is occupied by a piece of the **same
         color** as *moving_piece* (friendly-fire is forbidden).
-        Returns True when *to* is empty or occupied by an enemy (capture).
+        For pawns/soldiers:
+        - If moving forward (straight): target must be empty.
+        - If moving diagonally: target must be occupied by an enemy piece.
         """
         occupant = board.get_piece(to)
         if occupant is not None and occupant.color == moving_piece.color:
             return False  # Cannot capture a friendly piece.
+
+        if moving_piece.piece_type == PieceType.PAWN:
+            col_diff = abs(to.col - frm.col)
+            if col_diff == 0:
+                # Forward move: destination must be empty
+                if occupant is not None:
+                    return False
+            elif col_diff == 1:
+                # Diagonal move: destination must contain an enemy piece (different color)
+                if occupant is None:
+                    return False
+            else:
+                return False
+
         return True
+

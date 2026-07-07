@@ -44,7 +44,7 @@ class MoveValidatorInterface(ABC):
     """
 
     @abstractmethod
-    def is_legal(self, frm: Position, to: Position) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE) -> bool:
         """Return True iff the move shape is valid for this piece type."""
 
 
@@ -103,6 +103,7 @@ class PathCheckerInterface(ABC):
         self,
         board: Board,
         moving_piece: Piece,
+        frm: Position,
         to: Position,
     ) -> bool:
         """Return True if *moving_piece* is allowed to land on square *to*.

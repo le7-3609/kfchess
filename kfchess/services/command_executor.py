@@ -118,7 +118,7 @@ class CommandExecutor(CommandExecutorInterface):
                 validator = self._move_validator_factory.get_validator(
                     selected_piece.piece_type
                 )
-                if not validator.is_legal(state.selected_pos, target):
+                if not validator.is_legal(state.selected_pos, target, selected_piece.color):
                     # Illegal move shape — keep selection, do nothing.
                     return
 
@@ -130,7 +130,7 @@ class CommandExecutor(CommandExecutorInterface):
                     return
 
                 # Check that landing is allowed (no friendly piece on target).
-                if not self._path_checker.can_land(board, selected_piece, target):
+                if not self._path_checker.can_land(board, selected_piece, origin, target):
                     # Friendly piece on target — keep selection.
                     return
 

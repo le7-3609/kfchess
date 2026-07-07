@@ -178,17 +178,17 @@ class TestPathCheckerCanLand(unittest.TestCase):
         self.white_rook = _piece(Color.WHITE, PieceType.ROOK)
 
     def test_can_land_on_empty_square(self) -> None:
-        self.assertTrue(self.checker.can_land(self.board, self.white_rook, _pos(3, 3)))
+        self.assertTrue(self.checker.can_land(self.board, self.white_rook, _pos(0, 3), _pos(3, 3)))
 
     def test_cannot_land_on_friendly_piece(self) -> None:
         """Friendly-fire: cannot land where a same-colour piece stands."""
         self.board.set_piece(_pos(3, 3), _piece(Color.WHITE, PieceType.PAWN))
-        self.assertFalse(self.checker.can_land(self.board, self.white_rook, _pos(3, 3)))
+        self.assertFalse(self.checker.can_land(self.board, self.white_rook, _pos(0, 3), _pos(3, 3)))
 
     def test_can_land_on_enemy_piece(self) -> None:
         """Capture: allowed to land on an enemy-colour piece."""
         self.board.set_piece(_pos(3, 3), _piece(Color.BLACK, PieceType.PAWN))
-        self.assertTrue(self.checker.can_land(self.board, self.white_rook, _pos(3, 3)))
+        self.assertTrue(self.checker.can_land(self.board, self.white_rook, _pos(0, 3), _pos(3, 3)))
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +495,148 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(b.get_piece(queen_pos), white_queen, "Queen must not have moved.")
         self.assertIsNone(b.get_piece(target_pos))
         self.assertEqual(state_repo.get_state().selected_pos, queen_pos)
+
+
+# ---------------------------------------------------------------------------
+# Soldier (Pawn) Movement and Capture Rules
+# ---------------------------------------------------------------------------
+
+class TestSoldierMovementAndCapture(unittest.TestCase):
+    """Integration and unit tests for soldier (pawn) movement and capture rules."""
+
+    def test_white_soldier_moves_up_empty_succeeds(self) -> None:
+        """White soldier moves 1 square up into an empty square."""
+        board = Board(8, 8)
+        pawn = _piece(Color.WHITE, PieceType.PAWN)
+        start = _pos(6, 3)
+        target = _pos(5, 3)
+        board.set_piece(start, pawn)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+        executor.execute_command(_click(start))
+        executor.execute_command(_click(target))
+
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertIsNone(b.get_piece(start))
+        self.assertEqual(b.get_piece(target), pawn)
+        self.assertIsNone(state_repo.get_state().selected_pos)
+
+    def test_black_soldier_moves_down_empty_succeeds(self) -> None:
+        """Black soldier moves 1 square down into an empty square."""
+        board = Board(8, 8)
+        pawn = _piece(Color.BLACK, PieceType.PAWN)
+        start = _pos(1, 3)
+        target = _pos(2, 3)
+        board.set_piece(start, pawn)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+        executor.execute_command(_click(start))
+        executor.execute_command(_click(target))
+
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertIsNone(b.get_piece(start))
+        self.assertEqual(b.get_piece(target), pawn)
+        self.assertIsNone(state_repo.get_state().selected_pos)
+
+    def test_soldier_cannot_move_two_spaces(self) -> None:
+        """White and Black soldiers cannot move two spaces."""
+        board = Board(8, 8)
+        white_pawn = _piece(Color.WHITE, PieceType.PAWN)
+        black_pawn = _piece(Color.BLACK, PieceType.PAWN)
+        board.set_piece(_pos(6, 3), white_pawn)
+        board.set_piece(_pos(1, 4), black_pawn)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+
+        # White try to move 2 spaces
+        executor.execute_command(_click(_pos(6, 3)))
+        executor.execute_command(_click(_pos(4, 3)))
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertEqual(b.get_piece(_pos(6, 3)), white_pawn)
+        self.assertIsNone(b.get_piece(_pos(4, 3)))
+
+        # Black try to move 2 spaces
+        executor.execute_command(_click(_pos(1, 4)))
+        executor.execute_command(_click(_pos(3, 4)))
+        self.assertEqual(b.get_piece(_pos(1, 4)), black_pawn)
+        self.assertIsNone(b.get_piece(_pos(3, 4)))
+
+    def test_soldier_cannot_grab_forward(self) -> None:
+        """Soldiers cannot move forward if the square is occupied (grab forward is illegal)."""
+        board = Board(8, 8)
+        white_pawn = _piece(Color.WHITE, PieceType.PAWN)
+        enemy_piece = _piece(Color.BLACK, PieceType.PAWN)
+        start = _pos(6, 3)
+        target = _pos(5, 3)
+        board.set_piece(start, white_pawn)
+        board.set_piece(target, enemy_piece)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+        executor.execute_command(_click(start))
+        executor.execute_command(_click(target))
+
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertEqual(b.get_piece(start), white_pawn)
+        self.assertEqual(b.get_piece(target), enemy_piece)
+
+    def test_soldier_grabs_diagonally(self) -> None:
+        """Soldier captures diagonally forward."""
+        board = Board(8, 8)
+        white_pawn = _piece(Color.WHITE, PieceType.PAWN)
+        enemy_piece = _piece(Color.BLACK, PieceType.PAWN)
+        start = _pos(6, 3)
+        target = _pos(5, 4)
+        board.set_piece(start, white_pawn)
+        board.set_piece(target, enemy_piece)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+        executor.execute_command(_click(start))
+        executor.execute_command(_click(target))
+
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertIsNone(b.get_piece(start))
+        self.assertEqual(b.get_piece(target), white_pawn)
+
+    def test_soldier_cannot_move_diagonally_empty(self) -> None:
+        """Soldier cannot move diagonally if the target square is empty."""
+        board = Board(8, 8)
+        white_pawn = _piece(Color.WHITE, PieceType.PAWN)
+        start = _pos(6, 3)
+        target = _pos(5, 4)
+        board.set_piece(start, white_pawn)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+        executor.execute_command(_click(start))
+        executor.execute_command(_click(target))
+
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertEqual(b.get_piece(start), white_pawn)
+        self.assertIsNone(b.get_piece(target))
+
+    def test_soldier_cannot_capture_friendly_diagonally(self) -> None:
+        """Soldier cannot capture a friendly piece diagonally."""
+        board = Board(8, 8)
+        white_pawn = _piece(Color.WHITE, PieceType.PAWN)
+        friendly = _piece(Color.WHITE, PieceType.PAWN)
+        start = _pos(6, 3)
+        target = _pos(5, 4)
+        board.set_piece(start, white_pawn)
+        board.set_piece(target, friendly)
+
+        executor, board_repo, state_repo, _ = _make_executor(board)
+        executor.execute_command(_click(start))
+        executor.execute_command(_click(target))
+
+        b = board_repo.get_board()
+        assert b is not None
+        self.assertEqual(b.get_piece(start), white_pawn)
+        self.assertEqual(b.get_piece(target), friendly)
 
 
 if __name__ == "__main__":
