@@ -4,6 +4,8 @@ A single shared instance of each validator is held in a class-level mapping,
 so validator objects are effectively singletons — they carry no state.
 """
 
+from typing import Dict
+
 from kfchess.models.piece import PieceType
 from kfchess.services.interfaces import MoveValidatorFactoryInterface, MoveValidatorInterface
 from kfchess.services.move_validators import (
@@ -20,7 +22,7 @@ class MoveValidatorFactory(MoveValidatorFactoryInterface):
     """Concrete factory: returns the correct validator for any PieceType."""
 
     # Shared, stateless instances — safe to reuse across calls.
-    _validators: dict[PieceType, MoveValidatorInterface] = {
+    _validators: Dict[PieceType, MoveValidatorInterface] = {
         PieceType.KING:   KingMoveValidator(),
         PieceType.QUEEN:  QueenMoveValidator(),
         PieceType.ROOK:   RookMoveValidator(),

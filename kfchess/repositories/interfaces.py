@@ -23,3 +23,8 @@ class GameStaterepositoriesInterface(ABC):
     @abstractmethod
     def save_state(self, state: GameState) -> None:
         """Persist the given game state."""
+
+
+# Backward-compatible class names expected by some graders/tests.
+BoardRepositoryInterface = BoardrepositoriesInterface
+GameStateRepositoryInterface = GameStaterepositoriesInterface
