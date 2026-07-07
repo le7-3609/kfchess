@@ -2,10 +2,10 @@ from typing import Optional
 
 from kfchess.models.board import Board
 from kfchess.models.game_state import GameState
-from kfchess.repository.interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
+from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
 
 
-class InMemoryBoardRepository(BoardRepositoryInterface):
+class InMemoryBoardrepositories(BoardrepositoriesInterface):
     def __init__(self) -> None:
         self._board: Optional[Board] = None
 
@@ -16,7 +16,7 @@ class InMemoryBoardRepository(BoardRepositoryInterface):
         self._board = board
 
 
-class InMemoryGameStateRepository(GameStateRepositoryInterface):
+class InMemoryGameStaterepositories(GameStaterepositoriesInterface):
     def __init__(self) -> None:
         self._state: GameState = GameState()
 

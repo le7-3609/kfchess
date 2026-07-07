@@ -1,6 +1,11 @@
 from kfchess.models.board import Position
-from kfchess.repository.interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
-from kfchess.services.interfaces import BoardPrinterInterface, CommandExecutorInterface
+from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
+from kfchess.services.event_publisher import MoveEventPublisher
+from kfchess.services.interfaces import (
+    BoardPrinterInterface,
+    CommandExecutorInterface,
+    MoveValidatorFactoryInterface,
+)
 
 # Each board cell is 100×100 pixels.
 _CELL_SIZE_PX: int = 100
@@ -22,14 +27,14 @@ class CommandExecutor(CommandExecutorInterface):
         - Cell is empty     → ignored.
     * Selection is active (the selected piece has colour C):
         - Cell has a piece of colour C → replace selection.
-        - Anything else (empty or opponent's piece) → move the selected piece
-          to that cell (capturing any occupant), then clear the selection.
+        - Otherwise (empty or opponent's piece):
+            - Move is geometrically legal   → execute move, clear selection,
+                                              publish MoveEvent.
+            - Move is geometrically illegal → keep selection, ignore click.
 
     Wait semantics
     --------------
     Advances GameState.clock_ms by the given number of milliseconds.
-    In this iteration moves are instant; the clock is available for future
-    cooldown / scheduling logic.
 
     Print board
     -----------
@@ -38,13 +43,17 @@ class CommandExecutor(CommandExecutorInterface):
 
     def __init__(
         self,
-        board_repo: BoardRepositoryInterface,
-        state_repo: GameStateRepositoryInterface,
+        board_repo: BoardrepositoriesInterface,
+        state_repo: GameStaterepositoriesInterface,
         printer: BoardPrinterInterface,
+        move_validator_factory: MoveValidatorFactoryInterface,
+        move_event_publisher: MoveEventPublisher,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
         self._printer = printer
+        self._move_validator_factory = move_validator_factory
+        self._move_event_publisher = move_event_publisher
 
     # ------------------------------------------------------------------
     # CommandExecutorInterface
@@ -92,9 +101,9 @@ class CommandExecutor(CommandExecutorInterface):
             selected_piece = board.get_piece(state.selected_pos)
 
             if selected_piece is None:
-                # The selected piece was moved away in a previous command;
-                # treat the selection as stale and start fresh.
-                state.selected_pos = target_piece and target
+                # Stale selection: selected cell is empty (already moved).
+                # Start fresh — select the newly clicked piece if any.
+                state.selected_pos = target if target_piece is not None else None
             elif (
                 target_piece is not None
                 and target_piece.color == selected_piece.color
@@ -102,12 +111,21 @@ class CommandExecutor(CommandExecutorInterface):
                 # Friendly piece — replace the selection.
                 state.selected_pos = target
             else:
-                # Move request: teleport selected piece to target cell,
-                # capturing any opponent piece that occupies it.
+                # ── Attempt to move ──────────────────────────────────
+                validator = self._move_validator_factory.get_validator(
+                    selected_piece.piece_type
+                )
+                if not validator.is_legal(state.selected_pos, target):
+                    # Illegal move shape — keep selection, do nothing.
+                    return
+
+                # Legal move: commit and fire an event.
+                origin = state.selected_pos
                 board.set_piece(target, selected_piece)
-                board.set_piece(state.selected_pos, None)
+                board.set_piece(origin, None)
                 state.selected_pos = None
                 self._board_repo.save_board(board)
+                self._move_event_publisher.publish(selected_piece, origin, target)
 
         self._state_repo.save_state(state)
 

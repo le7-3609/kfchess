@@ -6,8 +6,10 @@ from kfchess.models.board import Board, Position
 from kfchess.models.game_state import GameState
 from kfchess.models.piece import Color, Piece, PieceType
 from kfchess.models.result import Result
-from kfchess.repository.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
+from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
+from kfchess.services.event_publisher import MoveEventPublisher
+from kfchess.services.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
@@ -110,11 +112,11 @@ class TestConsoleBoardPrinter(unittest.TestCase):
 # CommandExecutor
 # ---------------------------------------------------------------------------
 
-def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardRepository,
-                                          InMemoryGameStateRepository]:
+def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardrepositories,
+                                          InMemoryGameStaterepositories]:
     """Helper: load a board into fresh repos and return a wired CommandExecutor."""
-    board_repo = InMemoryBoardRepository()
-    state_repo = InMemoryGameStateRepository()
+    board_repo = InMemoryBoardrepositories()
+    state_repo = InMemoryGameStaterepositories()
     board_repo.save_board(board)
     state_repo.save_state(GameState())
 
@@ -123,7 +125,13 @@ def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardReposito
         def print_board(self, board: Board) -> None:  # type: ignore[override]
             pass
 
-    executor = CommandExecutor(board_repo, state_repo, _NullPrinter())
+    executor = CommandExecutor(
+        board_repo,
+        state_repo,
+        _NullPrinter(),
+        move_validator_factory=MoveValidatorFactory(),
+        move_event_publisher=MoveEventPublisher(),
+    )
     return executor, board_repo, state_repo
 
 
@@ -224,12 +232,18 @@ class TestCommandExecutor(unittest.TestCase):
         """print board writes the expected board string to stdout."""
         board = Board(1, 2)
         board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
-        board_repo = InMemoryBoardRepository()
-        state_repo = InMemoryGameStateRepository()
+        board_repo = InMemoryBoardrepositories()
+        state_repo = InMemoryGameStaterepositories()
         board_repo.save_board(board)
         state_repo.save_state(GameState())
         printer = ConsoleBoardPrinter()
-        executor = CommandExecutor(board_repo, state_repo, printer)
+        executor = CommandExecutor(
+            board_repo,
+            state_repo,
+            printer,
+            move_validator_factory=MoveValidatorFactory(),
+            move_event_publisher=MoveEventPublisher(),
+        )
 
         old_stdout, sys.stdout = sys.stdout, StringIO()
         try:
@@ -246,10 +260,10 @@ class TestCommandExecutor(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestGameService(unittest.TestCase):
-    def _build_service(self) -> tuple[GameService, InMemoryBoardRepository,
-                                       InMemoryGameStateRepository]:
-        board_repo = InMemoryBoardRepository()
-        state_repo = InMemoryGameStateRepository()
+    def _build_service(self) -> tuple[GameService, InMemoryBoardrepositories,
+                                       InMemoryGameStaterepositories]:
+        board_repo = InMemoryBoardrepositories()
+        state_repo = InMemoryGameStaterepositories()
         parser = SimpleBoardParser()
         validator = BoardValidator()
 
@@ -258,7 +272,13 @@ class TestGameService(unittest.TestCase):
                 pass
 
         printer = _NullPrinter()
-        executor = CommandExecutor(board_repo, state_repo, printer)
+        executor = CommandExecutor(
+            board_repo,
+            state_repo,
+            printer,
+            move_validator_factory=MoveValidatorFactory(),
+            move_event_publisher=MoveEventPublisher(),
+        )
         service = GameService(board_repo, state_repo, parser, validator, executor)
         return service, board_repo, state_repo
 

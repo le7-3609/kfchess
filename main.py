@@ -1,24 +1,38 @@
 import sys
 
-from kfchess.repository.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
+from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
+from kfchess.services.event_publisher import MoveEventPublisher
+from kfchess.services.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
-from kfchess.services.validator import BoardValidator
 from kfchess.services.printer import ConsoleBoardPrinter
+from kfchess.services.validator import BoardValidator
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
 
 
 def main() -> None:
-    # Composition Root: wire all concrete classes via Dependency Injection.
-    board_repo = InMemoryBoardRepository()
-    state_repo = InMemoryGameStateRepository()
-    parser = SimpleBoardParser()
-    validator = BoardValidator()
-    printer = ConsoleBoardPrinter()
+    # ── Composition Root ────────────────────────────────────────────
+    # All concrete dependencies are instantiated here and injected down
+    # through the layers — nothing inside the layers creates its own deps.
+
+    board_repo  = InMemoryBoardrepositories()
+    state_repo  = InMemoryGameStaterepositories()
+    parser      = SimpleBoardParser()
+    validator   = BoardValidator()
+    printer     = ConsoleBoardPrinter()
+
+    # Observer: no listeners registered by default; extend here for future needs.
+    move_event_publisher = MoveEventPublisher()
+
+    # Factory: maps PieceType → MoveValidatorInterface (Strategy pattern).
+    move_validator_factory = MoveValidatorFactory()
+
     command_executor = CommandExecutor(
         board_repo=board_repo,
         state_repo=state_repo,
         printer=printer,
+        move_validator_factory=move_validator_factory,
+        move_event_publisher=move_event_publisher,
     )
     service = GameService(
         board_repo=board_repo,

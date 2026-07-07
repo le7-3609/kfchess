@@ -2,9 +2,11 @@ import sys
 import unittest
 from io import StringIO
 
-from kfchess.repository.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
+from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
+from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_service import GameService
+from kfchess.services.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
@@ -12,12 +14,18 @@ from kfchess.services.validator import BoardValidator
 
 def _build_service() -> GameService:
     """Wire up a fully functional GameService using the console printer."""
-    board_repo = InMemoryBoardRepository()
-    state_repo = InMemoryGameStateRepository()
+    board_repo = InMemoryBoardrepositories()
+    state_repo = InMemoryGameStaterepositories()
     parser = SimpleBoardParser()
     validator = BoardValidator()
     printer = ConsoleBoardPrinter()
-    executor = CommandExecutor(board_repo, state_repo, printer)
+    executor = CommandExecutor(
+        board_repo,
+        state_repo,
+        printer,
+        move_validator_factory=MoveValidatorFactory(),
+        move_event_publisher=MoveEventPublisher(),
+    )
     return GameService(board_repo, state_repo, parser, validator, executor)
 
 
@@ -115,19 +123,19 @@ class TestClickCommand(IntegrationTestBase):
     def test_click_selects_then_moves_piece(self) -> None:
         """
         click 50 50   → select wK at (0,0)
-        click 250 50  → move wK to (0,2)   [empty cell]
-        print board   → wK should be at col 2, row 0
+        click 150 50  → move wK to (0,1)   [legal: 1 square right]
+        print board   → wK should be at col 1, row 0
         """
         success, output = self.run_with_input(
             self.BOARD + [
                 "Commands:",
                 "click 50 50",    # row=0, col=0 — select wK
-                "click 250 50",   # row=0, col=2 — move there
+                "click 150 50",   # row=0, col=1 — 1 square right (legal)
                 "print board",
             ]
         )
         self.assertTrue(success)
-        self.assertEqual(output, ". . wK .\n. wR . bK\n")
+        self.assertEqual(output, ". wK . .\n. wR . bK\n")
 
     def test_click_outside_board_ignored(self) -> None:
         """Clicking well outside the 4×2 board leaves the board unchanged."""
@@ -203,18 +211,19 @@ class TestCombinedCommands(IntegrationTestBase):
     def test_click_wait_click_print(self) -> None:
         """
         Select a piece, wait, then complete the move — board reflects move.
+        Uses a Rook so it can move multiple squares legally.
         """
         success, output = self.run_with_input([
             "Board:",
-            "wK . .",
+            "wR . .",
             "Commands:",
-            "click 50 50",    # select wK at (0,0)
+            "click 50 50",    # select wR at (0,0)
             "wait 500",
-            "click 250 50",   # move to (0,2)
+            "click 250 50",   # move to (0,2) — legal Rook move (2 squares straight)
             "print board",
         ])
         self.assertTrue(success)
-        self.assertEqual(output, ". . wK\n")
+        self.assertEqual(output, ". . wR\n")
 
 
 if __name__ == '__main__':
