@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
-from kfchess.models.board import Board, Position
-from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.models.interfaces import BoardInterface, PieceInterface
+from kfchess.models.board import Position
 from kfchess.models.result import Result
 from kfchess.models.game_state import GameState
 
@@ -13,16 +13,15 @@ class BoardParserInterface(ABC):
         """Parse raw input lines into (board_token_rows, command_strings)."""
 
 
-
 class BoardValidatorInterface(ABC):
     @abstractmethod
-    def validate_and_build(self, raw_board: List[List[str]]) -> 'Result[Board, str]':
+    def validate_and_build(self, raw_board: List[List[str]]) -> 'Result[BoardInterface, str]':
         """Validate raw token rows and build a Board on success."""
 
 
 class BoardPrinterInterface(ABC):
     @abstractmethod
-    def print_board(self, board: Board) -> None:
+    def print_board(self, board: BoardInterface) -> None:
         """Write the board layout to the output stream."""
 
 
@@ -37,28 +36,22 @@ class CommandExecutorInterface(ABC):
 # ---------------------------------------------------------------------------
 
 class MoveValidatorInterface(ABC):
-    """Decides whether a move from *frm* to *to* is geometrically legal.
-
-    Implementations encode the movement *shape* for a single piece type.
-    They are **stateless and board-unaware** — they know nothing about other
-    pieces on the board.  Path-blocking and capture legality are handled by
-    PathCheckerInterface.
-    """
+    """Decides whether a move from *frm* to *to* is geometrically legal."""
 
     @abstractmethod
-    def is_legal(self, frm: Position, to: Position, color: Color = Color.WHITE, board_rows: int = 8) -> bool:
+    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
         """Return True iff the move shape is valid for this piece type."""
 
 
 # ---------------------------------------------------------------------------
-# Factory pattern — maps PieceType → MoveValidatorInterface
+# Factory pattern — maps piece_type → MoveValidatorInterface
 # ---------------------------------------------------------------------------
 
 class MoveValidatorFactoryInterface(ABC):
     """Creates (or retrieves) the correct MoveValidatorInterface for a piece."""
 
     @abstractmethod
-    def get_validator(self, piece_type: PieceType) -> MoveValidatorInterface:
+    def get_validator(self, piece_type: str) -> MoveValidatorInterface:
         """Return the MoveValidatorInterface instance for *piece_type*."""
 
 
@@ -70,7 +63,7 @@ class MoveEventListener(ABC):
     """Observer that is notified whenever a piece is successfully moved."""
 
     @abstractmethod
-    def on_move(self, piece: Piece, frm: Position, to: Position) -> None:
+    def on_move(self, piece: PieceInterface, frm: Position, to: Position) -> None:
         """Called after a legal move has been committed to the board."""
 
 
@@ -79,41 +72,26 @@ class MoveEventListener(ABC):
 # ---------------------------------------------------------------------------
 
 class PathCheckerInterface(ABC):
-    """Board-aware validator for path-blocking and capture legality.
-
-    This is a separate Strategy from MoveValidatorInterface.  Geometry is
-    checked first (is the shape valid?); only then does the path checker
-    examine the actual board state (is the path clear? can we land there?).
-    """
+    """Board-aware validator for path-blocking and capture legality."""
 
     @abstractmethod
     def is_path_clear(
         self,
-        board: Board,
+        board: BoardInterface,
         frm: Position,
         to: Position,
     ) -> bool:
-        """Return True if every intermediate square between *frm* and *to* is empty.
-
-        *frm* and *to* themselves are **excluded** from the check.
-        Non-sliding pieces (Knight, King) always return True because they are
-        never blocked by intervening pieces.
-        """
+        """Return True if every intermediate square between *frm* and *to* is empty."""
 
     @abstractmethod
     def can_land(
         self,
-        board: Board,
-        moving_piece: Piece,
+        board: BoardInterface,
+        moving_piece: PieceInterface,
         frm: Position,
         to: Position,
     ) -> bool:
-        """Return True if *moving_piece* is allowed to land on square *to*.
-
-        A piece may **not** land on a square occupied by a friendly piece.
-        It **may** land on an empty square or a square occupied by an enemy
-        (capture).
-        """
+        """Return True if *moving_piece* is allowed to land on square *to*."""
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +102,7 @@ class MovementDurationInterface(ABC):
     """Calculates the travel duration for a piece moving between positions."""
 
     @abstractmethod
-    def calculate_duration(self, frm: Position, to: Position, piece: Piece) -> int:
+    def calculate_duration(self, frm: Position, to: Position, piece: PieceInterface) -> int:
         """Return the travel duration in milliseconds."""
 
 
@@ -132,14 +110,14 @@ class MovementManagerInterface(ABC):
     """Manages active movements in transit, resolves arrivals, and updates the board."""
 
     @abstractmethod
-    def calculate_arrival(self, frm: Position, to: Position, piece: Piece, start_ms: int) -> int:
+    def calculate_arrival(self, frm: Position, to: Position, piece: PieceInterface, start_ms: int) -> int:
         """Return the arrival timestamp in milliseconds."""
 
     @abstractmethod
-    def resolve_movements(self, board: Board, state: GameState, current_ms: int) -> None:
+    def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         """Update the board with any pieces that have finished transit by current_ms."""
 
     @abstractmethod
-    def get_effective_board(self, board: Board, state: GameState, t: int) -> Board:
-        """Return a Board containing the locations of all pieces at time t, accounting for in-transit pieces."""
+    def get_effective_board(self, board: BoardInterface, state: GameState, t: int) -> BoardInterface:
+        """Return a BoardInterface containing the locations of all pieces at time t."""
 

@@ -1,43 +1,9 @@
-from abc import ABC, abstractmethod
-from enum import Enum
 from typing import Optional
 
-
-class Color(Enum):
-    WHITE = 'w'
-    BLACK = 'b'
-
-    @classmethod
-    def has_value(cls, value: str) -> bool:
-        return any(value == item.value for item in cls)
+from kfchess.models.interfaces import PieceInterface, PieceStateInterface
 
 
-class PieceType(Enum):
-    KING = 'K'
-    QUEEN = 'Q'
-    ROOK = 'R'
-    BISHOP = 'B'
-    KNIGHT = 'N'
-    PAWN = 'P'
-
-    @classmethod
-    def has_value(cls, value: str) -> bool:
-        return any(value == item.value for item in cls)
-
-
-class PieceState(ABC):
-    """Abstract base class representing the state of a chess piece."""
-
-    @abstractmethod
-    def can_select(self) -> bool:
-        """Return True if the piece can be selected."""
-
-    @abstractmethod
-    def can_move(self) -> bool:
-        """Return True if the piece can start a move."""
-
-
-class IdleState(PieceState):
+class IdleState(PieceStateInterface):
     """State of a piece that is static on the board."""
 
     def can_select(self) -> bool:
@@ -47,7 +13,7 @@ class IdleState(PieceState):
         return True
 
 
-class MovingState(PieceState):
+class MovingState(PieceStateInterface):
     """State of a piece that is currently in motion."""
 
     def can_select(self) -> bool:
@@ -57,7 +23,7 @@ class MovingState(PieceState):
         return False
 
 
-class JumpingState(PieceState):
+class JumpingState(PieceStateInterface):
     """State of a piece that is currently jumping (airborne)."""
 
     def can_select(self) -> bool:
@@ -67,11 +33,25 @@ class JumpingState(PieceState):
         return False
 
 
-class Piece:
-    def __init__(self, color: Color, piece_type: PieceType) -> None:
-        self.color = color
-        self.piece_type = piece_type
-        self._state: PieceState = IdleState()
+class TextPiece(PieceInterface):
+    """Text-based implementation of a chess piece."""
+    
+    def __init__(self, color: str, piece_type: str) -> None:
+        self._color = color
+        self._piece_type = piece_type
+        self._state: PieceStateInterface = IdleState()
+
+    @property
+    def color(self) -> str:
+        return self._color
+
+    @property
+    def piece_type(self) -> str:
+        return self._piece_type
+
+    @piece_type.setter
+    def piece_type(self, value: str) -> None:
+        self._piece_type = value
 
     def transition_to_moving(self) -> None:
         """Transition the piece to MovingState."""
@@ -94,22 +74,29 @@ class Piece:
         return self._state.can_move()
 
     def __str__(self) -> str:
-        return f"{self.color.value}{self.piece_type.value}"
+        return f"{self._color}{self._piece_type}"
 
     def __repr__(self) -> str:
-        return f"Piece({self.color.name}, {self.piece_type.name})"
+        return f"TextPiece({self._color}, {self._piece_type})"
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Piece):
+        if not isinstance(other, PieceInterface):
             return False
         return self.color == other.color and self.piece_type == other.piece_type
 
-    @classmethod
-    def from_string(cls, token: str) -> Optional['Piece']:
+
+class PieceFactory:
+    """Factory to create pieces from string tokens."""
+    
+    @staticmethod
+    def from_string(token: str) -> Optional[PieceInterface]:
         if len(token) != 2:
             return None
         color_char, piece_char = token[0], token[1]
-        if not Color.has_value(color_char) or not PieceType.has_value(piece_char):
+        
+        if color_char not in ('w', 'b'):
             return None
-        return cls(Color(color_char), PieceType(piece_char))
-
+        if piece_char not in ('K', 'Q', 'R', 'B', 'N', 'P'):
+            return None
+            
+        return TextPiece(color_char, piece_char)

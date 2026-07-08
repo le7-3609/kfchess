@@ -1,7 +1,10 @@
+from kfchess.services.promotion_rules import StandardPawnPromotion
+from kfchess.services.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
+from kfchess.config.game_config import GameConfig
 import unittest
 
 from kfchess.models.board import Position
-from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
@@ -23,20 +26,41 @@ def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, I
     printer = ConsoleBoardPrinter()
     publisher = MoveEventPublisher()
     path_checker = PathChecker()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     movement_manager = MovementManager(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
         move_event_publisher=publisher,
-        path_checker=path_checker
+        path_checker=path_checker,
+        promotion_strategy=StandardPawnPromotion(),
+        config=_cfg
     )
     game_play_state_factory = GamePlayStateFactory()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     executor = CommandExecutor(
         board_repo,
         state_repo,
         printer,
-        move_validator_factory=MoveValidatorFactory(),
+        move_validator_factory=MoveValidatorFactory(_validators),
         move_event_publisher=publisher,
         path_checker=path_checker,
         movement_manager=movement_manager,
+        config=_cfg,
         game_play_state_factory=game_play_state_factory,
     )
     service = GameService(board_repo, state_repo, parser, validator, executor)
@@ -82,7 +106,7 @@ class TestGameOver(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         self.assertIsNone(board.get_piece(Position(0, 0)))
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
     def test_collision_capture_of_king_ends_game(self) -> None:
         """Capturing the king at its source while it's in transit ends the game."""
@@ -111,8 +135,8 @@ class TestGameOver(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
-        self.assertEqual(board.get_piece(Position(1, 0)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "R"))
+        self.assertEqual(board.get_piece(Position(1, 0)), Piece("w", "P"))
         self.assertIsNone(board.get_piece(Position(0, 1)))
 
     def test_move_commands_ignored_after_game_over(self) -> None:
@@ -163,7 +187,7 @@ class TestGameOver(unittest.TestCase):
         # Board remains unchanged: White Rook is still at (0, 2)
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
         self.assertIsNone(board.get_piece(Position(0, 1)))
 
     def test_wait_and_print_still_work_after_game_over(self) -> None:

@@ -16,16 +16,16 @@ CommandExecutor at the composition root (main.py).
 
 from typing import FrozenSet
 
-from kfchess.models.board import Board, Position
-from kfchess.models.piece import Piece, PieceType
+from kfchess.models.board import Position
+from kfchess.models.interfaces import BoardInterface, PieceInterface
 from kfchess.services.interfaces import PathCheckerInterface
 
 # Piece types whose movement traces a straight line that can be blocked.
-_SLIDING_TYPES: FrozenSet[PieceType] = frozenset({
-    PieceType.ROOK,
-    PieceType.BISHOP,
-    PieceType.QUEEN,
-    PieceType.PAWN,
+_SLIDING_TYPES: FrozenSet[str] = frozenset({
+    "R",
+    "B",
+    "Q",
+    "P",
 })
 
 
@@ -43,7 +43,7 @@ class PathChecker(PathCheckerInterface):
 
     def is_path_clear(
         self,
-        board: Board,
+        board: BoardInterface,
         frm: Position,
         to: Position,
     ) -> bool:
@@ -75,8 +75,8 @@ class PathChecker(PathCheckerInterface):
 
     def can_land(
         self,
-        board: Board,
-        moving_piece: Piece,
+        board: BoardInterface,
+        moving_piece: PieceInterface,
         frm: Position,
         to: Position,
     ) -> bool:
@@ -92,7 +92,7 @@ class PathChecker(PathCheckerInterface):
         if occupant is not None and occupant.color == moving_piece.color:
             return False  # Cannot capture a friendly piece.
 
-        if moving_piece.piece_type == PieceType.PAWN:
+        if moving_piece.piece_type == "P":
             col_diff = abs(to.col - frm.col)
             if col_diff == 0:
                 # Forward move: destination must be empty
@@ -106,4 +106,3 @@ class PathChecker(PathCheckerInterface):
                 return False
 
         return True
-

@@ -1,3 +1,5 @@
+from kfchess.services.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
+from kfchess.config.game_config import GameConfig
 import sys
 import unittest
 from io import StringIO
@@ -20,13 +22,23 @@ def _build_service() -> GameService:
     parser = SimpleBoardParser()
     validator = BoardValidator()
     printer = ConsoleBoardPrinter()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     executor = CommandExecutor(
         board_repo,
         state_repo,
         printer,
-        move_validator_factory=MoveValidatorFactory(),
+        move_validator_factory=MoveValidatorFactory(_validators),
         move_event_publisher=MoveEventPublisher(),
         path_checker=PathChecker(),
+        config=_cfg
     )
     return GameService(board_repo, state_repo, parser, validator, executor)
 

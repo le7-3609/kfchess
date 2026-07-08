@@ -2,14 +2,14 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from kfchess.models.board import Position
-from kfchess.models.piece import Piece
+from kfchess.models.interfaces import PieceInterface
 
 
 @dataclass
 class Movement:
     frm: Position
     to: Position
-    piece: Piece
+    piece: PieceInterface
     start_ms: int
     arrival_ms: int
 

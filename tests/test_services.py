@@ -1,10 +1,12 @@
+from kfchess.services.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
+from kfchess.config.game_config import GameConfig
 import sys
 import unittest
 from io import StringIO
 
 from kfchess.models.board import Board, Position
 from kfchess.models.game_state import GameState
-from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.models.result import Result
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
@@ -84,7 +86,7 @@ class TestBoardValidator(unittest.TestCase):
         board = res.value
         self.assertEqual(board.rows, 2)
         self.assertEqual(board.cols, 2)
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.KING))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "K"))
         self.assertIsNone(board.get_piece(Position(0, 1)))
 
 
@@ -95,8 +97,8 @@ class TestBoardValidator(unittest.TestCase):
 class TestConsoleBoardPrinter(unittest.TestCase):
     def test_print_board(self) -> None:
         board = Board(2, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
-        board.set_piece(Position(1, 1), Piece(Color.BLACK, PieceType.PAWN))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
+        board.set_piece(Position(1, 1), Piece("b", "P"))
 
         printer = ConsoleBoardPrinter()
         old_stdout, sys.stdout = sys.stdout, StringIO()
@@ -126,13 +128,23 @@ def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardreposito
         def print_board(self, board: Board) -> None:  # type: ignore[override]
             pass
 
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     executor = CommandExecutor(
         board_repo,
         state_repo,
         _NullPrinter(),
-        move_validator_factory=MoveValidatorFactory(),
+        move_validator_factory=MoveValidatorFactory(_validators),
         move_event_publisher=MoveEventPublisher(),
         path_checker=PathChecker(),
+        config=_cfg,
     )
     return executor, board_repo, state_repo
 
@@ -143,7 +155,7 @@ class TestCommandExecutor(unittest.TestCase):
     def test_click_outside_board_is_ignored(self) -> None:
         """Pixel coordinates that map to a cell outside the board are ignored."""
         board = Board(2, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
         executor, _, state_repo = _make_executor(board)
 
         executor.execute_command("click 300 0")   # col=3 — outside 2-col board
@@ -152,7 +164,7 @@ class TestCommandExecutor(unittest.TestCase):
     def test_click_on_piece_selects_it(self) -> None:
         """Clicking cell (0,0) — pixel (50,50) — selects the piece there."""
         board = Board(2, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
         executor, _, state_repo = _make_executor(board)
 
         executor.execute_command("click 50 50")   # row=0, col=0
@@ -169,8 +181,8 @@ class TestCommandExecutor(unittest.TestCase):
     def test_click_friendly_replaces_selection(self) -> None:
         """Clicking a second friendly piece replaces the current selection."""
         board = Board(1, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
-        board.set_piece(Position(0, 1), Piece(Color.WHITE, PieceType.ROOK))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
+        board.set_piece(Position(0, 1), Piece("w", "R"))
         executor, _, state_repo = _make_executor(board)
 
         executor.execute_command("click 50 50")    # select (0,0)
@@ -182,7 +194,7 @@ class TestCommandExecutor(unittest.TestCase):
     def test_click_empty_cell_with_selection_moves_piece(self) -> None:
         """Clicking an empty cell while a piece is selected moves it there."""
         board = Board(1, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
         executor, board_repo, state_repo = _make_executor(board)
 
         executor.execute_command("click 50 50")    # select (0,0)
@@ -193,15 +205,15 @@ class TestCommandExecutor(unittest.TestCase):
         self.assertIsNone(updated_board.get_piece(Position(0, 0)))
         self.assertEqual(
             updated_board.get_piece(Position(0, 1)),
-            Piece(Color.WHITE, PieceType.KING),
+            Piece("w", "K"),
         )
         self.assertIsNone(state_repo.get_state().selected_pos)
 
     def test_click_opponent_cell_with_selection_captures(self) -> None:
         """Moving to an opponent's cell captures (overwrites) the opponent."""
         board = Board(1, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
-        board.set_piece(Position(0, 1), Piece(Color.BLACK, PieceType.PAWN))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
+        board.set_piece(Position(0, 1), Piece("b", "P"))
         executor, board_repo, state_repo = _make_executor(board)
 
         executor.execute_command("click 50 50")    # select white King
@@ -212,7 +224,7 @@ class TestCommandExecutor(unittest.TestCase):
         self.assertIsNone(updated_board.get_piece(Position(0, 0)))
         self.assertEqual(
             updated_board.get_piece(Position(0, 1)),
-            Piece(Color.WHITE, PieceType.KING),
+            Piece("w", "K"),
         )
         self.assertIsNone(state_repo.get_state().selected_pos)
 
@@ -233,19 +245,29 @@ class TestCommandExecutor(unittest.TestCase):
     def test_print_board_command(self) -> None:
         """print board writes the expected board string to stdout."""
         board = Board(1, 2)
-        board.set_piece(Position(0, 0), Piece(Color.WHITE, PieceType.KING))
+        board.set_piece(Position(0, 0), Piece("w", "K"))
         board_repo = InMemoryBoardrepositories()
         state_repo = InMemoryGameStaterepositories()
         board_repo.save_board(board)
         state_repo.save_state(GameState())
         printer = ConsoleBoardPrinter()
+        _cfg = GameConfig()
+        _validators = {
+            "K": KingMoveValidator(),
+            "Q": QueenMoveValidator(),
+            "R": RookMoveValidator(),
+            "B": BishopMoveValidator(),
+            "N": KnightMoveValidator(),
+            "P": PawnMoveValidator(_cfg)
+        }
         executor = CommandExecutor(
             board_repo,
             state_repo,
             printer,
-            move_validator_factory=MoveValidatorFactory(),
+            move_validator_factory=MoveValidatorFactory(_validators),
             move_event_publisher=MoveEventPublisher(),
             path_checker=PathChecker(),
+        config=_cfg,
         )
 
         old_stdout, sys.stdout = sys.stdout, StringIO()
@@ -275,13 +297,23 @@ class TestGameService(unittest.TestCase):
                 pass
 
         printer = _NullPrinter()
+        _cfg = GameConfig()
+        _validators = {
+            "K": KingMoveValidator(),
+            "Q": QueenMoveValidator(),
+            "R": RookMoveValidator(),
+            "B": BishopMoveValidator(),
+            "N": KnightMoveValidator(),
+            "P": PawnMoveValidator(_cfg)
+        }
         executor = CommandExecutor(
             board_repo,
             state_repo,
             printer,
-            move_validator_factory=MoveValidatorFactory(),
+            move_validator_factory=MoveValidatorFactory(_validators),
             move_event_publisher=MoveEventPublisher(),
             path_checker=PathChecker(),
+        config=_cfg,
         )
         service = GameService(board_repo, state_repo, parser, validator, executor)
         return service, board_repo, state_repo

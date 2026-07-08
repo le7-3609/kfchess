@@ -1,3 +1,5 @@
+# Repository: https://github.com/le7-3609/kfchess
+
 import sys
 from pathlib import Path
 
@@ -17,6 +19,12 @@ from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 from kfchess.services.game_play_state import GamePlayStateFactory
+from kfchess.config.game_config import GameConfig
+from kfchess.services.promotion_rules import StandardPawnPromotion
+from kfchess.services.move_validators import (
+    KingMoveValidator, QueenMoveValidator, RookMoveValidator,
+    BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
+)
 
 
 def main() -> None:
@@ -24,6 +32,8 @@ def main() -> None:
     # All concrete dependencies are instantiated here and injected down
     # through the layers — nothing inside the layers creates its own deps.
 
+    config = GameConfig()
+    
     board_repo  = InMemoryBoardrepositories()
     state_repo  = InMemoryGameStaterepositories()
     parser      = SimpleBoardParser()
@@ -33,8 +43,16 @@ def main() -> None:
     # Observer: no listeners registered by default; extend here for future needs.
     move_event_publisher = MoveEventPublisher()
 
-    # Factory: maps PieceType → MoveValidatorInterface (Strategy pattern).
-    move_validator_factory = MoveValidatorFactory()
+    # Factory: maps piece_type -> MoveValidatorInterface (Strategy pattern).
+    move_validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(config=config),
+    }
+    move_validator_factory = MoveValidatorFactory(validators=move_validators)
 
     # Board-aware path and capture checker (Strategy pattern).
     path_checker = PathChecker()
@@ -42,11 +60,15 @@ def main() -> None:
     # State & Factory patterns for game play status
     game_play_state_factory = GamePlayStateFactory()
 
+    promotion_strategy = StandardPawnPromotion()
+
     # Movement Manager (Strategy pattern for duration & real-time movement).
     movement_manager = MovementManager(
-        duration_strategy=ChebyshevDistanceDuration(ms_per_square=500),
+        duration_strategy=ChebyshevDistanceDuration(ms_per_square=config.ms_per_square),
         move_event_publisher=move_event_publisher,
-        path_checker=path_checker
+        path_checker=path_checker,
+        config=config,
+        promotion_strategy=promotion_strategy,
     )
 
     command_executor = CommandExecutor(
@@ -56,6 +78,7 @@ def main() -> None:
         move_validator_factory=move_validator_factory,
         move_event_publisher=move_event_publisher,
         path_checker=path_checker,
+        config=config,
         movement_manager=movement_manager,
         game_play_state_factory=game_play_state_factory,
     )

@@ -1,19 +1,21 @@
 from typing import Optional
-from kfchess.models.board import Board, Position
+from kfchess.models.interfaces import BoardInterface, PieceInterface
+from kfchess.models.board import Position
 from kfchess.models.game_state import GameState, Movement
-from kfchess.models.piece import Color, Piece, PieceType
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import (
     MovementDurationInterface,
     MovementManagerInterface,
     PathCheckerInterface,
 )
+from kfchess.config.game_config import GameConfig
+from kfchess.services.promotion_rules import PromotionStrategyInterface
 
 
 class InstantMovementDuration(MovementDurationInterface):
     """Strategy that makes all movements instant (0 duration)."""
 
-    def calculate_duration(self, frm: Position, to: Position, piece: Piece) -> int:
+    def calculate_duration(self, frm: Position, to: Position, piece: PieceInterface) -> int:
         return 0
 
 
@@ -23,7 +25,7 @@ class ChebyshevDistanceDuration(MovementDurationInterface):
     def __init__(self, ms_per_square: int = 1000) -> None:
         self._ms_per_square = ms_per_square
 
-    def calculate_duration(self, frm: Position, to: Position, piece: Piece) -> int:
+    def calculate_duration(self, frm: Position, to: Position, piece: PieceInterface) -> int:
         dist = max(abs(to.row - frm.row), abs(to.col - frm.col))
         return dist * self._ms_per_square
 
@@ -36,12 +38,16 @@ class MovementManager(MovementManagerInterface):
         duration_strategy: MovementDurationInterface,
         move_event_publisher: MoveEventPublisher,
         path_checker: PathCheckerInterface,
+        config: GameConfig,
+        promotion_strategy: Optional[PromotionStrategyInterface] = None,
     ) -> None:
         self._duration_strategy = duration_strategy
         self._move_event_publisher = move_event_publisher
         self._path_checker = path_checker
+        self._config = config
+        self._promotion_strategy = promotion_strategy
 
-    def calculate_arrival(self, frm: Position, to: Position, piece: Piece, start_ms: int) -> int:
+    def calculate_arrival(self, frm: Position, to: Position, piece: PieceInterface, start_ms: int) -> int:
         duration = self._duration_strategy.calculate_duration(frm, to, piece)
         return start_ms + duration
 
@@ -50,7 +56,7 @@ class MovementManager(MovementManagerInterface):
             return mov.frm
         if t >= mov.arrival_ms:
             return mov.to
-        if mov.piece.piece_type == PieceType.KNIGHT:
+        if mov.piece.piece_type in self._config.jumper_pieces:
             return mov.frm
 
         dist = max(abs(mov.to.row - mov.frm.row), abs(mov.to.col - mov.frm.col))
@@ -65,11 +71,12 @@ class MovementManager(MovementManagerInterface):
         c_step = (mov.to.col - mov.frm.col) // dist
         return Position(mov.frm.row + step * r_step, mov.frm.col + step * c_step)
 
-    def get_effective_board(self, board: Board, state: GameState, t: int) -> Board:
+    def get_effective_board(self, board: BoardInterface, state: GameState, t: int) -> BoardInterface:
         return self._get_effective_board(board, state, t)
 
-    def _get_effective_board(self, board: Board, state: GameState, t: int, exclude_mov: Optional[Movement] = None) -> Board:
-        eff_board = Board(board.rows, board.cols)
+    def _get_effective_board(self, board: BoardInterface, state: GameState, t: int, exclude_mov: Optional[Movement] = None) -> BoardInterface:
+        from kfchess.models.board import ArrayBoard
+        eff_board = ArrayBoard(board.rows, board.cols)
 
         # Collect moving pieces and their calculated positions at t (excluding exclude_mov)
         moving_pieces = {}
@@ -102,7 +109,7 @@ class MovementManager(MovementManagerInterface):
 
         return eff_board
 
-    def resolve_movements(self, board: Board, state: GameState, current_ms: int) -> None:
+    def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         active = list(state.active_movements)
         if not active:
             return
@@ -113,7 +120,7 @@ class MovementManager(MovementManagerInterface):
             dist = max(abs(mov.to.row - mov.frm.row), abs(mov.to.col - mov.frm.col))
             event_times.add(mov.start_ms)
             event_times.add(mov.arrival_ms)
-            if dist > 1 and mov.piece.piece_type != PieceType.KNIGHT:
+            if dist > 1 and mov.piece.piece_type not in self._config.jumper_pieces:
                 ms_per_square = (mov.arrival_ms - mov.start_ms) // dist
                 for k in range(1, dist):
                     t = mov.start_ms + k * ms_per_square
@@ -185,7 +192,7 @@ class MovementManager(MovementManagerInterface):
                             loser.piece.transition_to_idle()
                             if state.selected_pos == loser.frm:
                                 state.selected_pos = None
-                            if loser.piece.piece_type == PieceType.KING:
+                            if loser.piece.piece_type in self._config.king_pieces:
                                 state.game_over = True
                         else:
                             # Friendly Collision: loser's move is aborted
@@ -224,7 +231,7 @@ class MovementManager(MovementManagerInterface):
                             mov.piece.transition_to_idle()
                             if state.selected_pos == mov.frm:
                                 state.selected_pos = None
-                            if mov.piece.piece_type == PieceType.KING:
+                            if mov.piece.piece_type in self._config.king_pieces:
                                 state.game_over = True
                         else:
                             # Construct effective board at t excluding mov
@@ -240,17 +247,15 @@ class MovementManager(MovementManagerInterface):
                                 if target_piece is not None:
                                     if state.selected_pos == mov.to:
                                         state.selected_pos = None
-                                    if target_piece.piece_type == PieceType.KING:
+                                    if target_piece.piece_type in self._config.king_pieces:
                                         state.game_over = True
 
                                 board.set_piece(mov.frm, None)
                                 board.set_piece(mov.to, mov.piece)
 
-                                # Pawn promotion to Queen on reaching the last row
-                                if mov.piece.piece_type == PieceType.PAWN:
-                                    if (mov.piece.color == Color.WHITE and mov.to.row == 0) or \
-                                       (mov.piece.color == Color.BLACK and mov.to.row == board.rows - 1):
-                                        mov.piece.piece_type = PieceType.QUEEN
+                                # Evaluate dynamic promotion rules
+                                if self._promotion_strategy:
+                                    self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
 
                                 mov.piece.transition_to_idle()
                                 self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)

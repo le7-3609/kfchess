@@ -12,7 +12,7 @@ move history, etc.).
 from typing import List
 
 from kfchess.models.board import Position
-from kfchess.models.piece import Piece
+from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.services.interfaces import MoveEventListener
 
 

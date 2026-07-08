@@ -1,7 +1,10 @@
+from kfchess.services.promotion_rules import StandardPawnPromotion
+from kfchess.services.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
+from kfchess.config.game_config import GameConfig
 import unittest
 
 from kfchess.models.board import Board, Position
-from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
@@ -23,20 +26,41 @@ def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, I
     printer = ConsoleBoardPrinter()
     publisher = MoveEventPublisher()
     path_checker = PathChecker()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     movement_manager = MovementManager(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
         move_event_publisher=publisher,
-        path_checker=path_checker
+        path_checker=path_checker,
+        promotion_strategy=StandardPawnPromotion(),
+        config=_cfg
     )
     game_play_state_factory = GamePlayStateFactory()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     executor = CommandExecutor(
         board_repo,
         state_repo,
         printer,
-        move_validator_factory=MoveValidatorFactory(),
+        move_validator_factory=MoveValidatorFactory(_validators),
         move_event_publisher=publisher,
         path_checker=path_checker,
         movement_manager=movement_manager,
+        config=_cfg,
         game_play_state_factory=game_play_state_factory,
     )
     service = GameService(board_repo, state_repo, parser, validator, executor)
@@ -185,7 +209,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
         self.assertIsNone(board.get_piece(Position(0, 2)))
         # wP remains at (2, 2) and lands normally
         piece = board.get_piece(Position(2, 2))
-        self.assertEqual(piece, Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(piece, Piece("w", "P"))
         assert piece is not None
         self.assertTrue(piece.can_move())  # Idle again
 
@@ -218,7 +242,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         self.assertIsNone(board.get_piece(Position(1, 2)))
-        self.assertEqual(board.get_piece(Position(2, 2)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(2, 2)), Piece("w", "P"))
 
     def test_friendly_arrival_no_capture(self) -> None:
         """A friendly piece arriving at the jumping cell does not get captured by the airborne piece; normal friendly collision rules apply."""
@@ -247,8 +271,8 @@ class TestAdvancedPawnRules(unittest.TestCase):
         # Since it is a friendly collision, the later movement (the jump) is aborted.
         # wP remains at (2, 2) and is in IdleState.
         # wR tries to land at (2, 2) but is blocked by friendly wP, so wR lands back at (0, 2)
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
-        self.assertEqual(board.get_piece(Position(2, 2)), Piece(Color.WHITE, PieceType.PAWN))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
+        self.assertEqual(board.get_piece(Position(2, 2)), Piece("w", "P"))
 
     def test_airborne_piece_captures_arriving_enemy_instant(self) -> None:
         """User Test 2: wK jumps at (1, 0) and bR moves to (1, 0) instantly. wK captures bR."""
@@ -261,20 +285,41 @@ class TestAdvancedPawnRules(unittest.TestCase):
         path_checker = PathChecker()
         
         from kfchess.services.movement_manager import InstantMovementDuration
+        _cfg = GameConfig()
+        _validators = {
+            "K": KingMoveValidator(),
+            "Q": QueenMoveValidator(),
+            "R": RookMoveValidator(),
+            "B": BishopMoveValidator(),
+            "N": KnightMoveValidator(),
+            "P": PawnMoveValidator(_cfg)
+        }
         movement_manager = MovementManager(
             duration_strategy=InstantMovementDuration(),
             move_event_publisher=publisher,
-            path_checker=path_checker
+            path_checker=path_checker,
+            promotion_strategy=StandardPawnPromotion(),
+            config=_cfg
         )
         game_play_state_factory = GamePlayStateFactory()
+        _cfg = GameConfig()
+        _validators = {
+            "K": KingMoveValidator(),
+            "Q": QueenMoveValidator(),
+            "R": RookMoveValidator(),
+            "B": BishopMoveValidator(),
+            "N": KnightMoveValidator(),
+            "P": PawnMoveValidator(_cfg)
+        }
         executor = CommandExecutor(
             board_repo,
             state_repo,
             printer,
-            move_validator_factory=MoveValidatorFactory(),
+            move_validator_factory=MoveValidatorFactory(_validators),
             move_event_publisher=publisher,
             path_checker=path_checker,
             movement_manager=movement_manager,
+            config=_cfg,
             game_play_state_factory=game_play_state_factory,
         )
         service = GameService(board_repo, state_repo, parser, validator, executor)
@@ -295,7 +340,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         # wK remains on board at (1, 0), bR is removed/captured
-        self.assertEqual(board.get_piece(Position(1, 0)), Piece(Color.WHITE, PieceType.KING))
+        self.assertEqual(board.get_piece(Position(1, 0)), Piece("w", "K"))
         self.assertIsNone(board.get_piece(Position(1, 2)))
 
     def test_jump_too_late_does_not_save_piece_instant(self) -> None:
@@ -309,20 +354,41 @@ class TestAdvancedPawnRules(unittest.TestCase):
         path_checker = PathChecker()
         
         from kfchess.services.movement_manager import InstantMovementDuration
+        _cfg = GameConfig()
+        _validators = {
+            "K": KingMoveValidator(),
+            "Q": QueenMoveValidator(),
+            "R": RookMoveValidator(),
+            "B": BishopMoveValidator(),
+            "N": KnightMoveValidator(),
+            "P": PawnMoveValidator(_cfg)
+        }
         movement_manager = MovementManager(
             duration_strategy=InstantMovementDuration(),
             move_event_publisher=publisher,
-            path_checker=path_checker
+            path_checker=path_checker,
+            promotion_strategy=StandardPawnPromotion(),
+            config=_cfg
         )
         game_play_state_factory = GamePlayStateFactory()
+        _cfg = GameConfig()
+        _validators = {
+            "K": KingMoveValidator(),
+            "Q": QueenMoveValidator(),
+            "R": RookMoveValidator(),
+            "B": BishopMoveValidator(),
+            "N": KnightMoveValidator(),
+            "P": PawnMoveValidator(_cfg)
+        }
         executor = CommandExecutor(
             board_repo,
             state_repo,
             printer,
-            move_validator_factory=MoveValidatorFactory(),
+            move_validator_factory=MoveValidatorFactory(_validators),
             move_event_publisher=publisher,
             path_checker=path_checker,
             movement_manager=movement_manager,
+            config=_cfg,
             game_play_state_factory=game_play_state_factory,
         )
         service = GameService(board_repo, state_repo, parser, validator, executor)
@@ -343,7 +409,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         # bR occupies (1, 0), wK is captured and gone
-        self.assertEqual(board.get_piece(Position(1, 0)), Piece(Color.BLACK, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(1, 0)), Piece("b", "R"))
         self.assertIsNone(board.get_piece(Position(1, 2)))
 
 
