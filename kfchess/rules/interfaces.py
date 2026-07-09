@@ -40,6 +40,7 @@ class PathCheckerInterface(ABC):
         moving_piece: PieceInterface,
         frm: Position,
         to: Position,
+        en_passant_targets: Optional[List[Position]] = None,
     ) -> bool:
         """Return True if *moving_piece* is allowed to land on square *to*."""
 

@@ -1,7 +1,7 @@
 from typing import Optional
 from kfchess.models.interfaces import BoardInterface, PieceInterface
 from kfchess.models.board import Position
-from kfchess.models.game_state import GameState, Movement
+from kfchess.models.game_state import GameState, Movement, Cooldown, EnPassantTarget
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import (
     MovementDurationInterface,
@@ -30,6 +30,70 @@ class ChebyshevDistanceDuration(MovementDurationInterface):
     def calculate_duration(self, frm: Position, to: Position, piece: PieceInterface) -> int:
         dist = max(abs(to.row - frm.row), abs(to.col - frm.col))
         return dist * self._ms_per_square
+
+
+class ProxyBoard(BoardInterface):
+    """A lightweight board representation that dynamically calculates piece positions.
+    Avoids copying the entire board array at every simulation step.
+    """
+
+    def __init__(
+        self,
+        board: BoardInterface,
+        active_movements: list,
+        t: int,
+        get_position_fn,
+        exclude_mov: Optional[Movement] = None,
+    ) -> None:
+        self._board = board
+        self._rows = board.rows
+        self._cols = board.cols
+        self._exclude_mov = exclude_mov
+        self._exclude_piece = exclude_mov.piece if exclude_mov is not None else None
+
+        self._moving_at_pos = {}
+        self._moving_piece_ids = set()
+        for mov in active_movements:
+            if mov == exclude_mov:
+                continue
+            pos_at_t = get_position_fn(mov, t)
+            self._moving_at_pos[pos_at_t] = mov.piece
+            self._moving_piece_ids.add(id(mov.piece))
+
+        self._overrides = {}
+
+    @property
+    def rows(self) -> int:
+        return self._rows
+
+    @property
+    def cols(self) -> int:
+        return self._cols
+
+    def is_valid_position(self, pos: Position) -> bool:
+        return 0 <= pos.row < self._rows and 0 <= pos.col < self._cols
+
+    def get_piece(self, pos: Position) -> Optional[PieceInterface]:
+        if not self.is_valid_position(pos):
+            raise IndexError("Position out of board bounds.")
+        if pos in self._overrides:
+            return self._overrides[pos]
+        if pos in self._moving_at_pos:
+            return self._moving_at_pos[pos]
+
+        piece = self._board.get_piece(pos)
+        if piece is not None:
+            if self._exclude_piece and piece == self._exclude_piece:
+                return None
+            if id(piece) in self._moving_piece_ids:
+                return None
+            return piece
+        return None
+
+    def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
+        if not self.is_valid_position(pos):
+            raise IndexError("Position out of board bounds.")
+        self._overrides[pos] = piece
 
 
 class MovementManager(MovementManagerInterface):
@@ -77,44 +141,16 @@ class MovementManager(MovementManagerInterface):
         return self._get_effective_board(board, state, t)
 
     def _get_effective_board(self, board: BoardInterface, state: GameState, t: int, exclude_mov: Optional[Movement] = None) -> BoardInterface:
-        from kfchess.models.board import ArrayBoard
-        eff_board = ArrayBoard(board.rows, board.cols)
-
-        # Collect moving pieces and their calculated positions at t (excluding exclude_mov)
-        moving_pieces = {}
-        for mov in state.active_movements:
-            if mov == exclude_mov:
-                continue
-            pos = self.get_position_at(mov, t)
-            moving_pieces[id(mov.piece)] = (pos, mov.piece)
-
-        # Populate with static pieces
-        for r in range(board.rows):
-            for c in range(board.cols):
-                pos = Position(r, c)
-                piece = board.get_piece(pos)
-                if piece is not None:
-                    if id(piece) in moving_pieces:
-                        # Placing it at its current position
-                        eff_pos, _ = moving_pieces[id(piece)]
-                        eff_board.set_piece(eff_pos, piece)
-                    elif exclude_mov and piece == exclude_mov.piece:
-                        # Excluded piece is the one whose move we are checking
-                        pass
-                    else:
-                        if eff_board.get_piece(pos) is None:
-                            eff_board.set_piece(pos, piece)
-
-        # Place moving pieces (overwriting static pieces if they occupy the same space)
-        for eff_id, (pos, piece) in moving_pieces.items():
-            eff_board.set_piece(pos, piece)
-
-        return eff_board
+        return ProxyBoard(board, state.active_movements, t, self.get_position_at, exclude_mov)
 
     def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         active = list(state.active_movements)
-        if not active:
+        active_cooldowns = list(state.active_cooldowns)
+        if not active and not active_cooldowns:
             return
+
+        # Clean up expired en_passant_targets based on current_ms
+        state.en_passant_targets = [ep for ep in state.en_passant_targets if ep.expires_ms > current_ms]
 
         # Collect all event times t <= current_ms
         event_times = set()
@@ -128,14 +164,26 @@ class MovementManager(MovementManagerInterface):
                     t = mov.start_ms + k * ms_per_square
                     event_times.add(t)
 
+        for cooldown in active_cooldowns:
+            event_times.add(cooldown.end_ms)
+
         sorted_times = sorted([t for t in event_times if t <= current_ms])
 
         t_prev = None
         for t in sorted_times:
+            # 0. Expire cooldowns that end at t
+            expiring_cooldowns = [c for c in state.active_cooldowns if c.end_ms == t]
+            for c in expiring_cooldowns:
+                c.piece.transition_to_idle()
+                state.active_cooldowns.remove(c)
+
             # 1. Identify currently active movements at time t
             current_active = [mov for mov in state.active_movements if mov.start_ms <= t]
             if not current_active:
                 continue
+
+            reset_halfmove = False
+            increment_halfmove = False
 
             # 2. Get positions of all active movements at t
             positions = {id(mov): self.get_position_at(mov, t) for mov in current_active}
@@ -155,23 +203,37 @@ class MovementManager(MovementManagerInterface):
 
                     # Same square collision
                     same_square = (pos1 == pos2)
+                    is_same_sq = (pos1 == pos2)
 
                     # Crossing collision
-                    crossing = False
+                    is_crossing = False
                     if t_prev is not None:
                         pos1_prev = self.get_position_at(mov1, t_prev)
                         pos2_prev = self.get_position_at(mov2, t_prev)
-                        if pos1_prev == pos2 and pos1 == pos2_prev:
-                            crossing = True
+                        if pos1 == pos2_prev and pos2 == pos1_prev and pos1 != pos2:
+                            is_crossing = True
 
-                    if same_square or crossing:
-                        # Determine winner and loser
-                        is_mov1_jump = (mov1.frm == mov1.to)
-                        is_mov2_jump = (mov2.frm == mov2.to)
+                    if not is_same_sq and not is_crossing:
+                        continue
 
-                        if is_mov1_jump and not is_mov2_jump and mov1.piece.color != mov2.piece.color:
+                    # Castling exception: Friendly King and Rook arriving at the exact same time do not collide.
+                    if mov1.piece.color == mov2.piece.color and mov1.arrival_ms == mov2.arrival_ms:
+                        if (mov1.piece.piece_type == "K" and mov2.piece.piece_type == "R") or \
+                           (mov1.piece.piece_type == "R" and mov2.piece.piece_type == "K"):
+                            continue
+
+                    # Determine winner and loser
+                    is_mov1_jump = (mov1.frm == mov1.to)
+                    is_mov2_jump = (mov2.frm == mov2.to)
+
+                    if is_mov1_jump and not is_mov2_jump and mov1.piece.color != mov2.piece.color:
+                        winner, loser = mov1, mov2
+                    elif is_mov2_jump and not is_mov1_jump and mov1.piece.color != mov2.piece.color:
+                        winner, loser = mov2, mov1
+                    else:
+                        if mov1.start_ms < mov2.start_ms:
                             winner, loser = mov1, mov2
-                        elif is_mov2_jump and not is_mov1_jump and mov1.piece.color != mov2.piece.color:
+                        elif mov2.start_ms < mov1.start_ms:
                             winner, loser = mov2, mov1
                         else:
                             if mov1.start_ms < mov2.start_ms:
@@ -196,9 +258,12 @@ class MovementManager(MovementManagerInterface):
                                 state.selected_pos = None
                             if loser.piece.piece_type in self._config.king_pieces:
                                 state.game_over = True
+                                state.game_over_reason = "king_captured"
+                            reset_halfmove = True
                         else:
                             # Friendly Collision: loser's move is aborted
-                            loser.piece.transition_to_idle()
+                            loser.piece.transition_to_cooldown()
+                            state.active_cooldowns.append(Cooldown(piece=loser.piece, end_ms=t + self._config.cooldown_duration_ms))
                             if state.selected_pos == loser.frm:
                                 state.selected_pos = None
 
@@ -214,7 +279,12 @@ class MovementManager(MovementManagerInterface):
                 if current_piece == mov.piece:
                     if mov.frm == mov.to:
                         # Successful landing of jump!
-                        mov.piece.transition_to_idle()
+                        mov.piece.transition_to_cooldown()
+                        state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
+                        if mov.piece.piece_type == "P":
+                            reset_halfmove = True
+                        elif mov.frm != mov.to:
+                            increment_halfmove = True
                     else:
                         # Check if there is an active airborne enemy piece at the destination cell
                         airborne_enemy_jump = None
@@ -235,35 +305,68 @@ class MovementManager(MovementManagerInterface):
                                 state.selected_pos = None
                             if mov.piece.piece_type in self._config.king_pieces:
                                 state.game_over = True
+                                state.game_over_reason = "king_captured"
+                            reset_halfmove = True
                         else:
                             # Construct effective board at t excluding mov
                             eff_board = self._get_effective_board(board, state, t, exclude_mov=mov)
 
                             # Verify path and landing
                             path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-                            can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to)
+                            ep_targets = [ep.pos for ep in state.en_passant_targets]
+                            can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
 
                             if path_clear and can_land:
                                 # Successful arrival!
                                 target_piece = board.get_piece(mov.to)
+                                is_capture = False
                                 if target_piece is not None:
+                                    is_capture = (target_piece.color != mov.piece.color)
                                     if state.selected_pos == mov.to:
                                         state.selected_pos = None
                                     if target_piece.piece_type in self._config.king_pieces:
                                         state.game_over = True
+                                        state.game_over_reason = "king_captured"
 
                                 board.set_piece(mov.frm, None)
                                 board.set_piece(mov.to, mov.piece)
+
+                                # Handle En Passant Capture
+                                is_ep = False
+                                if mov.piece.piece_type == "P":
+                                    for ep in state.en_passant_targets:
+                                        if ep.pos == mov.to:
+                                            # It's an En Passant capture. Remove the captured pawn.
+                                            captured_piece = board.get_piece(ep.capture_pos)
+                                            if captured_piece:
+                                                captured_piece.transition_to_idle()
+                                            board.set_piece(ep.capture_pos, None)
+                                            is_ep = True
+                                            break
+
+                                # Handle En Passant Target Creation
+                                if mov.piece.piece_type == "P":
+                                    player_config = self._config.get_player(mov.piece.color)
+                                    if player_config and abs(mov.to.row - mov.frm.row) == 2 and mov.frm.row in player_config.pawn_start_rows:
+                                        ep_pos = Position(mov.frm.row + player_config.forward_direction, mov.frm.col)
+                                        state.en_passant_targets.append(EnPassantTarget(pos=ep_pos, capture_pos=mov.to, expires_ms=t + self._config.en_passant_duration_ms))
 
                                 # Evaluate dynamic promotion rules
                                 if self._promotion_strategy:
                                     self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
 
-                                mov.piece.transition_to_idle()
+                                mov.piece.transition_to_cooldown()
+                                state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
                                 self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
+
+                                if mov.piece.piece_type == "P" or is_capture or is_ep:
+                                    reset_halfmove = True
+                                elif mov.frm != mov.to:
+                                    increment_halfmove = True
                             else:
                                 # Aborted: path blocked or landing invalid (friendly piece)
-                                mov.piece.transition_to_idle()
+                                mov.piece.transition_to_cooldown()
+                                state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
                 else:
                     mov.piece.transition_to_idle()
 
@@ -271,4 +374,16 @@ class MovementManager(MovementManagerInterface):
                 if mov in state.active_movements:
                     state.active_movements.remove(mov)
 
+            if reset_halfmove:
+                state.halfmove_clock = 0
+            elif increment_halfmove:
+                state.halfmove_clock += 1
+
             t_prev = t
+
+        # Expire any cooldowns that should have expired by current_ms
+        expiring_cooldowns = [c for c in state.active_cooldowns if c.end_ms <= current_ms]
+        for c in expiring_cooldowns:
+            c.piece.transition_to_idle()
+            state.active_cooldowns.remove(c)
+

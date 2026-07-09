@@ -112,7 +112,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             ". wP .",
             "Commands:",
             "jump 150 150",
-            "wait 1000"
+            "wait 2000"
         ])
         board = board_repo.get_board()
         assert board is not None
@@ -150,7 +150,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Commands:",
             "click 150 150",
             "click 150 150",
-            "wait 1000"
+            "wait 2000"
         ])
         board = board_repo.get_board()
         assert board is not None
@@ -199,7 +199,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "click 250 250",  # Move to (2, 2) -> arrives at t = 2000 ms
             "wait 1000",      # Advance clock to 1000 ms
             "jump 250 250",   # wP jumps at (2, 2) -> airborne until t = 2000 ms
-            "wait 1000",      # Advance clock to 2000 ms -> collision & arrival check
+            "wait 2000",      # Advance clock to 3000 ms -> collision & arrival check & cooldown
         ])
         self.assertTrue(res.is_ok)
 

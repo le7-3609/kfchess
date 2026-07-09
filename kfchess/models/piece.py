@@ -33,6 +33,16 @@ class JumpingState(PieceStateInterface):
         return False
 
 
+class CooldownState(PieceStateInterface):
+    """State of a piece that is in cooldown after arriving."""
+
+    def can_select(self) -> bool:
+        return False
+
+    def can_move(self) -> bool:
+        return False
+
+
 class TextPiece(PieceInterface):
     """Text-based implementation of a chess piece."""
     
@@ -40,6 +50,7 @@ class TextPiece(PieceInterface):
         self._color = color
         self._piece_type = piece_type
         self._state: PieceStateInterface = IdleState()
+        self._has_moved = False
 
     @property
     def color(self) -> str:
@@ -49,12 +60,17 @@ class TextPiece(PieceInterface):
     def piece_type(self) -> str:
         return self._piece_type
 
+    @property
+    def has_moved(self) -> bool:
+        return self._has_moved
+
     @piece_type.setter
     def piece_type(self, value: str) -> None:
         self._piece_type = value
 
     def transition_to_moving(self) -> None:
         """Transition the piece to MovingState."""
+        self._has_moved = True
         self._state = MovingState()
 
     def transition_to_jumping(self) -> None:
@@ -64,6 +80,10 @@ class TextPiece(PieceInterface):
     def transition_to_idle(self) -> None:
         """Transition the piece back to IdleState."""
         self._state = IdleState()
+
+    def transition_to_cooldown(self) -> None:
+        """Transition the piece to CooldownState."""
+        self._state = CooldownState()
 
     def can_select(self) -> bool:
         """Query if the piece is selectable in its current state."""

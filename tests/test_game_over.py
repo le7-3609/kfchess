@@ -1,82 +1,20 @@
-from kfchess.rules.promotion_rules import StandardPawnPromotion
-from kfchess.rules.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
-from kfchess.config.game_config import GameConfig
 import unittest
-
 from kfchess.models.board import Position
-from kfchess.models.piece import TextPiece as Piece, PieceFactory
-from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
-from kfchess.services.command_executor import CommandExecutor
-from kfchess.services.event_publisher import MoveEventPublisher
-from kfchess.services.game_service import GameService
-from kfchess.rules.move_validator_factory import MoveValidatorFactory
-from kfchess.services.parser import SimpleBoardParser
-from kfchess.rules.path_checker import PathChecker
-from kfchess.services.printer import ConsoleBoardPrinter
-from kfchess.services.validator import BoardValidator
-from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
-from kfchess.services.game_play_state import GamePlayStateFactory
-
-
-def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, InMemoryGameStaterepositories, MoveEventPublisher]:
-    board_repo = InMemoryBoardrepositories()
-    state_repo = InMemoryGameStaterepositories()
-    parser = SimpleBoardParser()
-    validator = BoardValidator()
-    printer = ConsoleBoardPrinter()
-    publisher = MoveEventPublisher()
-    path_checker = PathChecker()
-    _cfg = GameConfig()
-    _validators = {
-        "K": KingMoveValidator(),
-        "Q": QueenMoveValidator(),
-        "R": RookMoveValidator(),
-        "B": BishopMoveValidator(),
-        "N": KnightMoveValidator(),
-        "P": PawnMoveValidator(_cfg)
-    }
-    movement_manager = MovementManager(
-        duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
-        move_event_publisher=publisher,
-        path_checker=path_checker,
-        promotion_strategy=StandardPawnPromotion(),
-        config=_cfg
-    )
-    game_play_state_factory = GamePlayStateFactory()
-    _cfg = GameConfig()
-    _validators = {
-        "K": KingMoveValidator(),
-        "Q": QueenMoveValidator(),
-        "R": RookMoveValidator(),
-        "B": BishopMoveValidator(),
-        "N": KnightMoveValidator(),
-        "P": PawnMoveValidator(_cfg)
-    }
-    executor = CommandExecutor(
-        board_repo,
-        state_repo,
-        printer,
-        move_validator_factory=MoveValidatorFactory(_validators),
-        move_event_publisher=publisher,
-        path_checker=path_checker,
-        movement_manager=movement_manager,
-        config=_cfg,
-        game_play_state_factory=game_play_state_factory,
-    )
-    service = GameService(board_repo, state_repo, parser, validator, executor)
-    return service, board_repo, state_repo, publisher
-
+from kfchess.models.piece import TextPiece as Piece
+from tests.test_castling import _build_realtime_service
+import sys
+from io import StringIO
 
 class TestGameOver(unittest.TestCase):
     def test_arrival_capture_of_king_ends_game(self) -> None:
         """Capturing the enemy king via normal arrival ends the game and sets game_over to True."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
-        # White Rook at (0, 0), Black King at (0, 2)
-        # Move White Rook to (0, 2) -> duration 2000 ms.
+        # 2x3 board so King has an escape square and is not in instant checkmate.
         res = service.execute([
             "Board:",
             "wR . bK",
+            ".  . .",
             "Commands:",
             "click 50 50",   # select wR
             "click 250 50",  # move to (0, 2)
@@ -87,10 +25,11 @@ class TestGameOver(unittest.TestCase):
         state = state_repo.get_state()
         self.assertFalse(state.game_over)
 
-        # Wait 2000 ms (arrival)
+        # Wait 2000 ms (arrival) - run it all from the beginning to preserve state correctly
         res = service.execute([
             "Board:",
             "wR . bK",
+            ".  . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -112,14 +51,12 @@ class TestGameOver(unittest.TestCase):
         """Capturing the king at its source while it's in transit ends the game."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
-        # Black King at (0, 0), White Rook at (0, 1), White Pawn at (1, 0)
-        # White Rook moves to capture Black King at (0, 0) (duration 1000 ms)
-        # Black King moves to capture White Pawn at (1, 0) (duration 1000 ms)
-        # Rook is commanded first, so it resolves first at t=1000 and captures the King.
+        # Board where Kings can escape to avoid instant checkmate
         res = service.execute([
             "Board:",
             "bK wR",
             "wP .",
+            ".  .",
             "Commands:",
             "click 150 50",  # select wR (0, 1)
             "click 50 50",   # move wR to (0, 0)
@@ -147,34 +84,37 @@ class TestGameOver(unittest.TestCase):
         service.execute([
             "Board:",
             "wR . bK",
+            ".  . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
             "wait 2000",  # game over here
         ])
-
+    
         state = state_repo.get_state()
         self.assertTrue(state.game_over)
-
+    
         # 2. Try to click and move White Rook from (0, 2) to (0, 1)
         service.execute([
             "Board:",
             "wR . bK",
+            ".  . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
             "wait 2000",
             "click 250 50",  # try to select wR at (0, 2)
         ])
-
+    
         # Selection should be ignored (None)
         state = state_repo.get_state()
         self.assertIsNone(state.selected_pos)
-
+    
         # Now try to move it by executing commands
         service.execute([
             "Board:",
             "wR . bK",
+            ".  . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -183,7 +123,7 @@ class TestGameOver(unittest.TestCase):
             "click 150 50",  # try to move to (0, 1)
             "wait 1000",
         ])
-
+    
         # Board remains unchanged: White Rook is still at (0, 2)
         board = board_repo.get_board()
         assert board is not None
@@ -194,15 +134,13 @@ class TestGameOver(unittest.TestCase):
         """Wait and print board commands still execute properly after game over."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
-        import sys
-        from io import StringIO
-
         old_stdout = sys.stdout
         sys.stdout = captured = StringIO()
         try:
             res = service.execute([
                 "Board:",
                 "wR . bK",
+                ".  . .",
                 "Commands:",
                 "click 50 50",
                 "click 250 50",
@@ -212,9 +150,12 @@ class TestGameOver(unittest.TestCase):
             ])
         finally:
             sys.stdout = old_stdout
-
+    
         self.assertTrue(res.is_ok)
-        self.assertEqual(captured.getvalue(), ". . wR\n")
+        self.assertEqual(captured.getvalue(), ". . wR\n. . .\n")
 
         state = state_repo.get_state()
         self.assertEqual(state.clock_ms, 2500)
+
+if __name__ == '__main__':
+    unittest.main()

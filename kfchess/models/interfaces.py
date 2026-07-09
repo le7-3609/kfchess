@@ -26,6 +26,11 @@ class PieceInterface(ABC):
 
     @property
     @abstractmethod
+    def has_moved(self) -> bool:
+        """Returns True if the piece has moved from its initial position."""
+
+    @property
+    @abstractmethod
     def piece_type(self) -> str:
         """Returns the piece's type identifier."""
 
@@ -40,6 +45,10 @@ class PieceInterface(ABC):
     @abstractmethod
     def transition_to_idle(self) -> None:
         """Transition the piece back to idle state."""
+
+    @abstractmethod
+    def transition_to_cooldown(self) -> None:
+        """Transition the piece to cooldown state."""
 
     @abstractmethod
     def can_select(self) -> bool:
