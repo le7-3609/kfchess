@@ -15,6 +15,7 @@ class GameConfig:
     jump_duration_ms: int = 1000
     ms_per_square: int = 500
     cooldown_duration_ms: int = 1000
+    en_passant_duration_ms: int = 3000
     
     players: Dict[str, PlayerConfig] = field(default_factory=lambda: {
         "w": PlayerConfig(color_id="w", forward_direction=-1, pawn_start_rows=[6]),

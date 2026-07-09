@@ -50,6 +50,7 @@ class TextPiece(PieceInterface):
         self._color = color
         self._piece_type = piece_type
         self._state: PieceStateInterface = IdleState()
+        self._has_moved = False
 
     @property
     def color(self) -> str:
@@ -59,12 +60,17 @@ class TextPiece(PieceInterface):
     def piece_type(self) -> str:
         return self._piece_type
 
+    @property
+    def has_moved(self) -> bool:
+        return self._has_moved
+
     @piece_type.setter
     def piece_type(self, value: str) -> None:
         self._piece_type = value
 
     def transition_to_moving(self) -> None:
         """Transition the piece to MovingState."""
+        self._has_moved = True
         self._state = MovingState()
 
     def transition_to_jumping(self) -> None:

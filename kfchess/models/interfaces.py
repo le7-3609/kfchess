@@ -26,6 +26,11 @@ class PieceInterface(ABC):
 
     @property
     @abstractmethod
+    def has_moved(self) -> bool:
+        """Returns True if the piece has moved from its initial position."""
+
+    @property
+    @abstractmethod
     def piece_type(self) -> str:
         """Returns the piece's type identifier."""
 

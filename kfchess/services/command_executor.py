@@ -13,6 +13,7 @@ from kfchess.rules.interfaces import (
     PathCheckerInterface,
 )
 from kfchess.services.threat_validator import ThreatValidator
+from kfchess.services.endgame_validator import EndgameValidator
 
 from kfchess.config.game_config import GameConfig
 
@@ -60,6 +61,7 @@ class CommandExecutor(CommandExecutorInterface):
         movement_manager: Optional[MovementManagerInterface] = None,
         game_play_state_factory: Optional[GamePlayStateFactory] = None,
         threat_validator: Optional[ThreatValidator] = None,
+        endgame_validator: Optional[EndgameValidator] = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -93,6 +95,16 @@ class CommandExecutor(CommandExecutorInterface):
             game_play_state_factory = GamePlayStateFactory()
         self._game_play_state_factory = game_play_state_factory
 
+        if endgame_validator is None:
+            endgame_validator = EndgameValidator(
+                move_validator_factory=move_validator_factory,
+                path_checker=path_checker,
+                movement_manager=self._movement_manager,
+                threat_validator=self._threat_validator,
+                config=config,
+            )
+        self._endgame_validator = endgame_validator
+
     # ------------------------------------------------------------------
     # CommandExecutorInterface
     # ------------------------------------------------------------------
@@ -121,9 +133,53 @@ class CommandExecutor(CommandExecutorInterface):
         if board is None:
             return
         state = self._state_repo.get_state()
+        
+        from kfchess.services.endgame_validator import serialize_board_state
+        if not state.position_history:
+            state.position_history.append(serialize_board_state(board, state))
+            
         self._movement_manager.resolve_movements(board, state, state.clock_ms)
+        
+        current_serialized = serialize_board_state(board, state)
+        if state.position_history[-1] != current_serialized:
+            state.position_history.append(current_serialized)
+            
+        self._check_game_end_conditions(board, state)
         self._board_repo.save_board(board)
         self._state_repo.save_state(state)
+
+    def _check_game_end_conditions(self, board, state) -> None:
+        if state.game_over:
+            return
+            
+        # Require both kings to be present to check checkmate/stalemate/draws
+        if not self._endgame_validator._has_king(board, "w") or not self._endgame_validator._has_king(board, "b"):
+            return
+            
+        for color in ["w", "b"]:
+            if self._endgame_validator.is_checkmate(board, state, color):
+                state.game_over = True
+                state.game_over_reason = "checkmate"
+                return
+            if self._endgame_validator.is_stalemate(board, state, color):
+                state.game_over = True
+                state.game_over_reason = "stalemate"
+                return
+                
+        if self._endgame_validator.is_insufficient_material(board):
+            state.game_over = True
+            state.game_over_reason = "insufficient_material"
+            return
+            
+        if self._endgame_validator.is_threefold_repetition(board, state):
+            state.game_over = True
+            state.game_over_reason = "threefold_repetition"
+            return
+            
+        if self._endgame_validator.is_fifty_move_rule(board, state):
+            state.game_over = True
+            state.game_over_reason = "fifty_move_rule"
+            return
 
     def _handle_click(self, x: int, y: int) -> None:
         self._resolve_pending()
@@ -172,6 +228,14 @@ class CommandExecutor(CommandExecutorInterface):
                 target_piece is not None
                 and target_piece.color == selected_piece.color
             ):
+                # Castling Check
+                if (selected_piece.piece_type in self._config.king_pieces and 
+                    target_piece.piece_type == "R" and 
+                    not selected_piece.has_moved and 
+                    not target_piece.has_moved):
+                    if self._try_castle(state, board, state.selected_pos, target, selected_piece, target_piece):
+                        return
+                        
                 # Friendly piece — replace the selection if it is not moving.
                 if target_piece.can_select():
                     state.selected_pos = target
@@ -182,7 +246,9 @@ class CommandExecutor(CommandExecutorInterface):
 
                 # Identify opponents based on player configuration
                 # Assuming color is the player's ID, anything else is opponent
-                is_capture = target_piece is not None and target_piece.color != selected_piece.color
+                is_en_passant = selected_piece.piece_type == "P" and any(target == ep.pos for ep in state.en_passant_targets)
+                is_capture = (target_piece is not None and target_piece.color != selected_piece.color) or is_en_passant
+                
                 if not is_capture:
                     if any(mov.piece.color != selected_piece.color for mov in state.active_movements):
                         return
@@ -205,7 +271,8 @@ class CommandExecutor(CommandExecutorInterface):
                     return
 
                 # Check that landing is allowed (no friendly piece on target).
-                if not self._path_checker.can_land(eff_board, selected_piece, origin, target):
+                en_passant_targets = [ep.pos for ep in state.en_passant_targets]
+                if not self._path_checker.can_land(eff_board, selected_piece, origin, target, en_passant_targets):
                     # Friendly piece on target — keep selection.
                     return
 
@@ -273,6 +340,7 @@ class CommandExecutor(CommandExecutorInterface):
             # "A moving piece cannot jump." -> represented by not piece.can_move()
             # "A captured piece cannot jump." -> if it is on the board, it's not captured.
             if not piece.can_move():
+                print(f"[DEBUG JUMP] piece {piece.piece_type} cannot move! state={piece._state}")
                 return
 
             arrival_ms = state.clock_ms + self._config.jump_duration_ms
@@ -284,12 +352,15 @@ class CommandExecutor(CommandExecutorInterface):
                 start_ms=state.clock_ms,
                 arrival_ms=arrival_ms,
             )
+            print(f"[DEBUG JUMP] Added {piece.piece_type} to active_movements!")
             state.active_movements.append(mov)
             piece.transition_to_jumping()
             # Clear selection if we are jumping the selected piece
             if state.selected_pos == target:
                 state.selected_pos = None
             self._state_repo.save_state(state)
+        else:
+            print(f"[DEBUG JUMP] No piece at {target}?!")
 
     def _handle_wait(self, ms: int) -> None:
         state = self._state_repo.get_state()
@@ -302,4 +373,54 @@ class CommandExecutor(CommandExecutorInterface):
         board = self._board_repo.get_board()
         if board is not None:
             self._printer.print_board(board)
+
+    def _try_castle(self, state, board, king_pos, rook_pos, king_piece, rook_piece) -> bool:
+        eff_board = self._movement_manager.get_effective_board(board, state, state.clock_ms)
+        
+        dc = 1 if rook_pos.col > king_pos.col else -1
+        
+        # Manually verify path is clear for castling
+        cur_col = king_pos.col + dc
+        while cur_col != rook_pos.col:
+            if eff_board.get_piece(Position(king_pos.row, cur_col)) is not None:
+                return False
+            cur_col += dc
+            
+        king_dest_col = king_pos.col + 2 * dc
+        rook_dest_col = king_pos.col + 1 * dc
+        
+        if not (0 <= king_dest_col < board.cols) or not (0 <= rook_dest_col < board.cols):
+            return False
+            
+        king_dest = Position(king_pos.row, king_dest_col)
+        rook_dest = Position(rook_pos.row, rook_dest_col)
+        
+        pass_pos = Position(king_pos.row, king_pos.col + dc)
+        
+        for pos_to_check in [king_pos, pass_pos, king_dest]:
+            eff_board.set_piece(king_pos, None)
+            eff_board.set_piece(pos_to_check, king_piece)
+            threatened = self._threat_validator.is_king_threatened(eff_board, king_piece.color)
+            eff_board.set_piece(pos_to_check, None)
+            if threatened:
+                eff_board.set_piece(king_pos, king_piece)
+                return False
+                
+        eff_board.set_piece(king_pos, king_piece)
+        
+        from kfchess.models.game_state import Movement
+        king_arrival = self._movement_manager.calculate_arrival(king_pos, king_dest, king_piece, state.clock_ms)
+        king_mov = Movement(frm=king_pos, to=king_dest, piece=king_piece, start_ms=state.clock_ms, arrival_ms=king_arrival)
+        
+        rook_arrival = king_arrival
+        rook_mov = Movement(frm=rook_pos, to=rook_dest, piece=rook_piece, start_ms=state.clock_ms, arrival_ms=rook_arrival)
+        
+        state.active_movements.extend([rook_mov, king_mov])
+        king_piece.transition_to_moving()
+        rook_piece.transition_to_moving()
+        
+        state.selected_pos = None
+        self._state_repo.save_state(state)
+        self._resolve_pending()
+        return True
 

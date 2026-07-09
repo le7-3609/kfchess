@@ -14,7 +14,7 @@ PathChecker implements PathCheckerInterface and is injected into
 CommandExecutor at the composition root (main.py).
 """
 
-from typing import FrozenSet
+from typing import FrozenSet, Optional, List
 
 from kfchess.models.board import Position
 from kfchess.models.interfaces import BoardInterface, PieceInterface
@@ -79,6 +79,7 @@ class PathChecker(PathCheckerInterface):
         moving_piece: PieceInterface,
         frm: Position,
         to: Position,
+        en_passant_targets: Optional[List[Position]] = None,
     ) -> bool:
         """Return True if *moving_piece* is allowed to land on square *to* from *frm*.
 
@@ -99,8 +100,10 @@ class PathChecker(PathCheckerInterface):
                 if occupant is not None:
                     return False
             elif col_diff == 1:
-                # Diagonal move: destination must contain an enemy piece (different color)
+                # Diagonal move: destination must contain an enemy piece or be an en_passant_target
                 if occupant is None:
+                    if en_passant_targets is not None and to in en_passant_targets:
+                        return True
                     return False
             else:
                 return False
