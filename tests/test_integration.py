@@ -208,13 +208,13 @@ class TestWaitCommand(IntegrationTestBase):
         success, output = self.run_with_input([
             "Board:",
             "wK .",
-            ". bP",
+            ". bK",
             "Commands:",
             "wait 1000",
             "print board",
         ])
         self.assertTrue(success)
-        self.assertEqual(output, "wK .\n. bP\n")
+        self.assertEqual(output, "wK .\n. bK\n")
 
 
 # ---------------------------------------------------------------------------
@@ -225,19 +225,21 @@ class TestCombinedCommands(IntegrationTestBase):
     def test_click_wait_click_print(self) -> None:
         """
         Select a piece, wait, then complete the move — board reflects move.
-        Uses a Rook so it can move multiple squares legally.
+        The move is started after the wait, so print board shows wR still at origin
+        (transit hasn't completed yet).
         """
         success, output = self.run_with_input([
             "Board:",
             "wR . .",
+            "wK . bK",
             "Commands:",
             "click 50 50",    # select wR at (0,0)
             "wait 500",
             "click 250 50",   # move to (0,2) — legal Rook move (2 squares straight)
-            "print board",
+            "print board",   # printed BEFORE transit completes
         ])
         self.assertTrue(success)
-        self.assertEqual(output, ". . wR\n")
+        self.assertEqual(output, "wR . .\nwK . bK\n")
 
 
 if __name__ == '__main__':

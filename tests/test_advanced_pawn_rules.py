@@ -76,6 +76,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             ". wP .",
+            "wK . bK",
             "Commands:",
             "jump 150 150",  # Row 1, Col 1
         ])
@@ -95,6 +96,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             ". wP .",
+            "wK . bK",
             "Commands:",
             "jump 150 150",
             "wait 500"
@@ -110,6 +112,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             ". wP .",
+            "wK . bK",
             "Commands:",
             "jump 150 150",
             "wait 2000"
@@ -129,6 +132,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             ". wP .",
+            "wK . bK",
             "Commands:",
             "click 150 150",  # Select wP
             "click 150 150",  # Click again -> trigger jump
@@ -147,6 +151,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             ". wP .",
+            "wK . bK",
             "Commands:",
             "click 150 150",
             "click 150 150",
@@ -167,6 +172,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             ". . . .",
             ". . . .",
             ". wR . .",
+            "wK . bK .",
             "Commands:",
             "click 150 250",  # Select wR at (2, 1)
             "click 150 50",   # Move to (0, 1) -> duration 2000 ms
@@ -194,6 +200,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             ". . bR .",
             ". . . .",
             ". . wP .",
+            "wK . bK .",
             "Commands:",
             "click 250 50",   # Select bR at (0, 2)
             "click 250 250",  # Move to (2, 2) -> arrives at t = 2000 ms
@@ -226,6 +233,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             ". . . .",
             ". . bK .",
             ". . wP .",
+            "wK . . .",
             "Commands:",
             "click 250 150",   # Select bK at (1, 2)
             "click 250 250",  # Move to (2, 2) -> duration 1000 ms
@@ -257,6 +265,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             ". . wR .",
             ". . . .",
             ". . wP .",
+            "wK . bK .",
             "Commands:",
             "click 250 50",   # Select wR at (0, 2)
             "click 250 250",  # Move to (2, 2)
@@ -328,7 +337,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             "wK . bR",
-            ". . .",
+            "bK . .",
             "Commands:",
             "jump 50 150",
             "click 250 150",
@@ -397,7 +406,7 @@ class TestAdvancedPawnRules(unittest.TestCase):
             "Board:",
             ". . .",
             "wK . bR",
-            ". . .",
+            "bK . .",
             "Commands:",
             "click 250 150",
             "click 50 150",

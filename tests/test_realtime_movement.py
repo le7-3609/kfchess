@@ -71,9 +71,14 @@ class TestRealtimeMovement(unittest.TestCase):
 
         # 1. Initialize board: White Rook at (0, 0)
         # Distance to (0, 2) is 2 squares -> Chebyshev distance = 2 -> duration = 2000 ms.
+        # Kings placed at (4,0) and (4,4) to satisfy validator without interfering.
         res = service.execute([
             "Board:",
-            "wR . .",
+            "wR . . .",
+            ". . . .",
+            ". . . .",
+            ". . . .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",   # select wR
             "click 250 50",  # move to (0, 2)
@@ -91,7 +96,11 @@ class TestRealtimeMovement(unittest.TestCase):
         # 2. Wait 1000 ms (less than 2000 ms arrival)
         res = service.execute([
             "Board:",
-            "wR . .",
+            "wR . . .",
+            ". . . .",
+            ". . . .",
+            ". . . .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -109,7 +118,11 @@ class TestRealtimeMovement(unittest.TestCase):
         # 3. Wait another 1000 ms (total 2000 ms, equal to arrival)
         res = service.execute([
             "Board:",
-            "wR . .",
+            "wR . . .",
+            ". . . .",
+            ". . . .",
+            ". . . .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -131,7 +144,8 @@ class TestRealtimeMovement(unittest.TestCase):
 
         service.execute([
             "Board:",
-            "wR . .",
+            "wR . . .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
             "click 250 50",  # starts moving to (0, 2), duration 2000 ms
@@ -149,7 +163,8 @@ class TestRealtimeMovement(unittest.TestCase):
         # Move Rook to (0, 2) -> Chebyshev distance = 2 -> duration = 2000 ms
         service.execute([
             "Board:",
-            "wR . bP",
+            "wR . bP .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -164,7 +179,8 @@ class TestRealtimeMovement(unittest.TestCase):
         # Wait 2000 ms
         service.execute([
             "Board:",
-            "wR . bP",
+            "wR . bP .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -178,35 +194,45 @@ class TestRealtimeMovement(unittest.TestCase):
         self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
     def test_aborted_movement_on_capture(self) -> None:
-        """If a moving piece is captured at its source position, its movement is aborted."""
+        """If a moving piece's source is captured by an enemy, it still arrives at destination (no phantom deletion)."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
         # White Rook at (0, 0) moving to (0, 2) (duration 2000 ms)
-        # Black Queen at (1, 0) captures White Rook at (0, 0) (duration 1000 ms)
-        # Queen arrives at (0, 0) at t=1000, capturing the Rook.
-        # At t=2000, Rook's move should not resolve (it is captured/dead).
+        # Black Queen at (1, 3) captures White Rook at (0, 0) via (1, 3)->(0, 3)->(0, 0) diagonal? NO.
+        # Actually: bQ at (1,3) moves to (0,0) via a valid Queen move (diagonal 1 step). Wait, that's (1,3)→(0,0) = distance(1,3). Not 1 step diagonal.
+        # Better: bQ at (1, 0) would pin wR. Use bR at (1,0) instead: bR (1,0)→(0,0), duration=1000ms.
+        # To avoid check issue: put wK at (3,3) and bK at (3,0). Then bR at (1,0) doesn't threaten wK(3,3).
+        # wR at (0,0)→(0,2): after moving, nothing threatens wK(3,3).
         service.execute([
             "Board:",
-            "wR . .",
-            "bQ . .",
+            "wR . . .",
+            "bQ . . .",
+            ". . . .",
+            ". . . wK",
+            "bK . . .",
             "Commands:",
             "click 50 50",
             "click 250 50",  # wR (0,0) -> (0,2) starts at t=0, arrives t=2000
             "click 50 150",
             "click 50 50",   # bQ (1,0) -> (0,0) starts at t=0, arrives t=1000
-            "wait 1000",     # bQ arrives at (0,0), captures wR
+            "wait 1000",     # bQ arrives at (0,0)
         ])
 
         board = board_repo.get_board()
         assert board is not None
+        # bQ has landed on (0,0)
         self.assertEqual(board.get_piece(Position(0, 0)), Piece("b", "Q"))
+        # wR is still in transit, not at (0,2) yet
         self.assertIsNone(board.get_piece(Position(0, 2)))
 
         # Now wait another 1000 ms (total 2000 ms since start)
         service.execute([
             "Board:",
-            "wR . .",
-            "bQ . .",
+            "wR . . .",
+            "bQ . . .",
+            ". . . .",
+            ". . . wK",
+            "bK . . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -218,9 +244,9 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        # Queen is still at (0, 0), and (0, 2) is still empty (Rook move did not resolve/teleport)
+        # After the phantom-deletion fix: wR arrives at (0,2) even though its origin was overwritten
         self.assertEqual(board.get_piece(Position(0, 0)), Piece("b", "Q"))
-        self.assertIsNone(board.get_piece(Position(0, 2)))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
     def test_cannot_redirect_moving_piece(self) -> None:
         """A piece already in motion cannot be redirected by clicking it again and choosing a new target."""
@@ -232,6 +258,7 @@ class TestRealtimeMovement(unittest.TestCase):
         service.execute([
             "Board:",
             "wR . . .",
+            "wK . bK .",
             "Commands:",
             "click 50 50",
             "click 250 50",  # Starts moving to (0, 2), arrives t=2000
@@ -248,6 +275,7 @@ class TestRealtimeMovement(unittest.TestCase):
         service.execute([
             "Board:",
             "wR . . .",
+            "wK . bK .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -274,9 +302,10 @@ class TestRealtimeMovement(unittest.TestCase):
         # Wait another 2000 ms (arrives at t=4000).
         service.execute([
             "Board:",
-            "wR . .",
-            ". . .",
-            ". . .",
+            "wR . . .",
+            ". . . .",
+            ". . . .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
             "click 250 50",  # starts moving to (0, 2)
@@ -294,33 +323,37 @@ class TestRealtimeMovement(unittest.TestCase):
         self.assertIsNone(board.get_piece(Position(0, 2)))
         self.assertEqual(board.get_piece(Position(2, 2)), Piece("w", "R"))
 
-    def test_opposite_colors_do_not_move_concurrently(self) -> None:
-        """Opposite colors do not move concurrently."""
+    def test_both_colors_can_move_concurrently(self) -> None:
+        """Both players can move their pieces at the same time (real-time freedom restored)."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
-        # wR at (0, 0), bR at (2, 0)
+        # wR at (0, 0), bR at (2, 1) [not col 0 to avoid pinning wK on col 0]
         # wR moves to (0, 2) -> duration 2000 ms
-        # bR tries to move to (2, 2) -> duration 2000 ms
+        # bR moves to (2, 3) -> duration 2000 ms
+        # Kings at (4,0) and (4,3) safe from the Rooks' paths
         service.execute([
             "Board:",
-            "wR . .",
-            ". . .",
-            "bR . .",
+            "wR . . .",
+            ". . . .",
+            ". bR . .",
+            ". . . .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",
-            "click 250 50",  # wR starts moving
-            "click 50 250", # select bR
-            "click 250 250",# try to move bR
+            "click 250 50",   # wR starts moving to (0,2)
+            "click 150 250",  # select bR at (2,1)
+            "click 350 250",  # bR starts moving to (2,3)
             "wait 2000",
             "print board"
         ])
 
-        # wR should have arrived at (0, 2), but bR remains at (2, 0)
+        # Both pieces should have arrived at their destinations
         board = board_repo.get_board()
         assert board is not None
         self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
-        self.assertEqual(board.get_piece(Position(2, 0)), Piece("b", "R"))
-        self.assertIsNone(board.get_piece(Position(2, 2)))
+        self.assertEqual(board.get_piece(Position(2, 3)), Piece("b", "R"))
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+        self.assertIsNone(board.get_piece(Position(2, 1)))
 
     def test_enemy_collision_mid_path(self) -> None:
         """Two opposing pieces moving towards each other collide mid-path; first-mover captures the other."""
@@ -334,7 +367,8 @@ class TestRealtimeMovement(unittest.TestCase):
         # wR arrives at (0, 2) at t=2000.
         service.execute([
             "Board:",
-            "wR . bR",
+            "wR . bR .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",   # select wR at (0, 0)
             "click 250 50",  # move wR to (0, 2) (starts at t=0)
@@ -362,8 +396,9 @@ class TestRealtimeMovement(unittest.TestCase):
         # wR arrives at (0, 2) at t=2000, but wP (friendly) is there, so wR's move is aborted.
         service.execute([
             "Board:",
-            "wR . .",
-            ". . wP",
+            "wR . . .",
+            ". . wP .",
+            "wK . . bK",
             "Commands:",
             "click 250 150", # select wP at (1, 2)
             "click 250 50",  # move wP to (0, 2)
@@ -389,8 +424,9 @@ class TestRealtimeMovement(unittest.TestCase):
         # wR arrives at (0, 2) at t=2000, but path is blocked by wP at (0, 1), so wR's move is aborted.
         service.execute([
             "Board:",
-            "wR . .",
-            ". wP .",
+            "wR . . .",
+            ". wP . .",
+            "wK . . bK",
             "Commands:",
             "click 150 150", # select wP at (1, 1)
             "click 150 50",  # move wP to (0, 1)
@@ -410,10 +446,12 @@ class TestRealtimeMovement(unittest.TestCase):
         """If a selected piece is captured, the selection is cleared."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
-        # wK at (0, 0), bQ at (0, 2)
+        # wK at (0, 0), bQ at (0, 2), bK at (0, 4) on a 5-column board
+        # so bK at (0,4) has escape squares and bQ has room to move
         service.execute([
             "Board:",
-            "wK . bQ",
+            "wK . bQ . bK",
+            ". . . . .",
             "Commands:",
             "click 250 50",  # select bQ at (0, 2)
             "click 50 50",   # move bQ to (0, 0) (starts at t=0, duration 2000 ms)
@@ -426,7 +464,8 @@ class TestRealtimeMovement(unittest.TestCase):
 
         service.execute([
             "Board:",
-            "wK . bQ",
+            "wK . bQ . bK",
+            ". . . . .",
             "Commands:",
             "click 250 50",
             "click 50 50",
@@ -449,9 +488,10 @@ class TestRealtimeMovement(unittest.TestCase):
         # wQ's move is aborted at arrival because of the collision.
         service.execute([
             "Board:",
-            "wR . .",
-            ". . .",
-            ". . wQ",
+            "wR . . .",
+            ". . . .",
+            ". . wQ .",
+            "wK . . bK",
             "Commands:",
             "click 50 50",   # select wR
             "click 250 50",  # move to (0, 2)
@@ -467,3 +507,34 @@ class TestRealtimeMovement(unittest.TestCase):
         self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
         self.assertEqual(board.get_piece(Position(2, 2)), Piece("w", "Q"))
         self.assertIsNone(board.get_piece(Position(0, 0)))
+
+    def test_chase_convoy(self) -> None:
+        """A piece escapes from square A to B, and another piece chases it from X to A at the same time.
+        They move like a convoy, and the chaser does not capture the escapee."""
+        service, board_repo, state_repo, _ = _build_realtime_service()
+
+        # bR at (0, 1), wR at (0, 0)
+        # bR moves to (0, 2) (starts t=0, arrives t=1000)
+        # wR moves to (0, 1) (starts t=0, arrives t=1000)
+        res = service.execute([
+            "Board:",
+            "wR bR . .",
+            ". . . .",
+            ". . . .",
+            "wK . . bK",
+            "Commands:",
+            "click 150 50",   # select bR at (0, 1)
+            "click 250 50",  # move bR to (0, 2)
+            "click 50 50",    # select wR at (0, 0)
+            "click 150 50",   # move wR to (0, 1)
+            "wait 1000",
+        ])
+        self.assertTrue(res.is_ok)
+
+        board = board_repo.get_board()
+        assert board is not None
+        # wR landed on (0, 1), and bR escaped to (0, 2)
+        self.assertEqual(board.get_piece(Position(0, 1)), Piece("w", "R"))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("b", "R"))
+        self.assertIsNone(board.get_piece(Position(0, 0)))
+

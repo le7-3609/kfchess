@@ -81,7 +81,7 @@ class TestBoardValidator(unittest.TestCase):
         self.assertEqual(res.error, "UNKNOWN_TOKEN")
 
     def test_valid_board_creation(self) -> None:
-        res = BoardValidator().validate_and_build([["wK", "."], [".", "bP"]])
+        res = BoardValidator().validate_and_build([["wK", "."], [".", "bK"]])
         self.assertTrue(res.is_ok)
         board = res.value
         self.assertEqual(board.rows, 2)
@@ -320,7 +320,7 @@ class TestGameService(unittest.TestCase):
 
     def test_execute_sets_board(self) -> None:
         service, board_repo, _ = self._build_service()
-        res = service.execute(["Board:", "wK .", ". bP", "Commands:"])
+        res = service.execute(["Board:", "wK .", ". bK", "Commands:"])
         self.assertTrue(res.is_ok)
         board = board_repo.get_board()
         self.assertIsNotNone(board)

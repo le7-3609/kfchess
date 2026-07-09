@@ -20,13 +20,10 @@ from kfchess.models.board import Position
 from kfchess.models.interfaces import BoardInterface, PieceInterface
 from kfchess.rules.interfaces import PathCheckerInterface
 
+import consts
+
 # Piece types whose movement traces a straight line that can be blocked.
-_SLIDING_TYPES: FrozenSet[str] = frozenset({
-    "R",
-    "B",
-    "Q",
-    "P",
-})
+_SLIDING_TYPES: FrozenSet[str] = frozenset(consts.SLIDING_TYPES)
 
 
 def _sign(n: int) -> int:

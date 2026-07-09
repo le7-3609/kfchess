@@ -9,14 +9,14 @@ class TestEnPassant(unittest.TestCase):
 
         res = service.execute([
             "Board:",
-            ".  .  .  .",
+            ".  .  .  bK",
             ".  .  .  .",
             ".  .  .  .",
             ".  .  .  .",
             ".  bP .  .",
             ".  .  .  .",
             "wP .  .  .",
-            ".  .  .  .",
+            ".  .  .  wK",
             "Commands:",
             "click 50 650",   # select wP at (6, 0)
             "click 50 450",   # move wP to (4, 0) (2 steps)

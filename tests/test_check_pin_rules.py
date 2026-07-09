@@ -74,6 +74,7 @@ class TestCheckPinRules(unittest.TestCase):
             "Board:",
             "bR wR . wK",
             ".  .  . .",
+            ".  .  . bK",
             "Commands:",
             "click 150 50",  # select wR (0, 1)
             "click 150 150", # move wR to (1, 1) (invalid, exposes king)
@@ -100,8 +101,8 @@ class TestCheckPinRules(unittest.TestCase):
         # wK attempts to move to (0, 1), stepping directly into the path of bR.
         res = service.execute([
             "Board:",
-            "bR .",
-            ". wK",
+            "bR . . bK",
+            ". wK . .",
             "Commands:",
             "click 150 150", # select wK (1, 1)
             "click 150 50",  # move wK to (0, 1) (invalid, threatened by bR)

@@ -14,7 +14,7 @@ class TestGameOver(unittest.TestCase):
         res = service.execute([
             "Board:",
             "wR . bK",
-            ".  . .",
+            "wK . .",
             "Commands:",
             "click 50 50",   # select wR
             "click 250 50",  # move to (0, 2)
@@ -29,7 +29,7 @@ class TestGameOver(unittest.TestCase):
         res = service.execute([
             "Board:",
             "wR . bK",
-            ".  . .",
+            "wK . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -57,6 +57,7 @@ class TestGameOver(unittest.TestCase):
             "bK wR",
             "wP .",
             ".  .",
+            "wK .",
             "Commands:",
             "click 150 50",  # select wR (0, 1)
             "click 50 50",   # move wR to (0, 0)
@@ -84,7 +85,7 @@ class TestGameOver(unittest.TestCase):
         service.execute([
             "Board:",
             "wR . bK",
-            ".  . .",
+            "wK . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -98,7 +99,7 @@ class TestGameOver(unittest.TestCase):
         service.execute([
             "Board:",
             "wR . bK",
-            ".  . .",
+            "wK . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -114,7 +115,7 @@ class TestGameOver(unittest.TestCase):
         service.execute([
             "Board:",
             "wR . bK",
-            ".  . .",
+            "wK . .",
             "Commands:",
             "click 50 50",
             "click 250 50",
@@ -140,7 +141,7 @@ class TestGameOver(unittest.TestCase):
             res = service.execute([
                 "Board:",
                 "wR . bK",
-                ".  . .",
+                "wK . .",
                 "Commands:",
                 "click 50 50",
                 "click 250 50",
@@ -152,7 +153,7 @@ class TestGameOver(unittest.TestCase):
             sys.stdout = old_stdout
     
         self.assertTrue(res.is_ok)
-        self.assertEqual(captured.getvalue(), ". . wR\n. . .\n")
+        self.assertEqual(captured.getvalue(), ". . wR\nwK . .\n")
 
         state = state_repo.get_state()
         self.assertEqual(state.clock_ms, 2500)

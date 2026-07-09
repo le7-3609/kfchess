@@ -128,7 +128,7 @@ class MovementManager(MovementManagerInterface):
         dist = max(abs(mov.to.row - mov.frm.row), abs(mov.to.col - mov.frm.col))
         if dist == 0:
             return mov.frm
-        ms_per_square = (mov.arrival_ms - mov.start_ms) // dist
+        ms_per_square = max(1, (mov.arrival_ms - mov.start_ms) // dist)  # guard: never divide by zero
         step = (t - mov.start_ms) // ms_per_square
         if step >= dist:
             return mov.to
@@ -159,7 +159,7 @@ class MovementManager(MovementManagerInterface):
             event_times.add(mov.start_ms)
             event_times.add(mov.arrival_ms)
             if dist > 1 and mov.piece.piece_type not in self._config.jumper_pieces:
-                ms_per_square = (mov.arrival_ms - mov.start_ms) // dist
+                ms_per_square = max(1, (mov.arrival_ms - mov.start_ms) // dist)  # guard: never divide by zero
                 for k in range(1, dist):
                     t = mov.start_ms + k * ms_per_square
                     event_times.add(t)
@@ -275,100 +275,127 @@ class MovementManager(MovementManagerInterface):
             # 4. Handle arrivals at time t
             arriving = [mov for mov in state.active_movements if mov.arrival_ms == t]
             for mov in arriving:
-                current_piece = board.get_piece(mov.frm)
-                if current_piece == mov.piece:
-                    if mov.frm == mov.to:
-                        # Successful landing of jump!
-                        mov.piece.transition_to_cooldown()
-                        state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
-                        if mov.piece.piece_type == "P":
-                            reset_halfmove = True
-                        elif mov.frm != mov.to:
-                            increment_halfmove = True
-                    else:
-                        # Check if there is an active airborne enemy piece at the destination cell
-                        airborne_enemy_jump = None
-                        for active_mov in state.active_movements:
-                            if (active_mov.frm == active_mov.to and 
-                                active_mov.frm == mov.to and 
-                                active_mov.start_ms <= t <= active_mov.arrival_ms and 
-                                active_mov.piece.color != mov.piece.color):
-                                airborne_enemy_jump = active_mov
-                                break
+                # Determine whether frm still holds our piece (it may have been
+                # overwritten by a piece that landed there during our transit).
+                # We must NOT silently eliminate the moving piece just because
+                # someone else took its origin square — that is the Phantom Deletion bug.
+                frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
 
-                        if airborne_enemy_jump is not None:
-                            # The airborne piece captures the arriving enemy!
-                            # The arriving enemy is removed.
+                if mov.frm == mov.to:
+                    # Successful landing of jump!
+                    mov.piece.transition_to_cooldown()
+                    state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
+                    if mov.piece.piece_type == "P":
+                        reset_halfmove = True
+                    elif mov.frm != mov.to:
+                        increment_halfmove = True
+                else:
+                    # Check if there is an active airborne enemy piece at the destination cell
+                    airborne_enemy_jump = None
+                    for active_mov in state.active_movements:
+                        if (active_mov.frm == active_mov.to and 
+                            active_mov.frm == mov.to and 
+                            active_mov.start_ms <= t <= active_mov.arrival_ms and 
+                            active_mov.piece.color != mov.piece.color):
+                            airborne_enemy_jump = active_mov
+                            break
+
+                    if airborne_enemy_jump is not None:
+                        # The airborne piece captures the arriving enemy!
+                        # The arriving enemy is removed.
+                        if frm_still_mine:
                             board.set_piece(mov.frm, None)
-                            mov.piece.transition_to_idle()
-                            if state.selected_pos == mov.frm:
-                                state.selected_pos = None
-                            if mov.piece.piece_type in self._config.king_pieces:
-                                state.game_over = True
-                                state.game_over_reason = "king_captured"
-                            reset_halfmove = True
-                        else:
-                            # Construct effective board at t excluding mov
-                            eff_board = self._get_effective_board(board, state, t, exclude_mov=mov)
+                        mov.piece.transition_to_idle()
+                        if state.selected_pos == mov.frm:
+                            state.selected_pos = None
+                        if mov.piece.piece_type in self._config.king_pieces:
+                            state.game_over = True
+                            state.game_over_reason = "king_captured"
+                        reset_halfmove = True
+                    else:
+                        # Construct effective board at t excluding mov
+                        eff_board = self._get_effective_board(board, state, t, exclude_mov=mov)
 
-                            # Verify path and landing
-                            path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-                            ep_targets = [ep.pos for ep in state.en_passant_targets]
-                            can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
+                        # Verify path and landing
+                        path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
+                        ep_targets = [ep.pos for ep in state.en_passant_targets]
+                        can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
 
-                            if path_clear and can_land:
-                                # Successful arrival!
-                                target_piece = board.get_piece(mov.to)
-                                is_capture = False
-                                if target_piece is not None:
+                        if path_clear and can_land:
+                            # Successful arrival!
+                            target_piece = board.get_piece(mov.to)
+                            is_capture = False
+                            if target_piece is not None:
+                                # Check if target_piece is in flight to a future time
+                                is_in_flight_future = False
+                                for active_mov in state.active_movements:
+                                    if active_mov.piece == target_piece and active_mov.arrival_ms > t:
+                                        is_in_flight_future = True
+                                        break
+                                if not is_in_flight_future:
                                     is_capture = (target_piece.color != mov.piece.color)
                                     if state.selected_pos == mov.to:
                                         state.selected_pos = None
                                     if target_piece.piece_type in self._config.king_pieces:
                                         state.game_over = True
                                         state.game_over_reason = "king_captured"
+                                    target_piece.transition_to_idle()
+                                    for active_mov in list(state.active_movements):
+                                        if active_mov.piece == target_piece:
+                                            if active_mov in arriving:
+                                                arriving.remove(active_mov)
+                                            state.active_movements.remove(active_mov)
+                                    for cd in list(state.active_cooldowns):
+                                        if cd.piece == target_piece:
+                                            state.active_cooldowns.remove(cd)
 
+                            # Clear frm only if this piece still occupies it
+                            if frm_still_mine:
                                 board.set_piece(mov.frm, None)
-                                board.set_piece(mov.to, mov.piece)
+                            board.set_piece(mov.to, mov.piece)
 
-                                # Handle En Passant Capture
-                                is_ep = False
-                                if mov.piece.piece_type == "P":
-                                    for ep in state.en_passant_targets:
-                                        if ep.pos == mov.to:
-                                            # It's an En Passant capture. Remove the captured pawn.
-                                            captured_piece = board.get_piece(ep.capture_pos)
-                                            if captured_piece:
-                                                captured_piece.transition_to_idle()
-                                            board.set_piece(ep.capture_pos, None)
-                                            is_ep = True
-                                            break
+                            # Handle En Passant Capture
+                            is_ep = False
+                            if mov.piece.piece_type == "P":
+                                for ep in state.en_passant_targets:
+                                    if ep.pos == mov.to:
+                                        # It's an En Passant capture. Remove the captured pawn.
+                                        captured_piece = board.get_piece(ep.capture_pos)
+                                        if captured_piece:
+                                            captured_piece.transition_to_idle()
+                                        board.set_piece(ep.capture_pos, None)
+                                        is_ep = True
+                                        break
 
-                                # Handle En Passant Target Creation
-                                if mov.piece.piece_type == "P":
-                                    player_config = self._config.get_player(mov.piece.color)
-                                    if player_config and abs(mov.to.row - mov.frm.row) == 2 and mov.frm.row in player_config.pawn_start_rows:
-                                        ep_pos = Position(mov.frm.row + player_config.forward_direction, mov.frm.col)
-                                        state.en_passant_targets.append(EnPassantTarget(pos=ep_pos, capture_pos=mov.to, expires_ms=t + self._config.en_passant_duration_ms))
+                            # Handle En Passant Target Creation
+                            if mov.piece.piece_type == "P":
+                                player_config = self._config.get_player(mov.piece.color)
+                                if player_config and abs(mov.to.row - mov.frm.row) == 2 and mov.frm.row in player_config.pawn_start_rows:
+                                    ep_pos = Position(mov.frm.row + player_config.forward_direction, mov.frm.col)
+                                    state.en_passant_targets.append(EnPassantTarget(pos=ep_pos, capture_pos=mov.to, expires_ms=t + self._config.en_passant_duration_ms))
 
-                                # Evaluate dynamic promotion rules
-                                if self._promotion_strategy:
-                                    self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
+                            # Evaluate dynamic promotion rules
+                            if self._promotion_strategy:
+                                self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
 
+                            mov.piece.transition_to_cooldown()
+                            state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
+                            self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
+
+                            if mov.piece.piece_type == "P" or is_capture or is_ep:
+                                reset_halfmove = True
+                            elif mov.frm != mov.to:
+                                increment_halfmove = True
+                        else:
+                            # Aborted: path blocked or landing invalid (friendly piece)
+                            # If frm was overwritten, the piece is gone — eliminate it silently.
+                            # If frm is still ours, return to cooldown as normal.
+                            if frm_still_mine:
                                 mov.piece.transition_to_cooldown()
                                 state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
-                                self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
-
-                                if mov.piece.piece_type == "P" or is_capture or is_ep:
-                                    reset_halfmove = True
-                                elif mov.frm != mov.to:
-                                    increment_halfmove = True
                             else:
-                                # Aborted: path blocked or landing invalid (friendly piece)
-                                mov.piece.transition_to_cooldown()
-                                state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
-                else:
-                    mov.piece.transition_to_idle()
+                                # Origin was taken: piece has nowhere to return — it is eliminated.
+                                mov.piece.transition_to_idle()
 
                 # Remove from active movements
                 if mov in state.active_movements:

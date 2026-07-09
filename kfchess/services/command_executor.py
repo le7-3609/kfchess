@@ -248,10 +248,6 @@ class CommandExecutor(CommandExecutorInterface):
                 # Assuming color is the player's ID, anything else is opponent
                 is_en_passant = selected_piece.piece_type == "P" and any(target == ep.pos for ep in state.en_passant_targets)
                 is_capture = (target_piece is not None and target_piece.color != selected_piece.color) or is_en_passant
-                
-                if not is_capture:
-                    if any(mov.piece.color != selected_piece.color for mov in state.active_movements):
-                        return
 
                 validator = self._move_validator_factory.get_validator(
                     selected_piece.piece_type
@@ -363,6 +359,8 @@ class CommandExecutor(CommandExecutorInterface):
             print(f"[DEBUG JUMP] No piece at {target}?!")
 
     def _handle_wait(self, ms: int) -> None:
+        if ms <= 0:
+            return  # Guard: clock must never go backward or stand still
         state = self._state_repo.get_state()
         state.clock_ms += ms
         self._state_repo.save_state(state)

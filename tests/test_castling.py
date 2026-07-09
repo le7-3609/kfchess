@@ -80,6 +80,7 @@ class TestCastling(unittest.TestCase):
         res = service.execute([
             "Board:",
             "wR . . . wK",
+            "bK . . . .",
             "Commands:",
             "click 450 50",  # select wK (0, 4)
             "click 50 50",   # click wR (0, 0)
@@ -99,6 +100,7 @@ class TestCastling(unittest.TestCase):
         res = service.execute([
             "Board:",
             "wR wN . . wK",
+            "bK .  . . .",
             "Commands:",
             "click 450 50",  # select wK (0, 4)
             "click 50 50",   # click wR (0, 0)
