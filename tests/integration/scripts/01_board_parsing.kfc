@@ -1,0 +1,10 @@
+# Integration test: 01 — Board parsing and print board
+# Verifies that the board is parsed correctly and printed identically.
+Board:
+wK . . .
+. wR . bK
+Commands:
+print board
+Expected:
+wK . . .
+. wR . bK
