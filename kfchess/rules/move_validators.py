@@ -6,7 +6,7 @@ They are stateless, board-unaware, and injected via MoveValidatorFactory.
 
 from typing import Optional
 from kfchess.models.board import Position
-from kfchess.services.interfaces import MoveValidatorInterface
+from kfchess.rules.interfaces import MoveValidatorInterface
 from kfchess.config.game_config import GameConfig
 
 

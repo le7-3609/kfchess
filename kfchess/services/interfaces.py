@@ -31,28 +31,7 @@ class CommandExecutorInterface(ABC):
         """Execute a single text command against the current game state."""
 
 
-# ---------------------------------------------------------------------------
-# Strategy pattern — per-piece movement rules
-# ---------------------------------------------------------------------------
 
-class MoveValidatorInterface(ABC):
-    """Decides whether a move from *frm* to *to* is geometrically legal."""
-
-    @abstractmethod
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        """Return True iff the move shape is valid for this piece type."""
-
-
-# ---------------------------------------------------------------------------
-# Factory pattern — maps piece_type → MoveValidatorInterface
-# ---------------------------------------------------------------------------
-
-class MoveValidatorFactoryInterface(ABC):
-    """Creates (or retrieves) the correct MoveValidatorInterface for a piece."""
-
-    @abstractmethod
-    def get_validator(self, piece_type: str) -> MoveValidatorInterface:
-        """Return the MoveValidatorInterface instance for *piece_type*."""
 
 
 # ---------------------------------------------------------------------------
@@ -67,31 +46,7 @@ class MoveEventListener(ABC):
         """Called after a legal move has been committed to the board."""
 
 
-# ---------------------------------------------------------------------------
-# Strategy pattern — board-aware path and capture checks
-# ---------------------------------------------------------------------------
 
-class PathCheckerInterface(ABC):
-    """Board-aware validator for path-blocking and capture legality."""
-
-    @abstractmethod
-    def is_path_clear(
-        self,
-        board: BoardInterface,
-        frm: Position,
-        to: Position,
-    ) -> bool:
-        """Return True if every intermediate square between *frm* and *to* is empty."""
-
-    @abstractmethod
-    def can_land(
-        self,
-        board: BoardInterface,
-        moving_piece: PieceInterface,
-        frm: Position,
-        to: Position,
-    ) -> bool:
-        """Return True if *moving_piece* is allowed to land on square *to*."""
 
 
 # ---------------------------------------------------------------------------

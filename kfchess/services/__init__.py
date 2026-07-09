@@ -8,6 +8,8 @@ from kfchess.services.interfaces import (
     BoardValidatorInterface,
     BoardPrinterInterface,
     CommandExecutorInterface,
+)
+from kfchess.rules.interfaces import (
     MoveValidatorInterface,
     MoveValidatorFactoryInterface,
     PathCheckerInterface,
@@ -17,7 +19,7 @@ from kfchess.services.validator import BoardValidator
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
-from kfchess.services.path_checker import PathChecker
+from kfchess.rules.path_checker import PathChecker
 from kfchess.services.movement_manager import (
     MovementManager,
     InstantMovementDuration,

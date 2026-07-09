@@ -6,9 +6,11 @@ from kfchess.services.game_play_state import GamePlayStateFactory
 from kfchess.services.interfaces import (
     BoardPrinterInterface,
     CommandExecutorInterface,
+    MovementManagerInterface,
+)
+from kfchess.rules.interfaces import (
     MoveValidatorFactoryInterface,
     PathCheckerInterface,
-    MovementManagerInterface,
 )
 
 from kfchess.config.game_config import GameConfig
@@ -67,7 +69,7 @@ class CommandExecutor(CommandExecutorInterface):
 
         if movement_manager is None:
             from kfchess.services.movement_manager import MovementManager, InstantMovementDuration
-            from kfchess.services.promotion_rules import StandardPawnPromotion
+            from kfchess.rules.promotion_rules import StandardPawnPromotion
             movement_manager = MovementManager(
                 duration_strategy=InstantMovementDuration(),
                 move_event_publisher=move_event_publisher,

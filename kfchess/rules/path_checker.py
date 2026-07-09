@@ -18,7 +18,7 @@ from typing import FrozenSet
 
 from kfchess.models.board import Position
 from kfchess.models.interfaces import BoardInterface, PieceInterface
-from kfchess.services.interfaces import PathCheckerInterface
+from kfchess.rules.interfaces import PathCheckerInterface
 
 # Piece types whose movement traces a straight line that can be blocked.
 _SLIDING_TYPES: FrozenSet[str] = frozenset({

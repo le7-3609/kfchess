@@ -6,7 +6,7 @@ so validator objects are effectively singletons — they carry no state.
 
 from typing import Dict
 
-from kfchess.services.interfaces import MoveValidatorFactoryInterface, MoveValidatorInterface
+from kfchess.rules.interfaces import MoveValidatorFactoryInterface, MoveValidatorInterface
 
 
 class MoveValidatorFactory(MoveValidatorFactoryInterface):

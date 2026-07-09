@@ -10,9 +10,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.event_publisher import MoveEventPublisher
-from kfchess.services.move_validator_factory import MoveValidatorFactory
+from kfchess.rules.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
-from kfchess.services.path_checker import PathChecker
+from kfchess.rules.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
 from kfchess.services.command_executor import CommandExecutor
@@ -20,8 +20,8 @@ from kfchess.services.game_service import GameService
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 from kfchess.services.game_play_state import GamePlayStateFactory
 from kfchess.config.game_config import GameConfig
-from kfchess.services.promotion_rules import StandardPawnPromotion
-from kfchess.services.move_validators import (
+from kfchess.rules.promotion_rules import StandardPawnPromotion
+from kfchess.rules.move_validators import (
     KingMoveValidator, QueenMoveValidator, RookMoveValidator,
     BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
 )

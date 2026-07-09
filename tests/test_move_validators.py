@@ -19,8 +19,8 @@ from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGa
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import MoveEventListener
-from kfchess.services.move_validator_factory import MoveValidatorFactory
-from kfchess.services.move_validators import (
+from kfchess.rules.move_validator_factory import MoveValidatorFactory
+from kfchess.rules.move_validators import (
     BishopMoveValidator,
     KingMoveValidator,
     KnightMoveValidator,
@@ -28,7 +28,7 @@ from kfchess.services.move_validators import (
     QueenMoveValidator,
     RookMoveValidator,
 )
-from kfchess.services.path_checker import PathChecker
+from kfchess.rules.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 
 

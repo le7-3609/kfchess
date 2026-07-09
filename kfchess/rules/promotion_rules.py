@@ -4,11 +4,7 @@ from kfchess.models.interfaces import PieceInterface
 from kfchess.models.board import Position
 from kfchess.config.game_config import GameConfig
 
-class PromotionStrategyInterface(ABC):
-    """Abstract interface for piece promotion rules."""
-    @abstractmethod
-    def evaluate_promotion(self, piece: PieceInterface, to_pos: Position, config: GameConfig) -> None:
-        """Evaluate and apply any promotion rules to the piece after moving to `to_pos`."""
+from kfchess.rules.interfaces import PromotionStrategyInterface
 
 class StandardPawnPromotion(PromotionStrategyInterface):
     """Promotes a pawn to a queen upon reaching the farthest rank."""

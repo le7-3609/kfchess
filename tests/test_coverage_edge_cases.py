@@ -10,10 +10,10 @@ from kfchess.services.command_executor import CommandExecutor
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.parser import SimpleBoardParser
 from kfchess.services.validator import BoardValidator
-from kfchess.services.move_validators import RookMoveValidator, BishopMoveValidator
-from kfchess.services.path_checker import PathChecker
-from kfchess.services.promotion_rules import StandardPawnPromotion
-from kfchess.services.move_validator_factory import MoveValidatorFactory
+from kfchess.rules.move_validators import RookMoveValidator, BishopMoveValidator
+from kfchess.rules.path_checker import PathChecker
+from kfchess.rules.promotion_rules import StandardPawnPromotion
+from kfchess.rules.move_validator_factory import MoveValidatorFactory
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 

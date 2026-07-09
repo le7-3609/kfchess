@@ -6,10 +6,12 @@ from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import (
     MovementDurationInterface,
     MovementManagerInterface,
+)
+from kfchess.rules.interfaces import (
     PathCheckerInterface,
 )
 from kfchess.config.game_config import GameConfig
-from kfchess.services.promotion_rules import PromotionStrategyInterface
+from kfchess.rules.promotion_rules import PromotionStrategyInterface
 
 
 class InstantMovementDuration(MovementDurationInterface):
