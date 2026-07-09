@@ -32,6 +32,8 @@ from kungfu_chess.engine.game_engine import (
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_printer import BoardPrinter
 from kungfu_chess.io.board_validator import BoardValidator
+from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
+from kungfu_chess.input.bot import RandomBotInputSource
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +76,14 @@ class GameService:
         parser: BoardParser,
         validator: BoardValidator,
         engine: GameEngine,
+        bot: RandomBotInputSource = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
         self._parser = parser
         self._validator = validator
         self._engine = engine
+        self._bot = bot
 
     def execute(self, input_lines: List[str]) -> Result:
         raw_board, commands = self._parser.parse(input_lines)
@@ -95,6 +99,12 @@ class GameService:
 
         for cmd in commands:
             self._engine.execute_command(cmd)
+            
+            # Simple bot interleave: bot reacts if game is still active
+            if self._bot and not self._state_repo.get_state().game_over:
+                bot_cmds = self._bot.get_next_commands()
+                for b_cmd in bot_cmds:
+                    self._engine.execute_command(b_cmd)
 
         return Result.ok(None)
 
@@ -155,7 +165,12 @@ def build_service(config: GameConfig = None) -> GameService:
         validator=validator,
         engine=engine,
     )
-def build_realtime_service(config: GameConfig = None, ms_per_square: int = None) -> GameService:
+def build_realtime_service(
+    config: GameConfig = None, 
+    ms_per_square: int = None,
+    replay_file: str = None,
+    bot_color: str = None
+) -> GameService:
     """Construct a GameService with ChebyshevDistanceDuration for real-time movement.
 
     Use this when you want pieces to travel over time (the full Kung Fu Chess experience).
@@ -206,17 +221,38 @@ def build_realtime_service(config: GameConfig = None, ms_per_square: int = None)
         game_play_state_factory=game_play_state_factory,
     )
 
+    if replay_file:
+        writer = ReplayWriter(replay_file)
+        engine = ReplayEngineDecorator(engine, writer)
+
+    bot = None
+    if bot_color:
+        from kungfu_chess.rules.rule_engine import ThreatValidator
+        bot = RandomBotInputSource(
+            color=bot_color,
+            board_repo=board_repo,
+            state_repo=state_repo,
+            move_validator_factory=move_validator_factory,
+            path_checker=path_checker,
+            threat_validator=ThreatValidator(move_validator_factory, path_checker, config),
+            arbiter=arbiter,
+            config=config,
+        )
+
     return GameService(
         board_repo=board_repo,
         state_repo=state_repo,
         parser=parser,
         validator=validator,
         engine=engine,
+        bot=bot,
     )
 
 
 def bootstrap() -> None:
     """Entry point: read from stdin and run the game engine with real-time movement."""
+    # To enable replay or bot in normal run, you can pass arguments to build_realtime_service
+    # e.g., replay_file="game.kfr", bot_color="b"
     service = build_realtime_service()
     input_lines = sys.stdin.readlines()
     result = service.execute(input_lines)

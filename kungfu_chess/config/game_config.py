@@ -24,6 +24,8 @@ class GameConfig:
     ms_per_square: int = consts.DEFAULT_MS_PER_SQUARE
     cooldown_duration_ms: int = consts.DEFAULT_COOLDOWN_DURATION_MS
     en_passant_duration_ms: int = consts.DEFAULT_EN_PASSANT_DURATION_MS
+    halfmoves_for_draw: int = consts.DEFAULT_HALFMOVES_FOR_DRAW
+    repetitions_for_draw: int = consts.DEFAULT_REPETITIONS_FOR_DRAW
 
     players: Dict[str, PlayerConfig] = field(default_factory=lambda: {
         consts.PLAYER_W_COLOR: PlayerConfig(

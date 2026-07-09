@@ -237,6 +237,41 @@ class EndgameValidator:
         eff_board = self._movement_manager.get_effective_board(board, state, state.clock_ms)
         en_passant_targets = [ep.pos for ep in state.en_passant_targets]
 
+        def iter_targets(pos: Position, pt: str, rows: int, cols: int):
+            if pt == "K":
+                for dr in (-1, 0, 1):
+                    for dc in (-1, 0, 1):
+                        if dr == 0 and dc == 0: continue
+                        if 0 <= pos.row + dr < rows and 0 <= pos.col + dc < cols:
+                            yield Position(pos.row + dr, pos.col + dc)
+            elif pt == "N":
+                for dr, dc in ((-2,-1), (-2,1), (-1,-2), (-1,2), (1,-2), (1,2), (2,-1), (2,1)):
+                    if 0 <= pos.row + dr < rows and 0 <= pos.col + dc < cols:
+                        yield Position(pos.row + dr, pos.col + dc)
+            elif pt == "P":
+                player_config = self._config.get_player(color)
+                dir = player_config.forward_direction if player_config else 1
+                for dr in (dir, dir * 2):
+                    for dc in (-1, 0, 1):
+                        if 0 <= pos.row + dr < rows and 0 <= pos.col + dc < cols:
+                            yield Position(pos.row + dr, pos.col + dc)
+            elif pt in ("R", "B", "Q"):
+                dirs = []
+                if pt in ("R", "Q"): dirs.extend([(-1,0), (1,0), (0,-1), (0,1)])
+                if pt in ("B", "Q"): dirs.extend([(-1,-1), (-1,1), (1,-1), (1,1)])
+                for dr, dc in dirs:
+                    for step in range(1, max(rows, cols)):
+                        r, c = pos.row + dr * step, pos.col + dc * step
+                        if 0 <= r < rows and 0 <= c < cols:
+                            yield Position(r, c)
+                        else:
+                            break
+            else:
+                for tr in range(rows):
+                    for tc in range(cols):
+                        if tr != pos.row or tc != pos.col:
+                            yield Position(tr, tc)
+
         for r in range(eff_board.rows):
             for c in range(eff_board.cols):
                 pos = Position(r, c)
@@ -246,24 +281,22 @@ class EndgameValidator:
                 if not piece.can_move():
                     continue
                 validator = self._move_validator_factory.get_validator(piece.piece_type)
-                for tr in range(eff_board.rows):
-                    for tc in range(eff_board.cols):
-                        target = Position(tr, tc)
-                        if not validator.is_legal(pos, target, color, eff_board.rows):
-                            continue
-                        if not self._path_checker.is_path_clear(eff_board, pos, target):
-                            continue
-                        if not self._path_checker.can_land(eff_board, piece, pos, target, en_passant_targets):
-                            continue
-                        # Simulate move
-                        original_target_piece = eff_board.get_piece(target)
-                        eff_board.set_piece(pos, None)
-                        eff_board.set_piece(target, piece)
-                        is_threatened = self._threat_validator.is_king_threatened(eff_board, color)
-                        eff_board.set_piece(pos, piece)
-                        eff_board.set_piece(target, original_target_piece)
-                        if not is_threatened:
-                            return True
+                for target in iter_targets(pos, piece.piece_type, eff_board.rows, eff_board.cols):
+                    if not validator.is_legal(pos, target, color, eff_board.rows):
+                        continue
+                    if not self._path_checker.is_path_clear(eff_board, pos, target):
+                        continue
+                    if not self._path_checker.can_land(eff_board, piece, pos, target, en_passant_targets):
+                        continue
+                    # Simulate move
+                    original_target_piece = eff_board.get_piece(target)
+                    eff_board.set_piece(pos, None)
+                    eff_board.set_piece(target, piece)
+                    is_threatened = self._threat_validator.is_king_threatened(eff_board, color)
+                    eff_board.set_piece(pos, piece)
+                    eff_board.set_piece(target, original_target_piece)
+                    if not is_threatened:
+                        return True
         return False
 
     # ------------------------------------------------------------------
@@ -334,14 +367,14 @@ class EndgameValidator:
         return False
 
     def is_threefold_repetition(self, board: BoardInterface, state: GameState) -> bool:
-        """Return True if the current position has occurred at least three times."""
+        """Return True if the current position has occurred at least a configured number of times."""
         if not self._has_king(board, "w") or not self._has_king(board, "b"):
             return False
         current_serialized = serialize_board_state(board, state)
-        return state.position_history.count(current_serialized) >= 3
+        return state.position_history.count(current_serialized) >= self._config.repetitions_for_draw
 
     def is_fifty_move_rule(self, board: BoardInterface, state: GameState) -> bool:
-        """Return True if the 50-move rule applies (halfmove clock >= 100)."""
+        """Return True if the 50-move rule applies (halfmove clock >= threshold)."""
         if not self._has_king(board, "w") or not self._has_king(board, "b"):
             return False
-        return state.halfmove_clock >= 100
+        return state.halfmove_clock >= self._config.halfmoves_for_draw
