@@ -12,6 +12,7 @@ from kfchess.rules.interfaces import (
     MoveValidatorFactoryInterface,
     PathCheckerInterface,
 )
+from kfchess.services.threat_validator import ThreatValidator
 
 from kfchess.config.game_config import GameConfig
 
@@ -58,6 +59,7 @@ class CommandExecutor(CommandExecutorInterface):
         config: GameConfig,
         movement_manager: Optional[MovementManagerInterface] = None,
         game_play_state_factory: Optional[GamePlayStateFactory] = None,
+        threat_validator: Optional[ThreatValidator] = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -78,6 +80,14 @@ class CommandExecutor(CommandExecutorInterface):
                 promotion_strategy=StandardPawnPromotion(),
             )
         self._movement_manager = movement_manager
+
+        if threat_validator is None:
+            threat_validator = ThreatValidator(
+                move_validator_factory=move_validator_factory,
+                path_checker=path_checker,
+                config=config,
+            )
+        self._threat_validator = threat_validator
 
         if game_play_state_factory is None:
             game_play_state_factory = GamePlayStateFactory()
@@ -197,6 +207,22 @@ class CommandExecutor(CommandExecutorInterface):
                 # Check that landing is allowed (no friendly piece on target).
                 if not self._path_checker.can_land(eff_board, selected_piece, origin, target):
                     # Friendly piece on target — keep selection.
+                    return
+
+                # King Threat Validation (Check & Pin Prevention)
+                # We simulate the move on the effective board to ensure the player's king is not left in check
+                original_target_piece = eff_board.get_piece(target)
+                eff_board.set_piece(origin, None)
+                eff_board.set_piece(target, selected_piece)
+                
+                is_threatened = self._threat_validator.is_king_threatened(eff_board, selected_piece.color)
+                
+                # Revert simulation
+                eff_board.set_piece(origin, selected_piece)
+                eff_board.set_piece(target, original_target_piece)
+
+                if is_threatened:
+                    # Move leaves King in check - reject move, keep selection.
                     return
 
                 # Queue the movement. Do NOT modify the board immediately.
