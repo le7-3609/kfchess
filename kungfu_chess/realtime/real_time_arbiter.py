@@ -471,6 +471,26 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                 if mov in state.active_movements:
                     state.active_movements.remove(mov)
 
+            # 5. Early cancellation of ongoing movements
+            ongoing = [mov for mov in state.active_movements if mov.start_ms <= t and mov.arrival_ms > t]
+            for mov in ongoing:
+                frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
+                eff_board = self._build_proxy(board, state, t, exclude_mov=mov)
+                path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
+                ep_targets = [ep.pos for ep in state.en_passant_targets]
+                can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
+
+                if not path_clear or not can_land:
+                    if frm_still_mine:
+                        mov.piece.transition_to_cooldown()
+                        state.active_cooldowns.append(
+                            Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)
+                        )
+                    else:
+                        mov.piece.transition_to_idle()
+                    
+                    state.active_movements.remove(mov)
+
             if reset_halfmove:
                 state.halfmove_clock = 0
             elif increment_halfmove:
