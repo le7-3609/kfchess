@@ -643,6 +643,7 @@ class TestSoldierMovementAndCapture(unittest.TestCase):
         self.assertEqual(str(promoted), "wQ")
 
         # Now test that it moves like a Queen (diagonal/straight)
+        executor.execute_command("wait 1000") # Wait for cooldown
         # Move diagonally from (0,3) to (3,6)
         executor.execute_command(_click(_pos(0, 3)))
         executor.execute_command(_click(_pos(3, 6)))

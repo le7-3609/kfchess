@@ -1,7 +1,7 @@
 from typing import Optional
 from kfchess.models.interfaces import BoardInterface, PieceInterface
 from kfchess.models.board import Position
-from kfchess.models.game_state import GameState, Movement
+from kfchess.models.game_state import GameState, Movement, Cooldown
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import (
     MovementDurationInterface,
@@ -113,7 +113,8 @@ class MovementManager(MovementManagerInterface):
 
     def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         active = list(state.active_movements)
-        if not active:
+        active_cooldowns = list(state.active_cooldowns)
+        if not active and not active_cooldowns:
             return
 
         # Collect all event times t <= current_ms
@@ -128,10 +129,19 @@ class MovementManager(MovementManagerInterface):
                     t = mov.start_ms + k * ms_per_square
                     event_times.add(t)
 
+        for cooldown in active_cooldowns:
+            event_times.add(cooldown.end_ms)
+
         sorted_times = sorted([t for t in event_times if t <= current_ms])
 
         t_prev = None
         for t in sorted_times:
+            # 0. Expire cooldowns that end at t
+            expiring_cooldowns = [c for c in state.active_cooldowns if c.end_ms == t]
+            for c in expiring_cooldowns:
+                c.piece.transition_to_idle()
+                state.active_cooldowns.remove(c)
+
             # 1. Identify currently active movements at time t
             current_active = [mov for mov in state.active_movements if mov.start_ms <= t]
             if not current_active:
@@ -198,7 +208,8 @@ class MovementManager(MovementManagerInterface):
                                 state.game_over = True
                         else:
                             # Friendly Collision: loser's move is aborted
-                            loser.piece.transition_to_idle()
+                            loser.piece.transition_to_cooldown()
+                            state.active_cooldowns.append(Cooldown(piece=loser.piece, end_ms=t + self._config.cooldown_duration_ms))
                             if state.selected_pos == loser.frm:
                                 state.selected_pos = None
 
@@ -214,7 +225,8 @@ class MovementManager(MovementManagerInterface):
                 if current_piece == mov.piece:
                     if mov.frm == mov.to:
                         # Successful landing of jump!
-                        mov.piece.transition_to_idle()
+                        mov.piece.transition_to_cooldown()
+                        state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
                     else:
                         # Check if there is an active airborne enemy piece at the destination cell
                         airborne_enemy_jump = None
@@ -259,11 +271,13 @@ class MovementManager(MovementManagerInterface):
                                 if self._promotion_strategy:
                                     self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
 
-                                mov.piece.transition_to_idle()
+                                mov.piece.transition_to_cooldown()
+                                state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
                                 self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
                             else:
                                 # Aborted: path blocked or landing invalid (friendly piece)
-                                mov.piece.transition_to_idle()
+                                mov.piece.transition_to_cooldown()
+                                state.active_cooldowns.append(Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms))
                 else:
                     mov.piece.transition_to_idle()
 
@@ -272,3 +286,10 @@ class MovementManager(MovementManagerInterface):
                     state.active_movements.remove(mov)
 
             t_prev = t
+
+        # Expire any cooldowns that should have expired by current_ms
+        expiring_cooldowns = [c for c in state.active_cooldowns if c.end_ms <= current_ms]
+        for c in expiring_cooldowns:
+            c.piece.transition_to_idle()
+            state.active_cooldowns.remove(c)
+

@@ -264,8 +264,8 @@ class TestRealtimeMovement(unittest.TestCase):
         self.assertIsNone(board.get_piece(Position(0, 1)))
         self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
-    def test_move_again_immediately_after_arrival(self) -> None:
-        """A piece can start moving again immediately after it has arrived at its destination."""
+    def test_move_again_after_cooldown(self) -> None:
+        """A piece can start moving again after its cooldown ends."""
         service, board_repo, state_repo, _ = _build_realtime_service()
 
         # Rook at (0, 0) moves to (0, 2) -> duration 2000 ms.
@@ -281,6 +281,7 @@ class TestRealtimeMovement(unittest.TestCase):
             "click 50 50",
             "click 250 50",  # starts moving to (0, 2)
             "wait 2000",     # arrives at (0, 2) at t=2000
+            "wait 1000",     # wait for cooldown
             "click 250 50",  # select at (0, 2)
             "click 250 250", # move to (2, 2)
             "wait 2000",     # arrives at (2, 2) at t=4000

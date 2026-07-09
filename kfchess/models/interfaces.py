@@ -42,6 +42,10 @@ class PieceInterface(ABC):
         """Transition the piece back to idle state."""
 
     @abstractmethod
+    def transition_to_cooldown(self) -> None:
+        """Transition the piece to cooldown state."""
+
+    @abstractmethod
     def can_select(self) -> bool:
         """Query if the piece is selectable in its current state."""
 
