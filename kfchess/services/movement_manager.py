@@ -32,6 +32,70 @@ class ChebyshevDistanceDuration(MovementDurationInterface):
         return dist * self._ms_per_square
 
 
+class ProxyBoard(BoardInterface):
+    """A lightweight board representation that dynamically calculates piece positions.
+    Avoids copying the entire board array at every simulation step.
+    """
+
+    def __init__(
+        self,
+        board: BoardInterface,
+        active_movements: list,
+        t: int,
+        get_position_fn,
+        exclude_mov: Optional[Movement] = None,
+    ) -> None:
+        self._board = board
+        self._rows = board.rows
+        self._cols = board.cols
+        self._exclude_mov = exclude_mov
+        self._exclude_piece = exclude_mov.piece if exclude_mov is not None else None
+
+        self._moving_at_pos = {}
+        self._moving_piece_ids = set()
+        for mov in active_movements:
+            if mov == exclude_mov:
+                continue
+            pos_at_t = get_position_fn(mov, t)
+            self._moving_at_pos[pos_at_t] = mov.piece
+            self._moving_piece_ids.add(id(mov.piece))
+
+        self._overrides = {}
+
+    @property
+    def rows(self) -> int:
+        return self._rows
+
+    @property
+    def cols(self) -> int:
+        return self._cols
+
+    def is_valid_position(self, pos: Position) -> bool:
+        return 0 <= pos.row < self._rows and 0 <= pos.col < self._cols
+
+    def get_piece(self, pos: Position) -> Optional[PieceInterface]:
+        if not self.is_valid_position(pos):
+            raise IndexError("Position out of board bounds.")
+        if pos in self._overrides:
+            return self._overrides[pos]
+        if pos in self._moving_at_pos:
+            return self._moving_at_pos[pos]
+
+        piece = self._board.get_piece(pos)
+        if piece is not None:
+            if self._exclude_piece and piece == self._exclude_piece:
+                return None
+            if id(piece) in self._moving_piece_ids:
+                return None
+            return piece
+        return None
+
+    def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
+        if not self.is_valid_position(pos):
+            raise IndexError("Position out of board bounds.")
+        self._overrides[pos] = piece
+
+
 class MovementManager(MovementManagerInterface):
     """Manages active movements, calculates arrival times, and resolves arrivals."""
 
@@ -77,39 +141,7 @@ class MovementManager(MovementManagerInterface):
         return self._get_effective_board(board, state, t)
 
     def _get_effective_board(self, board: BoardInterface, state: GameState, t: int, exclude_mov: Optional[Movement] = None) -> BoardInterface:
-        from kfchess.models.board import ArrayBoard
-        eff_board = ArrayBoard(board.rows, board.cols)
-
-        # Collect moving pieces and their calculated positions at t (excluding exclude_mov)
-        moving_pieces = {}
-        for mov in state.active_movements:
-            if mov == exclude_mov:
-                continue
-            pos = self.get_position_at(mov, t)
-            moving_pieces[id(mov.piece)] = (pos, mov.piece)
-
-        # Populate with static pieces
-        for r in range(board.rows):
-            for c in range(board.cols):
-                pos = Position(r, c)
-                piece = board.get_piece(pos)
-                if piece is not None:
-                    if id(piece) in moving_pieces:
-                        # Placing it at its current position
-                        eff_pos, _ = moving_pieces[id(piece)]
-                        eff_board.set_piece(eff_pos, piece)
-                    elif exclude_mov and piece == exclude_mov.piece:
-                        # Excluded piece is the one whose move we are checking
-                        pass
-                    else:
-                        if eff_board.get_piece(pos) is None:
-                            eff_board.set_piece(pos, piece)
-
-        # Place moving pieces (overwriting static pieces if they occupy the same space)
-        for eff_id, (pos, piece) in moving_pieces.items():
-            eff_board.set_piece(pos, piece)
-
-        return eff_board
+        return ProxyBoard(board, state.active_movements, t, self.get_position_at, exclude_mov)
 
     def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         active = list(state.active_movements)
