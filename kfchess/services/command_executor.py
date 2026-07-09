@@ -1,6 +1,6 @@
 from typing import Optional
 from kfchess.models.board import Position
-from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
+from kfchess.repositories.interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_play_state import GamePlayStateFactory
 from kfchess.services.interfaces import (
@@ -51,8 +51,8 @@ class CommandExecutor(CommandExecutorInterface):
 
     def __init__(
         self,
-        board_repo: BoardrepositoriesInterface,
-        state_repo: GameStaterepositoriesInterface,
+        board_repo: BoardRepositoryInterface,
+        state_repo: GameStateRepositoryInterface,
         printer: BoardPrinterInterface,
         move_validator_factory: MoveValidatorFactoryInterface,
         move_event_publisher: MoveEventPublisher,

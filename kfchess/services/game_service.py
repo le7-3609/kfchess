@@ -2,7 +2,7 @@ from typing import List
 
 from kfchess.models.game_state import GameState
 from kfchess.models.result import Result
-from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
+from kfchess.repositories.interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
 from kfchess.services.interfaces import (
     BoardParserInterface,
     BoardValidatorInterface,
@@ -18,8 +18,8 @@ class GameService:
 
     def __init__(
         self,
-        board_repo: BoardrepositoriesInterface,
-        state_repo: GameStaterepositoriesInterface,
+        board_repo: BoardRepositoryInterface,
+        state_repo: GameStateRepositoryInterface,
         parser: BoardParserInterface,
         validator: BoardValidatorInterface,
         command_executor: CommandExecutorInterface,

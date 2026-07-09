@@ -22,15 +22,15 @@ from kfchess.models.board import Board, Position
 from kfchess.models.game_state import GameState
 from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.repositories.in_memory import (
-    InMemoryBoardrepositories,
-    InMemoryGameStaterepositories,
+    InMemoryBoardRepository,
+    InMemoryGameStateRepository,
 )
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import MoveEventListener
 from kfchess.rules.move_validator_factory import MoveValidatorFactory
 from kfchess.rules.path_checker import PathChecker
-from kfchess.services.printer import ConsoleBoardPrinter
+from kfchess.services.board_printer import ConsoleBoardPrinter
 
 
 # ---------------------------------------------------------------------------
@@ -48,12 +48,12 @@ def _piece(color: str, piece_type: str) -> Piece:
 def _make_executor(
     board: Board,
 ) -> tuple[CommandExecutor,
-           InMemoryBoardrepositories,
-           InMemoryGameStaterepositories,
+           InMemoryBoardRepository,
+           InMemoryGameStateRepository,
            MoveEventPublisher]:
     """Wire a full CommandExecutor with real factory, path checker, and publisher."""
-    board_repo = InMemoryBoardrepositories()
-    state_repo = InMemoryGameStaterepositories()
+    board_repo = InMemoryBoardRepository()
+    state_repo = InMemoryGameStateRepository()
     board_repo.save_board(board)
     state_repo.save_state(GameState())
 

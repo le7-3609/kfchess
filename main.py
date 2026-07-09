@@ -8,13 +8,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
+from kfchess.repositories.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.rules.move_validator_factory import MoveValidatorFactory
-from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.board_parser import SimpleBoardParser
 from kfchess.rules.path_checker import PathChecker
-from kfchess.services.printer import ConsoleBoardPrinter
-from kfchess.services.validator import BoardValidator
+from kfchess.services.board_printer import ConsoleBoardPrinter
+from kfchess.services.board_validator import BoardValidator
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
@@ -34,8 +34,8 @@ def main() -> None:
 
     config = GameConfig()
     
-    board_repo  = InMemoryBoardrepositories()
-    state_repo  = InMemoryGameStaterepositories()
+    board_repo  = InMemoryBoardRepository()
+    state_repo  = InMemoryGameStateRepository()
     parser      = SimpleBoardParser()
     validator   = BoardValidator()
     printer     = ConsoleBoardPrinter()

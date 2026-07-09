@@ -7,14 +7,14 @@ from kfchess.config.game_config import GameConfig
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_service import GameService
 from kfchess.services.command_executor import CommandExecutor
-from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
-from kfchess.services.parser import SimpleBoardParser
-from kfchess.services.validator import BoardValidator
+from kfchess.repositories.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
+from kfchess.services.board_parser import SimpleBoardParser
+from kfchess.services.board_validator import BoardValidator
 from kfchess.rules.move_validators import RookMoveValidator, BishopMoveValidator
 from kfchess.rules.path_checker import PathChecker
 from kfchess.rules.promotion_rules import StandardPawnPromotion
 from kfchess.rules.move_validator_factory import MoveValidatorFactory
-from kfchess.services.printer import ConsoleBoardPrinter
+from kfchess.services.board_printer import ConsoleBoardPrinter
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 
 class TestCoverageEdgeCases(unittest.TestCase):
@@ -33,8 +33,8 @@ class TestCoverageEdgeCases(unittest.TestCase):
         self.assertTrue(True) # Should not raise ValueError
 
     def test_game_service_empty_board(self):
-        repo1 = InMemoryBoardrepositories()
-        repo2 = InMemoryGameStaterepositories()
+        repo1 = InMemoryBoardRepository()
+        repo2 = InMemoryGameStateRepository()
         service = GameService(repo1, repo2, SimpleBoardParser(), BoardValidator(), None)
         res = service.execute([])
         self.assertTrue(res.is_ok)
@@ -64,8 +64,8 @@ class TestCoverageEdgeCases(unittest.TestCase):
         self.assertFalse(val.is_legal(Position(0,0), Position(1,2), "w", 8))
 
     def test_command_executor_invalid_command_length(self):
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         config = GameConfig()
         pub = MoveEventPublisher()
         validators = {"R": RookMoveValidator()}
@@ -81,8 +81,8 @@ class TestCoverageEdgeCases(unittest.TestCase):
         executor.execute_command("jump 10") # missing y
 
     def test_command_executor_no_board(self):
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         executor = CommandExecutor(
             board_repo, state_repo, ConsoleBoardPrinter(), 
             MoveValidatorFactory({}), MoveEventPublisher(), PathChecker(), GameConfig()
@@ -95,8 +95,8 @@ class TestCoverageEdgeCases(unittest.TestCase):
         executor.execute_command("wait 100")
 
     def test_command_executor_jump_empty_target(self):
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         b = Board(8, 8)
         board_repo.save_board(b)
         state_repo.save_state(GameState())
@@ -113,8 +113,8 @@ class TestCoverageEdgeCases(unittest.TestCase):
         self.assertTrue(True)
 
     def test_command_executor_stale_selection(self):
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         b = Board(8, 8)
         board_repo.save_board(b)
         state = GameState()
@@ -138,8 +138,8 @@ class TestCoverageEdgeCases(unittest.TestCase):
         self.assertEqual(state_repo.get_state().selected_pos, Position(0, 0))
 
     def test_command_executor_cannot_move(self):
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         b = Board(8, 8)
         p = TextPiece("w", "P")
         p.transition_to_moving()

@@ -14,9 +14,9 @@ from kfchess.rules.interfaces import (
     MoveValidatorFactoryInterface,
     PathCheckerInterface,
 )
-from kfchess.services.parser import SimpleBoardParser
-from kfchess.services.validator import BoardValidator
-from kfchess.services.printer import ConsoleBoardPrinter
+from kfchess.services.board_parser import SimpleBoardParser
+from kfchess.services.board_validator import BoardValidator
+from kfchess.services.board_printer import ConsoleBoardPrinter
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.game_service import GameService
 from kfchess.rules.path_checker import PathChecker

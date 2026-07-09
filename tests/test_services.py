@@ -8,14 +8,14 @@ from kfchess.models.board import Board, Position
 from kfchess.models.game_state import GameState
 from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.models.result import Result
-from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
+from kfchess.repositories.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.rules.move_validator_factory import MoveValidatorFactory
-from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.board_parser import SimpleBoardParser
 from kfchess.rules.path_checker import PathChecker
-from kfchess.services.printer import ConsoleBoardPrinter
-from kfchess.services.validator import BoardValidator
+from kfchess.services.board_printer import ConsoleBoardPrinter
+from kfchess.services.board_validator import BoardValidator
 from kfchess.services.game_service import GameService
 
 
@@ -115,11 +115,11 @@ class TestConsoleBoardPrinter(unittest.TestCase):
 # CommandExecutor
 # ---------------------------------------------------------------------------
 
-def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardrepositories,
-                                          InMemoryGameStaterepositories]:
+def _make_executor(board: Board) -> tuple[CommandExecutor, InMemoryBoardRepository,
+                                          InMemoryGameStateRepository]:
     """Helper: load a board into fresh repos and return a wired CommandExecutor."""
-    board_repo = InMemoryBoardrepositories()
-    state_repo = InMemoryGameStaterepositories()
+    board_repo = InMemoryBoardRepository()
+    state_repo = InMemoryGameStateRepository()
     board_repo.save_board(board)
     state_repo.save_state(GameState())
 
@@ -246,8 +246,8 @@ class TestCommandExecutor(unittest.TestCase):
         """print board writes the expected board string to stdout."""
         board = Board(1, 2)
         board.set_piece(Position(0, 0), Piece("w", "K"))
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         board_repo.save_board(board)
         state_repo.save_state(GameState())
         printer = ConsoleBoardPrinter()
@@ -285,10 +285,10 @@ class TestCommandExecutor(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestGameService(unittest.TestCase):
-    def _build_service(self) -> tuple[GameService, InMemoryBoardrepositories,
-                                       InMemoryGameStaterepositories]:
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+    def _build_service(self) -> tuple[GameService, InMemoryBoardRepository,
+                                       InMemoryGameStateRepository]:
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         parser = SimpleBoardParser()
         validator = BoardValidator()
 

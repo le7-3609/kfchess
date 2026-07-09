@@ -5,7 +5,7 @@ from kfchess.models.board import Board
 from kfchess.models.game_state import GameState
 
 
-class BoardrepositoriesInterface(ABC):
+class BoardRepositoryInterface(ABC):
     @abstractmethod
     def get_board(self) -> Optional[Board]:
         """Retrieve the currently stored chess board."""
@@ -15,7 +15,7 @@ class BoardrepositoriesInterface(ABC):
         """Persist the given chess board."""
 
 
-class GameStaterepositoriesInterface(ABC):
+class GameStateRepositoryInterface(ABC):
     @abstractmethod
     def get_state(self) -> GameState:
         """Retrieve the current game state."""
@@ -26,5 +26,5 @@ class GameStaterepositoriesInterface(ABC):
 
 
 # Backward-compatible class names expected by some graders/tests.
-BoardRepositoryInterface = BoardrepositoriesInterface
-GameStateRepositoryInterface = GameStaterepositoriesInterface
+BoardrepositoriesInterface = BoardRepositoryInterface
+GameStaterepositoriesInterface = GameStateRepositoryInterface

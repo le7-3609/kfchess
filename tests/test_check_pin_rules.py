@@ -4,22 +4,22 @@ from kfchess.models.piece import TextPiece as Piece
 from kfchess.rules.promotion_rules import StandardPawnPromotion
 from kfchess.rules.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
 from kfchess.config.game_config import GameConfig
-from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
+from kfchess.repositories.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_service import GameService
 from kfchess.rules.move_validator_factory import MoveValidatorFactory
-from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.board_parser import SimpleBoardParser
 from kfchess.rules.path_checker import PathChecker
-from kfchess.services.printer import ConsoleBoardPrinter
-from kfchess.services.validator import BoardValidator
+from kfchess.services.board_printer import ConsoleBoardPrinter
+from kfchess.services.board_validator import BoardValidator
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 from kfchess.services.game_play_state import GamePlayStateFactory
 
 
-def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, InMemoryGameStaterepositories, MoveEventPublisher]:
-    board_repo = InMemoryBoardrepositories()
-    state_repo = InMemoryGameStaterepositories()
+def _build_realtime_service() -> tuple[GameService, InMemoryBoardRepository, InMemoryGameStateRepository, MoveEventPublisher]:
+    board_repo = InMemoryBoardRepository()
+    state_repo = InMemoryGameStateRepository()
     parser = SimpleBoardParser()
     validator = BoardValidator()
     printer = ConsoleBoardPrinter()

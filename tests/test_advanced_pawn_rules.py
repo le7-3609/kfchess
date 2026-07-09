@@ -5,22 +5,22 @@ import unittest
 
 from kfchess.models.board import Board, Position
 from kfchess.models.piece import TextPiece as Piece, PieceFactory
-from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
+from kfchess.repositories.in_memory import InMemoryBoardRepository, InMemoryGameStateRepository
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_service import GameService
 from kfchess.rules.move_validator_factory import MoveValidatorFactory
-from kfchess.services.parser import SimpleBoardParser
+from kfchess.services.board_parser import SimpleBoardParser
 from kfchess.rules.path_checker import PathChecker
-from kfchess.services.printer import ConsoleBoardPrinter
-from kfchess.services.validator import BoardValidator
+from kfchess.services.board_printer import ConsoleBoardPrinter
+from kfchess.services.board_validator import BoardValidator
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
 from kfchess.services.game_play_state import GamePlayStateFactory
 
 
-def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, InMemoryGameStaterepositories, MoveEventPublisher]:
-    board_repo = InMemoryBoardrepositories()
-    state_repo = InMemoryGameStaterepositories()
+def _build_realtime_service() -> tuple[GameService, InMemoryBoardRepository, InMemoryGameStateRepository, MoveEventPublisher]:
+    board_repo = InMemoryBoardRepository()
+    state_repo = InMemoryGameStateRepository()
     parser = SimpleBoardParser()
     validator = BoardValidator()
     printer = ConsoleBoardPrinter()
@@ -285,8 +285,8 @@ class TestAdvancedPawnRules(unittest.TestCase):
 
     def test_airborne_piece_captures_arriving_enemy_instant(self) -> None:
         """User Test 2: wK jumps at (1, 0) and bR moves to (1, 0) instantly. wK captures bR."""
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         parser = SimpleBoardParser()
         validator = BoardValidator()
         printer = ConsoleBoardPrinter()
@@ -354,8 +354,8 @@ class TestAdvancedPawnRules(unittest.TestCase):
 
     def test_jump_too_late_does_not_save_piece_instant(self) -> None:
         """User Test 3: bR moves to (1, 0) instantly. wK is captured before it can jump."""
-        board_repo = InMemoryBoardrepositories()
-        state_repo = InMemoryGameStaterepositories()
+        board_repo = InMemoryBoardRepository()
+        state_repo = InMemoryGameStateRepository()
         parser = SimpleBoardParser()
         validator = BoardValidator()
         printer = ConsoleBoardPrinter()
