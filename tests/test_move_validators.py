@@ -1,3 +1,4 @@
+from kfchess.config.game_config import GameConfig
 """Tests for per-piece movement validators (Strategy pattern) and their
 integration with CommandExecutor (via the Factory and Observer).
 
@@ -13,13 +14,13 @@ import unittest
 
 from kfchess.models.board import Board, Position
 from kfchess.models.game_state import GameState
-from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.interfaces import MoveEventListener
-from kfchess.services.move_validator_factory import MoveValidatorFactory
-from kfchess.services.move_validators import (
+from kfchess.rules.move_validator_factory import MoveValidatorFactory
+from kfchess.rules.move_validators import (
     BishopMoveValidator,
     KingMoveValidator,
     KnightMoveValidator,
@@ -27,7 +28,7 @@ from kfchess.services.move_validators import (
     QueenMoveValidator,
     RookMoveValidator,
 )
-from kfchess.services.path_checker import PathChecker
+from kfchess.rules.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 
 
@@ -54,13 +55,23 @@ def _make_executor(board: Board) -> tuple[CommandExecutor,
             pass
 
     publisher = MoveEventPublisher()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     executor = CommandExecutor(
         board_repo,
         state_repo,
         _NullPrinter(),
-        move_validator_factory=MoveValidatorFactory(),
+        move_validator_factory=MoveValidatorFactory(_validators),
         move_event_publisher=publisher,
         path_checker=PathChecker(),
+        config=_cfg,
     )
     return executor, board_repo, state_repo, publisher
 
@@ -217,45 +228,45 @@ class TestKnightMoveValidator(unittest.TestCase):
 
 class TestPawnMoveValidator(unittest.TestCase):
     def setUp(self) -> None:
-        self.v = PawnMoveValidator()
+        self.v = PawnMoveValidator(GameConfig())
 
     def test_white_pawn_legal_geometry(self) -> None:
         # Move up 1 square
-        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 3), Color.WHITE))
+        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 3), "w"))
         # Move diagonally up 1 square (left & right)
-        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 2), Color.WHITE))
-        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 4), Color.WHITE))
+        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 2), "w"))
+        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(5, 4), "w"))
         # Move two spaces forward from start row (row 6)
-        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(4, 3), Color.WHITE))
+        self.assertTrue(self.v.is_legal(_pos(6, 3), _pos(4, 3), "w"))
 
     def test_white_pawn_illegal_geometry(self) -> None:
         # Move down (opposite direction)
-        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(7, 3), Color.WHITE))
+        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(7, 3), "w"))
         # Move sideways
-        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(6, 4), Color.WHITE))
+        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(6, 4), "w"))
         # Move two spaces forward from non-start row (e.g. row 5)
-        self.assertFalse(self.v.is_legal(_pos(5, 3), _pos(3, 3), Color.WHITE))
+        self.assertFalse(self.v.is_legal(_pos(5, 3), _pos(3, 3), "w"))
         # Move diagonally two spaces
-        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(4, 1), Color.WHITE))
+        self.assertFalse(self.v.is_legal(_pos(6, 3), _pos(4, 1), "w"))
 
     def test_black_pawn_legal_geometry(self) -> None:
         # Move down 1 square
-        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 3), Color.BLACK))
+        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 3), "b"))
         # Move diagonally down 1 square (left & right)
-        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 2), Color.BLACK))
-        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 4), Color.BLACK))
+        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 2), "b"))
+        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(2, 4), "b"))
         # Move two spaces forward from start row (row 1)
-        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(3, 3), Color.BLACK))
+        self.assertTrue(self.v.is_legal(_pos(1, 3), _pos(3, 3), "b"))
 
     def test_black_pawn_illegal_geometry(self) -> None:
         # Move up (opposite direction)
-        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(0, 3), Color.BLACK))
+        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(0, 3), "b"))
         # Move sideways
-        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(1, 4), Color.BLACK))
+        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(1, 4), "b"))
         # Move two spaces forward from non-start row (e.g. row 2)
-        self.assertFalse(self.v.is_legal(_pos(2, 3), _pos(4, 3), Color.BLACK))
+        self.assertFalse(self.v.is_legal(_pos(2, 3), _pos(4, 3), "b"))
         # Move diagonally two spaces
-        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(3, 1), Color.BLACK))
+        self.assertFalse(self.v.is_legal(_pos(1, 3), _pos(3, 1), "b"))
 
 
 # ---------------------------------------------------------------------------
@@ -269,12 +280,12 @@ class TestIllegalMoveKeepsSelection(unittest.TestCase):
     remains active.
     """
 
-    def _setup(self, piece_type: PieceType,
+    def _setup(self, piece_type: str,
                start: Position) -> tuple[CommandExecutor,
                                          InMemoryBoardrepositories,
                                          InMemoryGameStaterepositories]:
         board = Board(8, 8)
-        board.set_piece(start, Piece(Color.WHITE, piece_type))
+        board.set_piece(start, Piece("w", piece_type))
         executor, board_repo, state_repo, _ = _make_executor(board)
         return executor, board_repo, state_repo
 
@@ -286,7 +297,7 @@ class TestIllegalMoveKeepsSelection(unittest.TestCase):
 
     def _assert_illegal_move(
         self,
-        piece_type: PieceType,
+        piece_type: str,
         start: Position,
         illegal_target: Position,
     ) -> None:
@@ -303,7 +314,7 @@ class TestIllegalMoveKeepsSelection(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         # Piece must still be at origin.
-        self.assertEqual(board.get_piece(start), Piece(Color.WHITE, piece_type),
+        self.assertEqual(board.get_piece(start), Piece("w", piece_type),
                          "Piece must not move on an illegal click.")
         # Target must remain empty.
         self.assertIsNone(board.get_piece(illegal_target),
@@ -313,19 +324,19 @@ class TestIllegalMoveKeepsSelection(unittest.TestCase):
                          "Selection should persist after an illegal move attempt.")
 
     def test_king_cannot_move_two_squares(self) -> None:
-        self._assert_illegal_move(PieceType.KING, _pos(4, 4), _pos(4, 6))
+        self._assert_illegal_move("K", _pos(4, 4), _pos(4, 6))
 
     def test_rook_cannot_move_diagonally(self) -> None:
-        self._assert_illegal_move(PieceType.ROOK, _pos(4, 4), _pos(6, 6))
+        self._assert_illegal_move("R", _pos(4, 4), _pos(6, 6))
 
     def test_bishop_cannot_move_straight(self) -> None:
-        self._assert_illegal_move(PieceType.BISHOP, _pos(4, 4), _pos(4, 7))
+        self._assert_illegal_move("B", _pos(4, 4), _pos(4, 7))
 
     def test_queen_cannot_move_in_knight_shape(self) -> None:
-        self._assert_illegal_move(PieceType.QUEEN, _pos(4, 4), _pos(6, 5))
+        self._assert_illegal_move("Q", _pos(4, 4), _pos(6, 5))
 
     def test_knight_cannot_move_one_square_straight(self) -> None:
-        self._assert_illegal_move(PieceType.KNIGHT, _pos(4, 4), _pos(4, 5))
+        self._assert_illegal_move("N", _pos(4, 4), _pos(4, 5))
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +355,7 @@ class TestLegalMoveSucceedsAndNotifiesObserver(unittest.TestCase):
 
     def test_rook_moves_straight_and_notifies(self) -> None:
         board = Board(8, 8)
-        rook = Piece(Color.WHITE, PieceType.ROOK)
+        rook = Piece("w", "R")
         start = _pos(0, 0)
         dest  = _pos(0, 5)
         board.set_piece(start, rook)
@@ -374,7 +385,7 @@ class TestLegalMoveSucceedsAndNotifiesObserver(unittest.TestCase):
 
     def test_knight_moves_l_shape_and_notifies(self) -> None:
         board = Board(8, 8)
-        knight = Piece(Color.WHITE, PieceType.KNIGHT)
+        knight = Piece("w", "N")
         start = _pos(4, 4)
         dest  = _pos(2, 5)   # dr=-2, dc=+1  — valid L-shape
         board.set_piece(start, knight)

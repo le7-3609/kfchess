@@ -1,6 +1,7 @@
 from typing import Optional
 
-from kfchess.models.board import Board
+from kfchess.models.board import ArrayBoard as Board, Position
+from kfchess.models.interfaces import BoardInterface, PieceInterface
 from kfchess.models.game_state import GameState
 from kfchess.repositories.interfaces import BoardrepositoriesInterface, GameStaterepositoriesInterface
 

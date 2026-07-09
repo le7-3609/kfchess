@@ -6,13 +6,14 @@ from kfchess.services.game_play_state import GamePlayStateFactory
 from kfchess.services.interfaces import (
     BoardPrinterInterface,
     CommandExecutorInterface,
-    MoveValidatorFactoryInterface,
-    PathCheckerInterface,
     MovementManagerInterface,
 )
+from kfchess.rules.interfaces import (
+    MoveValidatorFactoryInterface,
+    PathCheckerInterface,
+)
 
-# Each board cell is 100×100 pixels.
-_CELL_SIZE_PX: int = 100
+from kfchess.config.game_config import GameConfig
 
 
 class CommandExecutor(CommandExecutorInterface):
@@ -54,6 +55,7 @@ class CommandExecutor(CommandExecutorInterface):
         move_validator_factory: MoveValidatorFactoryInterface,
         move_event_publisher: MoveEventPublisher,
         path_checker: PathCheckerInterface,
+        config: GameConfig,
         movement_manager: Optional[MovementManagerInterface] = None,
         game_play_state_factory: Optional[GamePlayStateFactory] = None,
     ) -> None:
@@ -63,13 +65,17 @@ class CommandExecutor(CommandExecutorInterface):
         self._move_validator_factory = move_validator_factory
         self._move_event_publisher = move_event_publisher
         self._path_checker = path_checker
+        self._config = config
 
         if movement_manager is None:
             from kfchess.services.movement_manager import MovementManager, InstantMovementDuration
+            from kfchess.rules.promotion_rules import StandardPawnPromotion
             movement_manager = MovementManager(
                 duration_strategy=InstantMovementDuration(),
                 move_event_publisher=move_event_publisher,
                 path_checker=path_checker,
+                config=config,
+                promotion_strategy=StandardPawnPromotion(),
             )
         self._movement_manager = movement_manager
 
@@ -120,8 +126,8 @@ class CommandExecutor(CommandExecutorInterface):
         if board is None:
             return
 
-        col = x // _CELL_SIZE_PX
-        row = y // _CELL_SIZE_PX
+        col = x // self._config.cell_size_px
+        row = y // self._config.cell_size_px
         target = Position(row, col)
 
         if not board.is_valid_position(target):
@@ -164,11 +170,11 @@ class CommandExecutor(CommandExecutorInterface):
                 if not selected_piece.can_move():
                     return
 
-                from kfchess.models.piece import Color
-                opp_color = Color.BLACK if selected_piece.color == Color.WHITE else Color.WHITE
-                is_capture = target_piece is not None and target_piece.color == opp_color
+                # Identify opponents based on player configuration
+                # Assuming color is the player's ID, anything else is opponent
+                is_capture = target_piece is not None and target_piece.color != selected_piece.color
                 if not is_capture:
-                    if any(mov.piece.color == opp_color for mov in state.active_movements):
+                    if any(mov.piece.color != selected_piece.color for mov in state.active_movements):
                         return
 
                 validator = self._move_validator_factory.get_validator(
@@ -226,8 +232,8 @@ class CommandExecutor(CommandExecutorInterface):
         if board is None:
             return
 
-        col = x // _CELL_SIZE_PX
-        row = y // _CELL_SIZE_PX
+        col = x // self._config.cell_size_px
+        row = y // self._config.cell_size_px
         target = Position(row, col)
 
         if not board.is_valid_position(target):
@@ -243,7 +249,7 @@ class CommandExecutor(CommandExecutorInterface):
             if not piece.can_move():
                 return
 
-            arrival_ms = state.clock_ms + 1000
+            arrival_ms = state.clock_ms + self._config.jump_duration_ms
             from kfchess.models.game_state import Movement
             mov = Movement(
                 frm=target,

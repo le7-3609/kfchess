@@ -1,14 +1,17 @@
+from kfchess.rules.promotion_rules import StandardPawnPromotion
+from kfchess.rules.move_validators import KingMoveValidator, QueenMoveValidator, RookMoveValidator, BishopMoveValidator, KnightMoveValidator, PawnMoveValidator
+from kfchess.config.game_config import GameConfig
 import unittest
 
 from kfchess.models.board import Position
-from kfchess.models.piece import Color, Piece, PieceType
+from kfchess.models.piece import TextPiece as Piece, PieceFactory
 from kfchess.repositories.in_memory import InMemoryBoardrepositories, InMemoryGameStaterepositories
 from kfchess.services.command_executor import CommandExecutor
 from kfchess.services.event_publisher import MoveEventPublisher
 from kfchess.services.game_service import GameService
-from kfchess.services.move_validator_factory import MoveValidatorFactory
+from kfchess.rules.move_validator_factory import MoveValidatorFactory
 from kfchess.services.parser import SimpleBoardParser
-from kfchess.services.path_checker import PathChecker
+from kfchess.rules.path_checker import PathChecker
 from kfchess.services.printer import ConsoleBoardPrinter
 from kfchess.services.validator import BoardValidator
 from kfchess.services.movement_manager import MovementManager, ChebyshevDistanceDuration
@@ -22,19 +25,40 @@ def _build_realtime_service() -> tuple[GameService, InMemoryBoardrepositories, I
     printer = ConsoleBoardPrinter()
     publisher = MoveEventPublisher()
     path_checker = PathChecker()
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     movement_manager = MovementManager(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=1000),
         move_event_publisher=publisher,
-        path_checker=path_checker
+        path_checker=path_checker,
+        promotion_strategy=StandardPawnPromotion(),
+        config=_cfg
     )
+    _cfg = GameConfig()
+    _validators = {
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(_cfg)
+    }
     executor = CommandExecutor(
         board_repo,
         state_repo,
         printer,
-        move_validator_factory=MoveValidatorFactory(),
+        move_validator_factory=MoveValidatorFactory(_validators),
         move_event_publisher=publisher,
         path_checker=path_checker,
         movement_manager=movement_manager,
+        config=_cfg,
     )
     service = GameService(board_repo, state_repo, parser, validator, executor)
     return service, board_repo, state_repo, publisher
@@ -61,7 +85,7 @@ class TestRealtimeMovement(unittest.TestCase):
         board = board_repo.get_board()
         self.assertIsNotNone(board)
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "R"))
         self.assertIsNone(board.get_piece(Position(0, 2)))
 
         # 2. Wait 1000 ms (less than 2000 ms arrival)
@@ -79,7 +103,7 @@ class TestRealtimeMovement(unittest.TestCase):
         # Still at original position
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "R"))
         self.assertIsNone(board.get_piece(Position(0, 2)))
 
         # 3. Wait another 1000 ms (total 2000 ms, equal to arrival)
@@ -99,7 +123,7 @@ class TestRealtimeMovement(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         self.assertIsNone(board.get_piece(Position(0, 0)))
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
     def test_cannot_select_moving_piece(self) -> None:
         """A piece currently in transit cannot be selected again."""
@@ -134,8 +158,8 @@ class TestRealtimeMovement(unittest.TestCase):
         # Before arrival, bP is still at (0, 2)
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.BLACK, PieceType.PAWN))
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("b", "P"))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "R"))
 
         # Wait 2000 ms
         service.execute([
@@ -151,7 +175,7 @@ class TestRealtimeMovement(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         self.assertIsNone(board.get_piece(Position(0, 0)))
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
     def test_aborted_movement_on_capture(self) -> None:
         """If a moving piece is captured at its source position, its movement is aborted."""
@@ -175,7 +199,7 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.BLACK, PieceType.QUEEN))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("b", "Q"))
         self.assertIsNone(board.get_piece(Position(0, 2)))
 
         # Now wait another 1000 ms (total 2000 ms since start)
@@ -195,7 +219,7 @@ class TestRealtimeMovement(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         # Queen is still at (0, 0), and (0, 2) is still empty (Rook move did not resolve/teleport)
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.BLACK, PieceType.QUEEN))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("b", "Q"))
         self.assertIsNone(board.get_piece(Position(0, 2)))
 
     def test_cannot_redirect_moving_piece(self) -> None:
@@ -238,7 +262,7 @@ class TestRealtimeMovement(unittest.TestCase):
         assert board is not None
         self.assertIsNone(board.get_piece(Position(0, 0)))
         self.assertIsNone(board.get_piece(Position(0, 1)))
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
 
     def test_move_again_immediately_after_arrival(self) -> None:
         """A piece can start moving again immediately after it has arrived at its destination."""
@@ -267,7 +291,7 @@ class TestRealtimeMovement(unittest.TestCase):
         assert board is not None
         self.assertIsNone(board.get_piece(Position(0, 0)))
         self.assertIsNone(board.get_piece(Position(0, 2)))
-        self.assertEqual(board.get_piece(Position(2, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(2, 2)), Piece("w", "R"))
 
     def test_opposite_colors_do_not_move_concurrently(self) -> None:
         """Opposite colors do not move concurrently."""
@@ -293,8 +317,8 @@ class TestRealtimeMovement(unittest.TestCase):
         # wR should have arrived at (0, 2), but bR remains at (2, 0)
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
-        self.assertEqual(board.get_piece(Position(2, 0)), Piece(Color.BLACK, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
+        self.assertEqual(board.get_piece(Position(2, 0)), Piece("b", "R"))
         self.assertIsNone(board.get_piece(Position(2, 2)))
 
     def test_enemy_collision_mid_path(self) -> None:
@@ -322,7 +346,7 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
         self.assertIsNone(board.get_piece(Position(0, 0)))
         self.assertIsNone(board.get_piece(Position(0, 1)))
 
@@ -350,8 +374,8 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.QUEEN))
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "Q"))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "R"))
 
     def test_movement_conflict_blocker(self) -> None:
         """If a piece's path becomes blocked during transit, its movement is aborted at arrival."""
@@ -377,8 +401,8 @@ class TestRealtimeMovement(unittest.TestCase):
 
         board = board_repo.get_board()
         assert board is not None
-        self.assertEqual(board.get_piece(Position(0, 1)), Piece(Color.WHITE, PieceType.QUEEN))
-        self.assertEqual(board.get_piece(Position(0, 0)), Piece(Color.WHITE, PieceType.ROOK))
+        self.assertEqual(board.get_piece(Position(0, 1)), Piece("w", "Q"))
+        self.assertEqual(board.get_piece(Position(0, 0)), Piece("w", "R"))
         self.assertIsNone(board.get_piece(Position(0, 2)))
 
     def test_selection_invalidation_on_capture(self) -> None:
@@ -439,6 +463,6 @@ class TestRealtimeMovement(unittest.TestCase):
         board = board_repo.get_board()
         assert board is not None
         # wR arrived at (0, 2), wQ remained at (2, 2) because its move was aborted
-        self.assertEqual(board.get_piece(Position(0, 2)), Piece(Color.WHITE, PieceType.ROOK))
-        self.assertEqual(board.get_piece(Position(2, 2)), Piece(Color.WHITE, PieceType.QUEEN))
+        self.assertEqual(board.get_piece(Position(0, 2)), Piece("w", "R"))
+        self.assertEqual(board.get_piece(Position(2, 2)), Piece("w", "Q"))
         self.assertIsNone(board.get_piece(Position(0, 0)))
