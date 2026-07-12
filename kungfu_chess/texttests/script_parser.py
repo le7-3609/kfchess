@@ -1,0 +1,86 @@
+"""Script parser — parses .kfc text test scripts (Layer 8 Text test runner).
+
+Owns: parsing the .kfc DSL into sections: Board, Commands, and expected output.
+Must not own: movement rules, direct Board mutation, or duplicated game logic.
+
+.kfc file format::
+
+    Board:
+    wK . . .
+    . wR . bK
+    Commands:
+    click 50 50
+    click 350 50
+    print board
+    Expected:
+    wK . . .
+    . . . wR
+"""
+
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+
+@dataclass
+class KfcScript:
+    """Parsed representation of a .kfc integration test script."""
+
+    board_lines: List[str] = field(default_factory=list)
+    """Raw board rows (string lines, not yet tokenized)."""
+
+    commands: List[str] = field(default_factory=list)
+    """Ordered list of command strings."""
+
+    expected_output: Optional[str] = None
+    """Optional expected stdout output (None means no assertion)."""
+
+
+class ScriptParser:
+    """Parses the .kfc text test script DSL into a KfcScript object."""
+
+    def parse_file(self, path: str) -> KfcScript:
+        """Read and parse the .kfc script at *path*."""
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+        return self.parse_lines(lines)
+
+    def parse_lines(self, lines: List[str]) -> KfcScript:
+        """Parse a list of string lines into a KfcScript."""
+        script = KfcScript()
+        section = None
+
+        for line in lines:
+            stripped = line.rstrip("\n").rstrip("\r")
+            content = stripped.strip()
+
+            if not content or content.startswith("#"):
+                continue  # Skip blank lines and comments.
+
+            if content.startswith("Board:"):
+                section = "board"
+            elif content.startswith("Commands:"):
+                section = "commands"
+            elif content.startswith("Expected:"):
+                section = "expected"
+            else:
+                if section == "board":
+                    script.board_lines.append(content)
+                elif section == "commands":
+                    script.commands.append(content)
+                elif section == "expected":
+                    if script.expected_output is None:
+                        script.expected_output = content + "\n"
+                    else:
+                        script.expected_output += content + "\n"
+
+        return script
+
+    def to_input_lines(self, script: KfcScript) -> List[str]:
+        """Convert a KfcScript back to the flat input format expected by the engine."""
+        lines: List[str] = ["Board:\n"]
+        for row in script.board_lines:
+            lines.append(row + "\n")
+        lines.append("Commands:\n")
+        for cmd in script.commands:
+            lines.append(cmd + "\n")
+        return lines

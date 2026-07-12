@@ -1,0 +1,210 @@
+"""Piece model — piece identity and lifecycle state.
+
+Owns: piece identity (color, type), piece lifecycle state (idle/moving/jumping/cooldown).
+Must not own: pixels, clicks, rendering, script parsing, movement rules, or timing.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Optional
+
+from kungfu_chess.model.position import Position
+
+
+# ---------------------------------------------------------------------------
+# Piece-state interfaces (State Pattern)
+# ---------------------------------------------------------------------------
+
+class PieceStateInterface(ABC):
+    """Abstract interface representing the lifecycle state of a chess piece."""
+
+    @abstractmethod
+    def can_select(self) -> bool:
+        """Return True if the piece can be selected in this state."""
+
+    @abstractmethod
+    def can_move(self) -> bool:
+        """Return True if the piece can start a move in this state."""
+
+
+# ---------------------------------------------------------------------------
+# Concrete piece states
+# ---------------------------------------------------------------------------
+
+class IdleState(PieceStateInterface):
+    """The piece is static on the board — fully available."""
+
+    def can_select(self) -> bool:
+        return True
+
+    def can_move(self) -> bool:
+        return True
+
+
+class MovingState(PieceStateInterface):
+    """The piece is currently sliding between squares."""
+
+    def can_select(self) -> bool:
+        return False
+
+    def can_move(self) -> bool:
+        return False
+
+
+class JumpingState(PieceStateInterface):
+    """The piece is airborne (e.g. Knight mid-jump)."""
+
+    def can_select(self) -> bool:
+        return False
+
+    def can_move(self) -> bool:
+        return False
+
+
+class CooldownState(PieceStateInterface):
+    """The piece has just arrived and is recovering."""
+
+    def can_select(self) -> bool:
+        return False
+
+    def can_move(self) -> bool:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Piece interface
+# ---------------------------------------------------------------------------
+
+class PieceInterface(ABC):
+    """Abstract interface for a game piece.
+
+    Decouples the data representation from game logic, allowing future
+    support for alternative representations (e.g. bitboard pieces).
+    """
+
+    @property
+    @abstractmethod
+    def color(self) -> str:
+        """Returns the piece's color identifier ('w' or 'b')."""
+
+    @property
+    @abstractmethod
+    def piece_type(self) -> str:
+        """Returns the piece's type identifier ('K', 'Q', 'R', 'B', 'N', 'P')."""
+
+    @property
+    @abstractmethod
+    def has_moved(self) -> bool:
+        """Returns True if the piece has ever left its starting square."""
+
+    @abstractmethod
+    def transition_to_moving(self) -> None:
+        """Transition the piece to MovingState."""
+
+    @abstractmethod
+    def transition_to_jumping(self) -> None:
+        """Transition the piece to JumpingState (airborne)."""
+
+    @abstractmethod
+    def transition_to_idle(self) -> None:
+        """Transition the piece back to IdleState."""
+
+    @abstractmethod
+    def transition_to_cooldown(self) -> None:
+        """Transition the piece to CooldownState."""
+
+    @abstractmethod
+    def can_select(self) -> bool:
+        """Query if the piece is selectable in its current state."""
+
+    @abstractmethod
+    def can_move(self) -> bool:
+        """Query if the piece can start a movement in its current state."""
+
+
+# ---------------------------------------------------------------------------
+# Concrete piece implementation — text-based
+# ---------------------------------------------------------------------------
+
+class TextPiece(PieceInterface):
+    """Text-based implementation of a chess piece."""
+
+    def __init__(self, color: str, piece_type: str) -> None:
+        self._color = color
+        self._piece_type = piece_type
+        self._state: PieceStateInterface = IdleState()
+        self._has_moved = False
+
+    @property
+    def color(self) -> str:
+        return self._color
+
+    @property
+    def piece_type(self) -> str:
+        return self._piece_type
+
+    @property
+    def has_moved(self) -> bool:
+        return self._has_moved
+
+    @piece_type.setter
+    def piece_type(self, value: str) -> None:
+        self._piece_type = value
+
+    def transition_to_moving(self) -> None:
+        """Transition the piece to MovingState and mark it as having moved."""
+        self._has_moved = True
+        self._state = MovingState()
+
+    def transition_to_jumping(self) -> None:
+        """Transition the piece to JumpingState."""
+        self._state = JumpingState()
+
+    def transition_to_idle(self) -> None:
+        """Transition the piece back to IdleState."""
+        self._state = IdleState()
+
+    def transition_to_cooldown(self) -> None:
+        """Transition the piece to CooldownState."""
+        self._state = CooldownState()
+
+    def can_select(self) -> bool:
+        """Query if the piece is selectable in its current state."""
+        return self._state.can_select()
+
+    def can_move(self) -> bool:
+        """Query if the piece can start a movement in its current state."""
+        return self._state.can_move()
+
+    def __str__(self) -> str:
+        return f"{self._color}{self._piece_type}"
+
+    def __repr__(self) -> str:
+        return f"TextPiece({self._color!r}, {self._piece_type!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PieceInterface):
+            return False
+        return self.color == other.color and self.piece_type == other.piece_type
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+class PieceFactory:
+    """Factory to create TextPiece instances from string tokens like 'wK'."""
+
+    VALID_COLORS = frozenset(('w', 'b'))
+    VALID_TYPES = frozenset(('K', 'Q', 'R', 'B', 'N', 'P'))
+
+    @staticmethod
+    def from_string(token: str) -> Optional[PieceInterface]:
+        """Return a TextPiece for *token*, or None if the token is invalid."""
+        if len(token) != 2:
+            return None
+        color_char, piece_char = token[0], token[1]
+        if color_char not in PieceFactory.VALID_COLORS:
+            return None
+        if piece_char not in PieceFactory.VALID_TYPES:
+            return None
+        return TextPiece(color_char, piece_char)

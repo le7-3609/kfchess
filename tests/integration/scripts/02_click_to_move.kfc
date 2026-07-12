@@ -1,0 +1,12 @@
+# Integration test: 02 — Click-to-move
+# Select wK at (0,0) then move it one square right to (0,1).
+Board:
+wK . . .
+. wR . bK
+Commands:
+click 50 50
+click 150 50
+print board
+Expected:
+. wK . .
+. wR . bK

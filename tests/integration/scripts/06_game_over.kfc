@@ -1,0 +1,14 @@
+# Integration test: 06 — Game over (king captured ends game)
+# After wR captures bK, a subsequent click should be ignored (game over).
+Board:
+wK . . .
+. wR . bK
+Commands:
+click 150 150
+click 350 150
+click 50 50
+click 150 50
+print board
+Expected:
+wK . . .
+. . . wR

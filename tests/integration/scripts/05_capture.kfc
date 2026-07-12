@@ -1,0 +1,12 @@
+# Integration test: 05 — Capture
+# White rook captures the black king.
+Board:
+wK . . .
+. wR . bK
+Commands:
+click 150 150
+click 350 150
+print board
+Expected:
+wK . . .
+. . . wR
