@@ -17,6 +17,7 @@ The core gameplay centers on continuous action where players do not wait for tur
   * A jumping piece (e.g., Knight, or piece jumping in-place) is "airborne."
   * It is immune to intermediate path blocking and regular path collisions while in the air.
   * If an enemy piece attempts to land on the jumping piece's square while it is airborne, the jumping piece captures the landing piece.
+* **Cooldown**: After a piece arrives at its destination or completes a jump, it enters a cooldown period. During this time, the piece cannot be selected or moved. The cooldown duration is configurable (e.g., via `cooldown_duration_ms`).
 
 ---
 ## Architecture and Design Patterns
