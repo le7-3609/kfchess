@@ -81,27 +81,27 @@ class GamePlayState(ABC):
     """Represents the current play state (active or game-over)."""
 
     @abstractmethod
-    def handle_click(self, engine: 'GameEngine', x: int, y: int) -> None:
+    def handle_click(self, engine: 'GameEngine', target: Position) -> None:
         """Handle a click in this state."""
 
     @abstractmethod
-    def handle_jump(self, engine: 'GameEngine', x: int, y: int) -> None:
+    def handle_jump(self, engine: 'GameEngine', target: Position) -> None:
         """Handle a jump in this state."""
 
 
 class ActivePlayState(GamePlayState):
-    def handle_click(self, engine: 'GameEngine', x: int, y: int) -> None:
-        engine._execute_active_click(x, y)
+    def handle_click(self, engine: 'GameEngine', target: Position) -> None:
+        engine._execute_active_click(target)
 
-    def handle_jump(self, engine: 'GameEngine', x: int, y: int) -> None:
-        engine._execute_active_jump(x, y)
+    def handle_jump(self, engine: 'GameEngine', target: Position) -> None:
+        engine._execute_active_jump(target)
 
 
 class GameOverPlayState(GamePlayState):
-    def handle_click(self, engine: 'GameEngine', x: int, y: int) -> None:
+    def handle_click(self, engine: 'GameEngine', target: Position) -> None:
         pass  # Ignored after game over.
 
-    def handle_jump(self, engine: 'GameEngine', x: int, y: int) -> None:
+    def handle_jump(self, engine: 'GameEngine', target: Position) -> None:
         pass  # Ignored after game over.
 
 
@@ -161,6 +161,9 @@ class GameEngine:
         self._move_event_publisher = move_event_publisher
         self._path_checker = path_checker
         self._config = config
+
+        from kungfu_chess.input.board_mapper import BoardMapper
+        self._board_mapper = BoardMapper(self._config.cell_size_px)
 
         # Arbiter — default to instant movement if not provided.
         if arbiter is None:
@@ -276,18 +279,20 @@ class GameEngine:
 
     def _handle_click(self, x: int, y: int) -> None:
         self._resolve_pending()
-        state = self._state_repo.get_state()
-        play_state = self._game_play_state_factory.get_state(state.game_over)
-        play_state.handle_click(self, x, y)
-
-    def _execute_active_click(self, x: int, y: int) -> None:
         board = self._board_repo.get_board()
         if board is None:
             return
+        target = self._board_mapper.pixel_to_position(x, y, board)
+        if target is None:
+            return
+        state = self._state_repo.get_state()
+        play_state = self._game_play_state_factory.get_state(state.game_over)
+        play_state.handle_click(self, target)
 
-        col = x // self._config.cell_size_px
-        row = y // self._config.cell_size_px
-        target = Position(row, col)
+    def _execute_active_click(self, target: Position) -> None:
+        board = self._board_repo.get_board()
+        if board is None:
+            return
 
         if not board.is_valid_position(target):
             return
@@ -309,7 +314,7 @@ class GameEngine:
                 else:
                     state.selected_pos = None
             elif target == state.selected_pos:
-                self._execute_active_jump(x, y)
+                self._execute_active_jump(target)
             elif target_piece is not None and target_piece.color == selected_piece.color:
                 # Castling check
                 if (selected_piece.piece_type in self._config.king_pieces
@@ -371,18 +376,20 @@ class GameEngine:
 
     def _handle_jump(self, x: int, y: int) -> None:
         self._resolve_pending()
-        state = self._state_repo.get_state()
-        play_state = self._game_play_state_factory.get_state(state.game_over)
-        play_state.handle_jump(self, x, y)
-
-    def _execute_active_jump(self, x: int, y: int) -> None:
         board = self._board_repo.get_board()
         if board is None:
             return
+        target = self._board_mapper.pixel_to_position(x, y, board)
+        if target is None:
+            return
+        state = self._state_repo.get_state()
+        play_state = self._game_play_state_factory.get_state(state.game_over)
+        play_state.handle_jump(self, target)
 
-        col = x // self._config.cell_size_px
-        row = y // self._config.cell_size_px
-        target = Position(row, col)
+    def _execute_active_jump(self, target: Position) -> None:
+        board = self._board_repo.get_board()
+        if board is None:
+            return
 
         if not board.is_valid_position(target):
             return
