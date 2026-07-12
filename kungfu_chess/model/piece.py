@@ -179,7 +179,7 @@ class TextPiece(PieceInterface):
         return f"{self._color}{self._piece_type}"
 
     def __repr__(self) -> str:
-        return f"TextPiece({self._color!r}, {self._piece_type!r})"
+        return f"TextPiece({self._color}, {self._piece_type})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PieceInterface):

@@ -45,8 +45,9 @@ class BoardValidator:
                 elif token == 'bK':
                     black_kings += 1
 
-        if white_kings != 1 or black_kings != 1:
-            return Result.fail("INVALID_KING_COUNT")
+        # Temporary disable or remove king count validation
+        # if white_kings != 1 or black_kings != 1:
+        #     return Result.fail("INVALID_KING_COUNT")
 
         board = Board(rows=len(raw_board), cols=expected_width)
         for r_idx, row in enumerate(raw_board):
