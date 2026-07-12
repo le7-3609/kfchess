@@ -36,9 +36,7 @@ from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
 from kungfu_chess.input.bot import RandomBotInputSource
 
 
-# ---------------------------------------------------------------------------
-# In-memory repository implementations
-# ---------------------------------------------------------------------------
+
 
 class _InMemoryBoardRepo(BoardRepositoryInterface):
     def __init__(self) -> None:
@@ -62,9 +60,7 @@ class _InMemoryStateRepo(GameStateRepositoryInterface):
         self._state = state
 
 
-# ---------------------------------------------------------------------------
-# GameService (thin orchestrator — parse → validate → execute commands)
-# ---------------------------------------------------------------------------
+
 
 class GameService:
     """Thin orchestrator: parse, validate, build board, execute commands."""
@@ -100,42 +96,44 @@ class GameService:
         self._board_repo.save_board(board)
         self._state_repo.save_state(GameState())
 
-        # Dynamically adjust pawn starting rows and promotion ranks based on actual board height H
-        if self._config:
-            self._config.board_rows = board.rows
-            self._config.board_cols = board.cols
-            w_player = self._config.get_player("w")
-            b_player = self._config.get_player("b")
-            if board.rows == 8:
-                if w_player:
-                    w_player.pawn_start_rows = [6]
-                    w_player.promotion_rank = 0
-                if b_player:
-                    b_player.pawn_start_rows = [1]
-                    b_player.promotion_rank = 7
-            else:
-                if w_player:
-                    w_player.pawn_start_rows = [board.rows - 1]
-                    w_player.promotion_rank = 0
-                if b_player:
-                    b_player.pawn_start_rows = [0]
-                    b_player.promotion_rank = board.rows - 1
+        self._adjust_pawn_rules_for_board_height(board)
 
         for cmd in commands:
             self._engine.execute_command(cmd)
-            
-            # Simple bot interleave: bot reacts if game is still active
-            if self._bot and not self._state_repo.get_state().game_over:
-                bot_cmds = self._bot.get_next_commands()
-                for b_cmd in bot_cmds:
-                    self._engine.execute_command(b_cmd)
+            self._trigger_bot_reaction_if_active()
 
         return Result.ok(None)
 
+    def _adjust_pawn_rules_for_board_height(self, board: BoardInterface) -> None:
+        if not self._config:
+            return
+        self._config.board_rows = board.rows
+        self._config.board_cols = board.cols
+        w_player = self._config.get_player("w")
+        b_player = self._config.get_player("b")
+        if board.rows == 8:
+            if w_player:
+                w_player.pawn_start_rows = [6]
+                w_player.promotion_rank = 0
+            if b_player:
+                b_player.pawn_start_rows = [1]
+                b_player.promotion_rank = 7
+        else:
+            if w_player:
+                w_player.pawn_start_rows = [board.rows - 1]
+                w_player.promotion_rank = 0
+            if b_player:
+                b_player.pawn_start_rows = [0]
+                b_player.promotion_rank = board.rows - 1
 
-# ---------------------------------------------------------------------------
-# Public factory function
-# ---------------------------------------------------------------------------
+    def _trigger_bot_reaction_if_active(self) -> None:
+        if self._bot and not self._state_repo.get_state().game_over:
+            bot_cmds = self._bot.get_next_commands()
+            for b_cmd in bot_cmds:
+                self._engine.execute_command(b_cmd)
+
+
+
 
 def build_service(config: GameConfig = None) -> GameService:
     """Construct and wire a fully functional GameService."""

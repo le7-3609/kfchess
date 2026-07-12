@@ -1,4 +1,4 @@
-# Game constants definition
+
 DEFAULT_BOARD_ROWS = 8
 DEFAULT_BOARD_COLS = 8
 DEFAULT_CELL_SIZE_PX = 100
