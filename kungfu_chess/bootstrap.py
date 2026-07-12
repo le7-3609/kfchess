@@ -77,6 +77,7 @@ class GameService:
         validator: BoardValidator,
         engine: GameEngine,
         bot: RandomBotInputSource = None,
+        config: GameConfig = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -84,6 +85,7 @@ class GameService:
         self._validator = validator
         self._engine = engine
         self._bot = bot
+        self._config = config
 
     def execute(self, input_lines: List[str]) -> Result:
         raw_board, commands = self._parser.parse(input_lines)
@@ -94,8 +96,30 @@ class GameService:
         if not validation.is_ok:
             return Result.fail(validation.error)
 
-        self._board_repo.save_board(validation.value)
+        board = validation.value
+        self._board_repo.save_board(board)
         self._state_repo.save_state(GameState())
+
+        # Dynamically adjust pawn starting rows and promotion ranks based on actual board height H
+        if self._config:
+            self._config.board_rows = board.rows
+            self._config.board_cols = board.cols
+            w_player = self._config.get_player("w")
+            b_player = self._config.get_player("b")
+            if board.rows == 8:
+                if w_player:
+                    w_player.pawn_start_rows = [6]
+                    w_player.promotion_rank = 0
+                if b_player:
+                    b_player.pawn_start_rows = [1]
+                    b_player.promotion_rank = 7
+            else:
+                if w_player:
+                    w_player.pawn_start_rows = [board.rows - 1]
+                    w_player.promotion_rank = 0
+                if b_player:
+                    b_player.pawn_start_rows = [0]
+                    b_player.promotion_rank = board.rows - 1
 
         for cmd in commands:
             self._engine.execute_command(cmd)
@@ -164,6 +188,7 @@ def build_service(config: GameConfig = None) -> GameService:
         parser=parser,
         validator=validator,
         engine=engine,
+        config=config,
     )
 def build_realtime_service(
     config: GameConfig = None, 
@@ -246,6 +271,7 @@ def build_realtime_service(
         validator=validator,
         engine=engine,
         bot=bot,
+        config=config,
     )
 
 
