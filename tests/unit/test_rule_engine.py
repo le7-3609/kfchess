@@ -80,19 +80,19 @@ class TestRuleEngine(unittest.TestCase):
         result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
         self.assertEqual(result, MoveValidation(True, "ok"))
 
-    def test_does_not_detect_blocked_path(self) -> None:
-        """RuleEngine's common route excludes path-blocking — that's PathChecker's job."""
+    def test_detects_blocked_path(self) -> None:
+        """legal_destinations is blocking-aware, so RuleEngine's common route is too."""
         board = self._board()
         board.set_piece(Position(3, 0), Piece("w", "R"))
         board.set_piece(Position(3, 4), Piece("b", "P"))
         result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
-        self.assertEqual(result, MoveValidation(True, "ok"))
+        self.assertEqual(result, MoveValidation(False, "illegal_piece_move"))
 
 
 class TestPathChecker(unittest.TestCase):
 
     def setUp(self) -> None:
-        self.pc = PathChecker()
+        self.pc = PathChecker(_make_factory(), GameConfig())
 
     def _board(self, rows: int = 8, cols: int = 8) -> ArrayBoard:
         return ArrayBoard(rows, cols)
@@ -194,7 +194,7 @@ class TestThreatValidator(unittest.TestCase):
     def _setup(self, board: ArrayBoard) -> ThreatValidator:
         config = GameConfig()
         factory = _make_factory()
-        return ThreatValidator(move_validator_factory=factory, path_checker=PathChecker(), config=config)
+        return ThreatValidator(move_validator_factory=factory, path_checker=PathChecker(factory, config), config=config)
 
     def test_king_not_threatened(self) -> None:
         board = ArrayBoard(8, 8)

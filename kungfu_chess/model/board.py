@@ -41,6 +41,10 @@ class BoardInterface(ABC):
         """Return the piece at *pos*, or None if the square is empty."""
 
     @abstractmethod
+    def find_position(self, piece: PieceInterface) -> Optional[Position]:
+        """Return the position of *piece* on the board (by identity), or None if not present."""
+
+    @abstractmethod
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         """Place or remove a piece at *pos*."""
 
@@ -90,6 +94,13 @@ class ArrayBoard(BoardInterface):
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)
         return self._grid[pos.row][pos.col]
+
+    def find_position(self, piece: PieceInterface) -> Optional[Position]:
+        for r in range(self._rows):
+            for c in range(self._cols):
+                if self._grid[r][c] is piece:
+                    return Position(r, c)
+        return None
 
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         if not self.is_valid_position(pos):

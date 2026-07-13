@@ -4,6 +4,7 @@ import unittest
 
 from kungfu_chess.errors import MissingValidatorError
 from kungfu_chess.model.position import Position
+from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.rules.piece_rules import (
     KingMoveValidator,
     QueenMoveValidator,
@@ -18,112 +19,232 @@ from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.model.piece import TextPiece as Piece
 
 
-class TestKingMoveValidator(unittest.TestCase):
-    def setUp(self) -> None:
-        self.v = KingMoveValidator()
-
-    def test_one_square_in_any_direction(self) -> None:
-        frm = Position(4, 4)
-        for dr in (-1, 0, 1):
-            for dc in (-1, 0, 1):
-                if dr == 0 and dc == 0:
-                    self.assertFalse(self.v.is_legal(frm, Position(4, 4)))
-                else:
-                    self.assertTrue(self.v.is_legal(frm, Position(4 + dr, 4 + dc)))
-
-    def test_two_squares_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(4, 4), Position(4, 6)))
-        self.assertFalse(self.v.is_legal(Position(4, 4), Position(2, 4)))
+def _board(rows: int = 8, cols: int = 8) -> ArrayBoard:
+    return ArrayBoard(rows, cols)
 
 
 class TestRookMoveValidator(unittest.TestCase):
     def setUp(self) -> None:
         self.v = RookMoveValidator()
 
-    def test_horizontal_move(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(3, 0), Position(3, 7)))
+    def test_moves_across_empty_row_and_column(self) -> None:
+        board = _board()
+        rook = Piece("w", "R")
+        board.add_piece(Position(3, 3), rook)
+        destinations = self.v.legal_destinations(board, rook)
+        expected = {Position(3, c) for c in range(8) if c != 3}
+        expected |= {Position(r, 3) for r in range(8) if r != 3}
+        self.assertEqual(destinations, expected)
 
-    def test_vertical_move(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(0, 5), Position(7, 5)))
+    def test_stops_before_friendly_blocker(self) -> None:
+        board = _board()
+        rook = Piece("w", "R")
+        board.add_piece(Position(3, 3), rook)
+        board.add_piece(Position(3, 6), Piece("w", "P"))
+        destinations = self.v.legal_destinations(board, rook)
+        self.assertIn(Position(3, 5), destinations)
+        self.assertNotIn(Position(3, 6), destinations)
+        self.assertNotIn(Position(3, 7), destinations)
 
-    def test_diagonal_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(0, 0), Position(3, 3)))
-
-    def test_no_move_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(3, 3), Position(3, 3)))
+    def test_captures_enemy_blocker_but_does_not_pass_it(self) -> None:
+        board = _board()
+        rook = Piece("w", "R")
+        board.add_piece(Position(3, 3), rook)
+        board.add_piece(Position(3, 6), Piece("b", "P"))
+        destinations = self.v.legal_destinations(board, rook)
+        self.assertIn(Position(3, 5), destinations)
+        self.assertIn(Position(3, 6), destinations)
+        self.assertNotIn(Position(3, 7), destinations)
 
 
 class TestBishopMoveValidator(unittest.TestCase):
     def setUp(self) -> None:
         self.v = BishopMoveValidator()
 
-    def test_diagonal_move(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(0, 0), Position(4, 4)))
-        self.assertTrue(self.v.is_legal(Position(4, 4), Position(1, 1)))
+    def test_moves_diagonally_not_straight(self) -> None:
+        board = _board()
+        bishop = Piece("w", "B")
+        board.add_piece(Position(4, 4), bishop)
+        destinations = self.v.legal_destinations(board, bishop)
+        for pos in destinations:
+            self.assertEqual(abs(pos.row - 4), abs(pos.col - 4))
+        self.assertIn(Position(0, 0), destinations)
+        self.assertIn(Position(7, 7), destinations)
+        self.assertNotIn(Position(4, 0), destinations)
 
-    def test_horizontal_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(3, 3), Position(3, 6)))
+    def test_stops_before_friendly_blocker(self) -> None:
+        board = _board()
+        bishop = Piece("w", "B")
+        board.add_piece(Position(4, 4), bishop)
+        board.add_piece(Position(6, 6), Piece("w", "N"))
+        destinations = self.v.legal_destinations(board, bishop)
+        self.assertIn(Position(5, 5), destinations)
+        self.assertNotIn(Position(6, 6), destinations)
+        self.assertNotIn(Position(7, 7), destinations)
 
-    def test_no_move_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(3, 3), Position(3, 3)))
+    def test_captures_enemy_blocker_but_does_not_pass_it(self) -> None:
+        board = _board()
+        bishop = Piece("w", "B")
+        board.add_piece(Position(4, 4), bishop)
+        board.add_piece(Position(6, 6), Piece("b", "N"))
+        destinations = self.v.legal_destinations(board, bishop)
+        self.assertIn(Position(5, 5), destinations)
+        self.assertIn(Position(6, 6), destinations)
+        self.assertNotIn(Position(7, 7), destinations)
 
 
 class TestQueenMoveValidator(unittest.TestCase):
     def setUp(self) -> None:
         self.v = QueenMoveValidator()
 
-    def test_straight_move(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(3, 3), Position(3, 7)))
+    def test_combines_rook_and_bishop_movement(self) -> None:
+        board = _board()
+        queen = Piece("w", "Q")
+        board.add_piece(Position(3, 3), queen)
+        destinations = self.v.legal_destinations(board, queen)
+        self.assertIn(Position(3, 7), destinations)  # rook-like
+        self.assertIn(Position(0, 0), destinations)  # bishop-like
+        self.assertNotIn(Position(4, 6), destinations)  # neither straight nor diagonal
 
-    def test_diagonal_move(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(3, 3), Position(6, 6)))
+    def test_stops_before_friendly_blocker(self) -> None:
+        board = _board()
+        queen = Piece("w", "Q")
+        board.add_piece(Position(3, 3), queen)
+        board.add_piece(Position(3, 6), Piece("w", "P"))
+        destinations = self.v.legal_destinations(board, queen)
+        self.assertIn(Position(3, 5), destinations)
+        self.assertNotIn(Position(3, 6), destinations)
+        self.assertNotIn(Position(3, 7), destinations)
 
-    def test_l_shape_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(0, 0), Position(1, 2)))
+    def test_captures_enemy_blocker_but_does_not_pass_it(self) -> None:
+        board = _board()
+        queen = Piece("w", "Q")
+        board.add_piece(Position(3, 3), queen)
+        board.add_piece(Position(0, 0), Piece("b", "N"))
+        destinations = self.v.legal_destinations(board, queen)
+        self.assertIn(Position(1, 1), destinations)
+        self.assertIn(Position(0, 0), destinations)
 
 
 class TestKnightMoveValidator(unittest.TestCase):
     def setUp(self) -> None:
         self.v = KnightMoveValidator()
 
-    def test_valid_l_shapes(self) -> None:
-        frm = Position(4, 4)
-        valid_targets = [
-            Position(2, 3), Position(2, 5),
-            Position(6, 3), Position(6, 5),
-            Position(3, 2), Position(3, 6),
-            Position(5, 2), Position(5, 6),
-        ]
-        for target in valid_targets:
-            self.assertTrue(self.v.is_legal(frm, target), f"Expected legal: {frm} -> {target}")
+    def test_jumps_over_blockers(self) -> None:
+        board = _board()
+        knight = Piece("w", "N")
+        board.add_piece(Position(4, 4), knight)
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                board.add_piece(Position(4 + dr, 4 + dc), Piece("w", "P"))
+        destinations = self.v.legal_destinations(board, knight)
+        expected = {
+            Position(2, 3), Position(2, 5), Position(6, 3), Position(6, 5),
+            Position(3, 2), Position(3, 6), Position(5, 2), Position(5, 6),
+        }
+        self.assertEqual(destinations, expected)
 
-    def test_straight_move_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(4, 4), Position(4, 6)))
+    def test_excludes_friendly_includes_enemy(self) -> None:
+        board = _board()
+        knight = Piece("w", "N")
+        board.add_piece(Position(4, 4), knight)
+        board.add_piece(Position(2, 3), Piece("w", "P"))
+        board.add_piece(Position(2, 5), Piece("b", "P"))
+        destinations = self.v.legal_destinations(board, knight)
+        self.assertNotIn(Position(2, 3), destinations)
+        self.assertIn(Position(2, 5), destinations)
+
+
+class TestKingMoveValidator(unittest.TestCase):
+    """Castling is a separate, stateful special move — see test_castling_validator.py."""
+
+    def setUp(self) -> None:
+        self.v = KingMoveValidator()
+
+    def test_moves_one_cell_only(self) -> None:
+        board = _board()
+        king = Piece("w", "K")
+        board.add_piece(Position(4, 4), king)
+        destinations = self.v.legal_destinations(board, king)
+        self.assertEqual(len(destinations), 8)
+        for pos in destinations:
+            self.assertLessEqual(max(abs(pos.row - 4), abs(pos.col - 4)), 1)
+
+    def test_excludes_friendly_includes_enemy(self) -> None:
+        board = _board()
+        king = Piece("w", "K")
+        board.add_piece(Position(4, 4), king)
+        board.add_piece(Position(4, 5), Piece("w", "P"))
+        board.add_piece(Position(5, 5), Piece("b", "P"))
+        destinations = self.v.legal_destinations(board, king)
+        self.assertNotIn(Position(4, 5), destinations)
+        self.assertIn(Position(5, 5), destinations)
 
 
 class TestPawnMoveValidator(unittest.TestCase):
+    """En passant is a separate, stateful special move — see PathChecker.can_land."""
+
     def setUp(self) -> None:
         self.config = GameConfig()
         self.v = PawnMoveValidator(self.config)
 
-    def test_white_forward_one(self) -> None:
-        # white moves up (decreasing row)
-        self.assertTrue(self.v.is_legal(Position(5, 3), Position(4, 3), color="w"))
+    def test_white_forward_and_double_step_from_start(self) -> None:
+        board = _board()
+        pawn = Piece("w", "P")
+        board.add_piece(Position(6, 3), pawn)
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertEqual(destinations, {Position(5, 3), Position(4, 3)})
 
-    def test_white_forward_two_from_start(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(6, 3), Position(4, 3), color="w"))
+    def test_double_step_blocked_if_single_step_occupied(self) -> None:
+        board = _board()
+        pawn = Piece("w", "P")
+        board.add_piece(Position(6, 3), pawn)
+        board.add_piece(Position(5, 3), Piece("b", "N"))
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertNotIn(Position(5, 3), destinations)
+        self.assertNotIn(Position(4, 3), destinations)
 
-    def test_white_forward_two_not_from_start(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(4, 3), Position(2, 3), color="w"))
+    def test_forward_move_blocked_by_any_piece(self) -> None:
+        board = _board()
+        pawn = Piece("w", "P")
+        board.add_piece(Position(5, 3), pawn)
+        board.add_piece(Position(4, 3), Piece("b", "N"))
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertNotIn(Position(4, 3), destinations)
 
-    def test_white_diagonal_capture(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(5, 3), Position(4, 4), color="w"))
+    def test_diagonal_capture_only_when_enemy_present(self) -> None:
+        board = _board()
+        pawn = Piece("w", "P")
+        board.add_piece(Position(5, 3), pawn)
+        board.add_piece(Position(4, 4), Piece("b", "N"))
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertIn(Position(4, 4), destinations)
+        self.assertNotIn(Position(4, 2), destinations)
 
-    def test_black_forward_one(self) -> None:
-        self.assertTrue(self.v.is_legal(Position(2, 3), Position(3, 3), color="b"))
+    def test_diagonal_blocked_by_friendly(self) -> None:
+        board = _board()
+        pawn = Piece("w", "P")
+        board.add_piece(Position(5, 3), pawn)
+        board.add_piece(Position(4, 4), Piece("w", "N"))
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertNotIn(Position(4, 4), destinations)
 
-    def test_white_backward_illegal(self) -> None:
-        self.assertFalse(self.v.is_legal(Position(5, 3), Position(6, 3), color="w"))
+    def test_black_forward_direction(self) -> None:
+        board = _board()
+        pawn = Piece("b", "P")
+        board.add_piece(Position(1, 3), pawn)
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertEqual(destinations, {Position(2, 3), Position(3, 3)})
+
+    def test_en_passant_square_not_included(self) -> None:
+        board = _board()
+        pawn = Piece("w", "P")
+        board.add_piece(Position(3, 3), pawn)
+        board.add_piece(Position(3, 4), Piece("b", "P"))
+        destinations = self.v.legal_destinations(board, pawn)
+        self.assertNotIn(Position(2, 4), destinations)
 
 
 class TestMoveValidatorFactory(unittest.TestCase):
@@ -168,52 +289,6 @@ class TestStandardPawnPromotion(unittest.TestCase):
         piece = Piece("b", "P")
         promo.evaluate_promotion(piece, Position(config.board_rows - 1, 2), config)
         self.assertEqual(piece.piece_type, "Q")
-
-
-class TestGetCandidateTargets(unittest.TestCase):
-    def setUp(self) -> None:
-        self.config = GameConfig()
-
-    def test_king_candidate_targets(self) -> None:
-        v = KingMoveValidator()
-        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
-        self.assertEqual(len(targets), 8)
-        # On edge
-        targets_edge = v.get_candidate_targets(Position(0, 0), "w", 8, 8)
-        self.assertEqual(len(targets_edge), 3)
-
-    def test_knight_candidate_targets(self) -> None:
-        v = KnightMoveValidator()
-        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
-        self.assertEqual(len(targets), 8)
-        # On edge
-        targets_edge = v.get_candidate_targets(Position(0, 0), "w", 8, 8)
-        self.assertEqual(set(targets_edge), {Position(1, 2), Position(2, 1)})
-
-    def test_rook_candidate_targets(self) -> None:
-        v = RookMoveValidator()
-        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
-        self.assertEqual(len(targets), 14)
-
-    def test_bishop_candidate_targets(self) -> None:
-        v = BishopMoveValidator()
-        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
-        self.assertEqual(len(targets), 13)
-
-    def test_queen_candidate_targets(self) -> None:
-        v = QueenMoveValidator()
-        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
-        self.assertEqual(len(targets), 27)
-
-    def test_pawn_candidate_targets(self) -> None:
-        v = PawnMoveValidator(self.config)
-        # White pawn starting row (6)
-        targets_start = v.get_candidate_targets(Position(6, 4), "w", 8, 8)
-        self.assertEqual(set(targets_start), {Position(5, 4), Position(4, 4), Position(5, 3), Position(5, 5)})
-
-        # Black pawn starting row (1)
-        targets_start_black = v.get_candidate_targets(Position(1, 4), "b", 8, 8)
-        self.assertEqual(set(targets_start_black), {Position(2, 4), Position(3, 4), Position(2, 3), Position(2, 5)})
 
 
 if __name__ == "__main__":

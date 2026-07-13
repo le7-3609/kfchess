@@ -73,6 +73,14 @@ class ProxyBoard(BoardInterface):
             return piece
         return None
 
+    def find_position(self, piece: PieceInterface) -> Optional[Position]:
+        for r in range(self._rows):
+            for c in range(self._cols):
+                pos = Position(r, c)
+                if self.get_piece(pos) is piece:
+                    return pos
+        return None
+
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)

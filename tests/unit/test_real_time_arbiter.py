@@ -13,15 +13,35 @@ from kungfu_chess.realtime.real_time_arbiter import (
     ProxyBoard,
 )
 from kungfu_chess.rules.rule_engine import PathChecker
-from kungfu_chess.rules.piece_rules import StandardPawnPromotion
+from kungfu_chess.rules.piece_rules import (
+    StandardPawnPromotion,
+    MoveValidatorFactory,
+    KingMoveValidator,
+    QueenMoveValidator,
+    RookMoveValidator,
+    BishopMoveValidator,
+    KnightMoveValidator,
+    PawnMoveValidator,
+)
 from kungfu_chess.config.game_config import GameConfig
+
+
+def _make_factory(config: GameConfig) -> MoveValidatorFactory:
+    return MoveValidatorFactory({
+        "K": KingMoveValidator(),
+        "Q": QueenMoveValidator(),
+        "R": RookMoveValidator(),
+        "B": BishopMoveValidator(),
+        "N": KnightMoveValidator(),
+        "P": PawnMoveValidator(config),
+    })
 
 
 def _make_arbiter(ms_per_square: int = 1000) -> RealTimeArbiter:
     config = GameConfig()
     return RealTimeArbiter(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=ms_per_square),
-        path_checker=PathChecker(),
+        path_checker=PathChecker(_make_factory(config), config),
         config=config,
         promotion_strategy=StandardPawnPromotion(),
     )
@@ -81,7 +101,7 @@ class TestResolveMovements(unittest.TestCase):
         state = GameState()
         mov = Movement(frm=Position(0, 0), to=Position(0, 3),
                        piece=rook, start_ms=0, arrival_ms=3000)
-        state.active_movements.append(mov)
+        self.arbiter.register_motion(mov)
         rook.transition_to_moving()
 
         state.clock_ms = 3000
@@ -89,7 +109,7 @@ class TestResolveMovements(unittest.TestCase):
 
         self.assertIsNone(board.get_piece(Position(0, 0)))
         self.assertEqual(board.get_piece(Position(0, 3)), rook)
-        self.assertEqual(len(state.active_movements), 0)
+        self.assertEqual(len(self.arbiter.movements()), 0)
 
     def test_piece_not_arrived_before_time(self) -> None:
         board = ArrayBoard(8, 8)
@@ -99,14 +119,14 @@ class TestResolveMovements(unittest.TestCase):
         state = GameState()
         mov = Movement(frm=Position(0, 0), to=Position(0, 3),
                        piece=rook, start_ms=0, arrival_ms=3000)
-        state.active_movements.append(mov)
+        self.arbiter.register_motion(mov)
         rook.transition_to_moving()
 
         self.arbiter.resolve_movements(board, state, 1000)
 
         self.assertEqual(board.get_piece(Position(0, 0)), rook)
         self.assertIsNone(board.get_piece(Position(0, 3)))
-        self.assertEqual(len(state.active_movements), 1)
+        self.assertEqual(len(self.arbiter.movements()), 1)
 
     def test_capture_on_arrival(self) -> None:
         board = ArrayBoard(8, 8)
@@ -118,7 +138,7 @@ class TestResolveMovements(unittest.TestCase):
         state = GameState()
         mov = Movement(frm=Position(0, 0), to=Position(0, 3),
                        piece=rook, start_ms=0, arrival_ms=3000)
-        state.active_movements.append(mov)
+        self.arbiter.register_motion(mov)
         rook.transition_to_moving()
 
         state.clock_ms = 3000
@@ -137,7 +157,7 @@ class TestResolveMovements(unittest.TestCase):
         state = GameState()
         mov = Movement(frm=Position(0, 0), to=Position(0, 5),
                        piece=rook, start_ms=0, arrival_ms=5000)
-        state.active_movements.append(mov)
+        self.arbiter.register_motion(mov)
         rook.transition_to_moving()
 
         state.clock_ms = 5000
@@ -157,7 +177,7 @@ class TestProxyBoard(unittest.TestCase):
         state = GameState()
         mov = Movement(frm=Position(0, 0), to=Position(0, 3),
                        piece=rook, start_ms=0, arrival_ms=3000)
-        state.active_movements.append(mov)
+        arbiter.register_motion(mov)
 
         proxy = arbiter.get_effective_board(board, state, 1000)
         # At t=1000, rook is at (0, 1) — origin should be empty
@@ -174,7 +194,7 @@ class TestArbiterCollisions(unittest.TestCase):
     def _add_movement(self, piece, frm, to, start, arrival):
         self.board.set_piece(frm, piece)
         mov = Movement(frm=frm, to=to, piece=piece, start_ms=start, arrival_ms=arrival)
-        self.state.active_movements.append(mov)
+        self.arbiter.register_motion(mov)
         piece.transition_to_moving()
         return mov
 
@@ -183,22 +203,22 @@ class TestArbiterCollisions(unittest.TestCase):
         p2 = Piece("b", "R")
         self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
         self._add_movement(p2, Position(0, 4), Position(0, 2), 100, 2100)
-        
+
         self.state.clock_ms = 2000
         self.arbiter.resolve_movements(self.board, self.state, 2000)
         self.state.clock_ms = 2100
         self.arbiter.resolve_movements(self.board, self.state, 2100)
-        
+
         # p1 arrived earlier, so p1 lands on (0, 2). Then p2 arrives and captures p1!
         self.assertEqual(self.board.get_piece(Position(0, 2)), p2)
-        self.assertEqual(len(self.state.active_movements), 0)
+        self.assertEqual(len(self.arbiter.movements()), 0)
 
     def test_swap_path_collision(self) -> None:
         p1 = Piece("w", "R")
         p2 = Piece("b", "R")
         m1 = self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
         m2 = self._add_movement(p2, Position(0, 2), Position(0, 0), 0, 2000)
-        
+
         # They will cross paths at (0, 1)
         self.state.clock_ms = 1000
         self.arbiter.resolve_movements(self.board, self.state, 1000)
@@ -206,7 +226,7 @@ class TestArbiterCollisions(unittest.TestCase):
         # Same start time -> tie-broken by registration order. p2 (registered
         # second) counts as the later arrival and captures p1, per the rule that
         # the later arrival eats the earlier one on an enemy collision.
-        self.assertEqual(len(self.state.active_movements), 1)
+        self.assertEqual(len(self.arbiter.movements()), 1)
         pieces_on_board = sum(1 for r in range(self.board.rows) for c in range(self.board.cols) if self.board.get_piece(Position(r, c)) is not None)
         self.assertEqual(pieces_on_board, 1)
 
@@ -226,7 +246,7 @@ class TestArbiterCollisions(unittest.TestCase):
         # The later arrival (p2) eats the earlier one (p1).
         self.assertEqual(self.board.get_piece(Position(0, 1)), p2)
         self.assertIsNone(self.board.get_piece(Position(0, 0)))
-        self.assertEqual(len(self.state.active_movements), 0)
+        self.assertEqual(len(self.arbiter.movements()), 0)
 
     def test_same_color_later_start_gets_stuck(self) -> None:
         p1 = Piece("w", "R")
@@ -239,8 +259,9 @@ class TestArbiterCollisions(unittest.TestCase):
 
         # The later arrival (p2) is stuck in its previous square, not captured;
         # p1's own move is unaffected and keeps going toward (0, 2).
-        self.assertEqual(len(self.state.active_movements), 1)
-        self.assertTrue(self.state.active_movements[0].piece is p1)
+        remaining = self.arbiter.movements()
+        self.assertEqual(len(remaining), 1)
+        self.assertTrue(remaining[0].piece is p1)
         self.assertEqual(self.board.get_piece(Position(0, 0)), p1)
         self.assertEqual(self.board.get_piece(Position(1, 1)), p2)
         self.assertIsNone(self.board.get_piece(Position(0, 1)))
@@ -287,26 +308,25 @@ class TestArbiterCollisions(unittest.TestCase):
     def test_pawn_promotion(self) -> None:
         p = Piece("w", "P")
         self._add_movement(p, Position(1, 0), Position(0, 0), 0, 1000)
-        
+
         self.state.clock_ms = 1000
         self.arbiter.resolve_movements(self.board, self.state, 1000)
-        
+
         promoted = self.board.get_piece(Position(0, 0))
         self.assertIsNotNone(promoted)
         self.assertEqual(promoted.piece_type, "Q")
-        
+
     def test_cooldown_expiration(self) -> None:
         p = Piece("w", "R")
         p.transition_to_cooldown()
         from kungfu_chess.model.game_state import Cooldown
         self.state.active_cooldowns.append(Cooldown(piece=p, end_ms=1000))
-        
+
         self.state.clock_ms = 1500
         self.arbiter.resolve_movements(self.board, self.state, 1500)
-        
+
         self.assertEqual(len(self.state.active_cooldowns), 0)
         self.assertTrue(p.can_move())
 
 if __name__ == "__main__":
     unittest.main()
-

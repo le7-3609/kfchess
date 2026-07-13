@@ -51,7 +51,7 @@ def _build_core(config: GameConfig, require_kings: bool, duration_strategy):
         "P": PawnMoveValidator(config=config),
     }
     move_validator_factory = MoveValidatorFactory(validators=move_validators)
-    path_checker = PathChecker()
+    path_checker = PathChecker(move_validator_factory, config)
     promotion_strategy = StandardPawnPromotion()
     game_play_state_factory = GamePlayStateFactory()
     board_mapper = BoardMapper(config.cell_size_px)
