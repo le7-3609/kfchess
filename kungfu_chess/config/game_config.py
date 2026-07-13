@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-import consts
+from kungfu_chess.config import consts
 
 
 @dataclass
