@@ -16,6 +16,7 @@ Concrete collaborators live in:
   - engine/castling_commands.py (CastlingCommands)
 """
 
+from dataclasses import dataclass
 from typing import Optional
 
 from kungfu_chess.model.position import Position
@@ -60,8 +61,37 @@ __all__ = [
     "ActivePlayState",
     "GameOverPlayState",
     "GamePlayStateFactory",
+    "GameEngineDependencies",
     "GameEngine",
 ]
+
+
+# ---------------------------------------------------------------------------
+# GameEngineDependencies
+# ---------------------------------------------------------------------------
+
+@dataclass
+class GameEngineDependencies:
+    """Parameter object bundling GameEngine's collaborators.
+
+    Required fields must be supplied by the composition root (bootstrap.py).
+    Optional fields default to standard implementations inside GameEngine
+    when left as None, mirroring the engine's previous constructor defaults.
+    """
+
+    board_repo: BoardRepositoryInterface
+    state_repo: GameStateRepositoryInterface
+    printer: BoardPrinterInterface
+    move_validator_factory: MoveValidatorFactoryInterface
+    move_event_publisher: MoveEventPublisher
+    path_checker: PathCheckerInterface
+    config: 'GameConfig'  # type: ignore[name-defined]
+    board_mapper: PixelMapperInterface
+    arbiter: Optional[RealTimeArbiterInterface] = None
+    game_play_state_factory: Optional[GamePlayStateFactory] = None
+    threat_validator: Optional[ThreatValidator] = None
+    endgame_validator: Optional[EndgameValidator] = None
+    castling_validator: Optional[CastlingValidator] = None
 
 
 # ---------------------------------------------------------------------------
@@ -85,30 +115,27 @@ class GameEngine:
     the Controller — the Controller is a stateless click-to-command translator.
     """
 
-    def __init__(
-        self,
-        board_repo: BoardRepositoryInterface,
-        state_repo: GameStateRepositoryInterface,
-        printer: BoardPrinterInterface,
-        move_validator_factory: MoveValidatorFactoryInterface,
-        move_event_publisher: MoveEventPublisher,
-        path_checker: PathCheckerInterface,
-        config: 'GameConfig',  # type: ignore[name-defined]
-        board_mapper: PixelMapperInterface,
-        arbiter: Optional[RealTimeArbiterInterface] = None,
-        game_play_state_factory: Optional[GamePlayStateFactory] = None,
-        threat_validator: Optional[ThreatValidator] = None,
-        endgame_validator: Optional[EndgameValidator] = None,
-        castling_validator: Optional[CastlingValidator] = None,
-    ) -> None:
+    def __init__(self, deps: GameEngineDependencies) -> None:
+        board_repo = deps.board_repo
+        state_repo = deps.state_repo
+        move_validator_factory = deps.move_validator_factory
+        move_event_publisher = deps.move_event_publisher
+        path_checker = deps.path_checker
+        config = deps.config
+        arbiter = deps.arbiter
+        game_play_state_factory = deps.game_play_state_factory
+        threat_validator = deps.threat_validator
+        endgame_validator = deps.endgame_validator
+        castling_validator = deps.castling_validator
+
         self._board_repo = board_repo
         self._state_repo = state_repo
-        self._printer = printer
+        self._printer = deps.printer
         self._move_validator_factory = move_validator_factory
         self._move_event_publisher = move_event_publisher
         self._path_checker = path_checker
         self._config = config
-        self._board_mapper = board_mapper
+        self._board_mapper = deps.board_mapper
 
         # Arbiter — default to instant movement if not provided.
         if arbiter is None:
@@ -193,6 +220,22 @@ class GameEngine:
             return
         state.selected_pos = source
         self._click_commands.handle_click(state, board, destination)
+
+    def advance_clock(self, ms: int) -> None:
+        """Advance the simulation clock by *ms* and resolve pending motions.
+
+        Public equivalent of the "wait N" text command, for callers that
+        drive the clock from a real event loop (see runtime/async_runner.py)
+        rather than from a scripted command stream. Unlike execute_command,
+        this never parses a command string — it only performs the time
+        advancement + resolve step.
+        """
+        if ms <= 0:
+            return
+        state = self._state_repo.get_state()
+        state.clock_ms += ms
+        self._state_repo.save_state(state)
+        self._resolve_pending()
 
     def execute_command(self, command: str) -> None:
         """Execute a single text command against the current game state."""
@@ -283,12 +326,7 @@ class GameEngine:
         self._click_commands.handle_click(state, board, target)
 
     def _handle_wait(self, ms: int) -> None:
-        if ms <= 0:
-            return
-        state = self._state_repo.get_state()
-        state.clock_ms += ms
-        self._state_repo.save_state(state)
-        self._resolve_pending()
+        self.advance_clock(ms)
 
     def _handle_print_board(self) -> None:
         self._resolve_pending()

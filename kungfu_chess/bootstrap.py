@@ -18,12 +18,16 @@ from kungfu_chess.rules.piece_rules import (
 )
 from kungfu_chess.rules.rule_engine import PathChecker
 from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiter, ChebyshevDistanceDuration, InstantMovementDuration
-from kungfu_chess.engine.game_engine import GameEngine, MoveEventPublisher, GamePlayStateFactory
+from kungfu_chess.engine.game_engine import (
+    GameEngine,
+    GameEngineDependencies,
+    MoveEventPublisher,
+    GamePlayStateFactory,
+)
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_printer import BoardPrinter
 from kungfu_chess.io.board_validator import BoardValidator
 from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
-from kungfu_chess.input.bot import RandomBotInputSource
 from kungfu_chess.input.board_mapper import BoardMapper
 from kungfu_chess.repos import _InMemoryBoardRepo, _InMemoryStateRepo
 from kungfu_chess.service import GameService
@@ -64,7 +68,7 @@ def _build_core(config: GameConfig, require_kings: bool, duration_strategy):
         move_event_publisher=publisher,
     )
 
-    engine = GameEngine(
+    engine = GameEngine(GameEngineDependencies(
         board_repo=board_repo,
         state_repo=state_repo,
         printer=printer,
@@ -75,7 +79,7 @@ def _build_core(config: GameConfig, require_kings: bool, duration_strategy):
         arbiter=arbiter,
         game_play_state_factory=game_play_state_factory,
         board_mapper=board_mapper,
-    )
+    ))
 
     return board_repo, state_repo, parser, validator, move_validator_factory, path_checker, arbiter, engine
 
@@ -103,20 +107,24 @@ def build_realtime_service(
     config: GameConfig = None,
     ms_per_square: int = None,
     replay_file: str = None,
-    bot_color: str = None,
+    bot: InputSourceInterface = None,
     require_kings: bool = True
 ) -> GameService:
     """Construct a GameService with ChebyshevDistanceDuration for real-time movement.
 
     Use this when you want pieces to travel over time (the full Kung Fu Chess experience).
     Use ``build_service()`` for instant-movement tests.
+
+    ``bot`` is injected by the caller (see bot_factory.build_random_bot) rather
+    than constructed here, so this composition root stays free of bot-specific
+    configuration details.
     """
     if config is None:
         config = GameConfig()
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
 
-    board_repo, state_repo, parser, validator, move_validator_factory, path_checker, arbiter, engine = _build_core(
+    board_repo, state_repo, parser, validator, _move_validator_factory, _path_checker, _arbiter, engine = _build_core(
         config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square)
 
     )
@@ -124,25 +132,6 @@ def build_realtime_service(
     if replay_file:
         writer = ReplayWriter(replay_file)
         engine = ReplayEngineDecorator(engine, writer)
-
-    bot = None
-    if bot_color:
-        from kungfu_chess.rules.rule_engine import ThreatValidator, EndgameValidator
-        threat_validator = ThreatValidator(move_validator_factory, path_checker, config)
-        endgame_validator = EndgameValidator(
-            move_validator_factory=move_validator_factory,
-            path_checker=path_checker,
-            movement_manager=arbiter,
-            threat_validator=threat_validator,
-            config=config,
-        )
-        bot = RandomBotInputSource(
-            color=bot_color,
-            board_repo=board_repo,
-            state_repo=state_repo,
-            endgame_validator=endgame_validator,
-            config=config,
-        )
 
     return GameService(
         board_repo=board_repo,
@@ -157,8 +146,8 @@ def build_realtime_service(
 
 def bootstrap() -> None:
     """Entry point: read from stdin and run the game engine with real-time movement."""
-    # To enable replay or bot in normal run, you can pass arguments to build_realtime_service
-    # e.g., replay_file="game.kfr", bot_color="b"
+    # To enable replay in a normal run, pass replay_file to build_realtime_service.
+    # To enable a bot, build one with bot_factory.build_random_bot and pass it in.
     service = build_realtime_service()
     input_lines = sys.stdin.readlines()
     result = service.execute(input_lines)
