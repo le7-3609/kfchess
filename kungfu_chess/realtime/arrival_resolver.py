@@ -143,7 +143,7 @@ class ArrivalResolver:
         is_ep = self._apply_en_passant_capture(board, state, mov, arriving, movements)
         self._maybe_create_en_passant_target(state, mov, t)
 
-        return self._finalize_arrival_cooldown_and_event(state, mov, t, is_capture, is_ep)
+        return self._finalize_arrival_cooldown_and_event(board, state, mov, t, is_capture, is_ep)
 
     def _apply_capture_at_destination(
         self,
@@ -223,11 +223,15 @@ class ArrivalResolver:
                 )
 
     def _finalize_arrival_cooldown_and_event(
-        self, state: GameState, mov: Movement, t: int, is_capture: bool, is_ep: bool
+        self, board: BoardInterface, state: GameState, mov: Movement, t: int, is_capture: bool, is_ep: bool
     ) -> Tuple[bool, bool]:
-        # Promotion.
+        # Promotion: pieces are immutable, so a promotion replaces mov.piece
+        # with a newly constructed piece rather than mutating piece_type.
         if self._promotion_strategy:
-            self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
+            promoted = self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
+            if promoted is not None:
+                mov.piece = promoted
+                board.set_piece(mov.to, promoted)
 
         mov.piece.transition_to_cooldown()
         state.active_cooldowns.append(

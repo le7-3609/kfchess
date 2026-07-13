@@ -27,7 +27,7 @@ from kungfu_chess.config import consts
 from kungfu_chess.errors import MissingValidatorError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
-from kungfu_chess.model.piece import PieceInterface
+from kungfu_chess.model.piece import PieceInterface, TextPiece
 
 
 # ---------------------------------------------------------------------------
@@ -234,19 +234,28 @@ class PromotionStrategyInterface(ABC):
     """Abstract interface for piece promotion rules."""
 
     @abstractmethod
-    def evaluate_promotion(self, piece: PieceInterface, to_pos: Position, config: 'GameConfig') -> None:  # type: ignore[name-defined]
-        """Evaluate and apply any promotion rules to *piece* after it moves to *to_pos*."""
+    def evaluate_promotion(
+        self, piece: PieceInterface, to_pos: Position, config: 'GameConfig'  # type: ignore[name-defined]
+    ) -> Optional[PieceInterface]:
+        """Return a new piece to replace *piece* after it moves to *to_pos*, or None.
+
+        Pieces are immutable value objects: promotion never mutates *piece* in
+        place, it constructs a fresh PieceInterface for the caller to install.
+        """
 
 
 class StandardPawnPromotion(PromotionStrategyInterface):
     """Auto-promotes a pawn to queen when it reaches the opposite back rank."""
 
-    def evaluate_promotion(self, piece: PieceInterface, to_pos: Position, config: 'GameConfig') -> None:  # type: ignore[name-defined]
+    def evaluate_promotion(
+        self, piece: PieceInterface, to_pos: Position, config: 'GameConfig'  # type: ignore[name-defined]
+    ) -> Optional[PieceInterface]:
         if piece.piece_type != "P":
-            return
+            return None
         player_config = config.get_player(piece.color)
         if player_config is None:
-            return
+            return None
         # Determine the promotion rank from the player config.
-        if to_pos.row == player_config.promotion_rank:
-            piece.piece_type = consts.DEFAULT_PROMOTION_PIECE  # type: ignore[misc]
+        if to_pos.row != player_config.promotion_rank:
+            return None
+        return TextPiece(piece.color, consts.DEFAULT_PROMOTION_PIECE, has_moved=True)

@@ -273,22 +273,30 @@ class TestStandardPawnPromotion(unittest.TestCase):
         config = GameConfig()
         promo = StandardPawnPromotion()
         piece = Piece("w", "P")
-        promo.evaluate_promotion(piece, Position(0, 4), config)
-        self.assertEqual(piece.piece_type, "Q")
+        promoted = promo.evaluate_promotion(piece, Position(0, 4), config)
+        self.assertIsNotNone(promoted)
+        self.assertEqual(promoted.piece_type, "Q")
+        self.assertEqual(promoted.color, "w")
+        # The original piece is untouched — promotion never mutates in place.
+        self.assertEqual(piece.piece_type, "P")
+        self.assertIsNot(promoted, piece)
 
     def test_no_promotion_in_middle(self) -> None:
         config = GameConfig()
         promo = StandardPawnPromotion()
         piece = Piece("w", "P")
-        promo.evaluate_promotion(piece, Position(3, 4), config)
+        promoted = promo.evaluate_promotion(piece, Position(3, 4), config)
+        self.assertIsNone(promoted)
         self.assertEqual(piece.piece_type, "P")
 
     def test_promote_black_pawn_at_last_rank(self) -> None:
         config = GameConfig()
         promo = StandardPawnPromotion()
         piece = Piece("b", "P")
-        promo.evaluate_promotion(piece, Position(config.board_rows - 1, 2), config)
-        self.assertEqual(piece.piece_type, "Q")
+        promoted = promo.evaluate_promotion(piece, Position(config.board_rows - 1, 2), config)
+        self.assertIsNotNone(promoted)
+        self.assertEqual(promoted.piece_type, "Q")
+        self.assertEqual(promoted.color, "b")
 
 
 if __name__ == "__main__":
