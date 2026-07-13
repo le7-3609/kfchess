@@ -44,3 +44,4 @@ All modifications to movement, collision, or state resolution must respect the c
 * Maintain consistency in directory and file names. If standardizing class names (e.g., renaming `BoardrepositoriesInterface` to `BoardRepositoryInterface`), apply it consistently across all files and test suites.
 * Preserve docstrings and comments explaining complex real-time simulation logic.
 
+

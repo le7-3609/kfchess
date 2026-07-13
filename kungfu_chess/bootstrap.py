@@ -118,6 +118,7 @@ def build_realtime_service(
 
     board_repo, state_repo, parser, validator, move_validator_factory, path_checker, arbiter, engine = _build_core(
         config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square)
+
     )
 
     if replay_file:

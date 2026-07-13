@@ -55,7 +55,7 @@ class ProxyBoard(BoardInterface):
         return self._cols
 
     def is_valid_position(self, pos: Position) -> bool:
-        return 0 <= pos.row < self._rows and 0 <= pos.col < self._cols
+        return self._board.is_valid_position(pos)
 
     def get_piece(self, pos: Position) -> Optional[PieceInterface]:
         if not self.is_valid_position(pos):

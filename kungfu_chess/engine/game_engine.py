@@ -295,7 +295,7 @@ class GameEngine:
 
     def _execute_active_click(self, target: Position) -> None:
         board = self._board_repo.get_board()
-        if board is None or not board.is_valid_position(target):
+        if board is None:
             return
 
         state = self._state_repo.get_state()
@@ -433,9 +433,6 @@ class GameEngine:
         if board is None:
             return
 
-        if not board.is_valid_position(target):
-            return
-
         state = self._state_repo.get_state()
         piece = board.get_piece(target)
 
@@ -486,14 +483,11 @@ class GameEngine:
         if not self._castle_path_clear(eff_board, king_pos, rook_pos, dc):
             return False
 
-        king_dest_col = king_pos.col + 2 * dc
-        rook_dest_col = king_pos.col + 1 * dc
+        king_dest = Position(king_pos.row, king_pos.col + 2 * dc)
+        rook_dest = Position(rook_pos.row, king_pos.col + 1 * dc)
 
-        if not (0 <= king_dest_col < board.cols) or not (0 <= rook_dest_col < board.cols):
+        if not board.is_valid_position(king_dest) or not board.is_valid_position(rook_dest):
             return False
-
-        king_dest = Position(king_pos.row, king_dest_col)
-        rook_dest = Position(rook_pos.row, rook_dest_col)
 
         if not self._castle_squares_safe(eff_board, king_pos, king_piece, dc, king_dest):
             return False

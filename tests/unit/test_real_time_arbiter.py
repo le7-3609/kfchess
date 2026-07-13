@@ -210,6 +210,43 @@ class TestArbiterCollisions(unittest.TestCase):
         pieces_on_board = sum(1 for r in range(self.board.rows) for c in range(self.board.cols) if self.board.get_piece(Position(r, c)) is not None)
         self.assertEqual(pieces_on_board, 1)
 
+    def test_later_start_wins_enemy_collision(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("b", "R")
+        # p1 starts first (0 ms) on a 2-square move through (0, 1).
+        # p2 starts later (100 ms), approaching from a different row so it
+        # doesn't block p1's path until it actually lands on (0, 1) at the
+        # same tick p1 passes through.
+        self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
+        self._add_movement(p2, Position(1, 1), Position(0, 1), 100, 1100)
+
+        self.state.clock_ms = 1100
+        self.arbiter.resolve_movements(self.board, self.state, 1100)
+
+        # The later arrival (p2) eats the earlier one (p1).
+        self.assertEqual(self.board.get_piece(Position(0, 1)), p2)
+        self.assertIsNone(self.board.get_piece(Position(0, 0)))
+        self.assertEqual(len(self.state.active_movements), 0)
+
+    def test_same_color_later_start_gets_stuck(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("w", "R")
+        self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
+        self._add_movement(p2, Position(1, 1), Position(0, 1), 100, 1100)
+
+        self.state.clock_ms = 1100
+        self.arbiter.resolve_movements(self.board, self.state, 1100)
+
+        # The later arrival (p2) is stuck in its previous square, not captured;
+        # p1's own move is unaffected and keeps going toward (0, 2).
+        self.assertEqual(len(self.state.active_movements), 1)
+        self.assertTrue(self.state.active_movements[0].piece is p1)
+        self.assertEqual(self.board.get_piece(Position(0, 0)), p1)
+        self.assertEqual(self.board.get_piece(Position(1, 1)), p2)
+        self.assertIsNone(self.board.get_piece(Position(0, 1)))
+        self.assertEqual(len(self.state.active_cooldowns), 1)
+        self.assertTrue(self.state.active_cooldowns[0].piece is p2)
+
     def test_jump_collision(self) -> None:
         p1 = Piece("w", "N")
         p2 = Piece("b", "R")
@@ -230,15 +267,17 @@ class TestArbiterCollisions(unittest.TestCase):
         p2 = Piece("b", "R")
         p3 = Piece("w", "P")
 
-        # p2 moves from (0, 2) to (0, 0), starting at 0 ms (so p2 wins the collision)
+        # p2 moves from (0, 2) to (0, 0), starting at 0 ms
         m2 = self._add_movement(p2, Position(0, 2), Position(0, 0), 0, 2000)
-        # p1 moves from (0, 0) to (0, 2), starting at 10 ms (so p1 loses the collision)
+        # p1 moves from (0, 0) to (0, 2), starting at 10 ms
         m1 = self._add_movement(p1, Position(0, 0), Position(0, 2), 10, 2010)
 
         # Now, replace the piece at p1's origin (0, 0) with p3
         self.board.set_piece(Position(0, 0), p3)
 
-        # Advance clock to 1000 where they cross paths (collision occurs)
+        # Advance clock to 1000. p1's own origin square no longer holds p1 (p3
+        # sits there instead), so p1's ongoing movement gets cancelled/eliminated
+        # by the blocked-path check — this must not clobber p3.
         self.state.clock_ms = 1000
         self.arbiter.resolve_movements(self.board, self.state, 1000)
 
