@@ -20,8 +20,27 @@ class CastlingDestinations(NamedTuple):
 class CastlingValidator:
     """Determines whether a king/rook pair may legally castle."""
 
-    def __init__(self, threat_validator: ThreatValidator) -> None:
+    def __init__(self, threat_validator: ThreatValidator, config: 'GameConfig') -> None:  # type: ignore[name-defined]
         self._threat_validator = threat_validator
+        self._config = config
+
+    def is_castle_attempt(
+        self,
+        king_piece: PieceInterface,
+        rook_piece: PieceInterface,
+        king_pos: Position,
+        rook_pos: Position,
+    ) -> bool:
+        """Return True if clicking rook_piece while king_piece is selected represents a castle attempt."""
+        return (
+            king_piece.piece_type in self._config.king_pieces
+            and rook_piece.piece_type == "R"
+            and not king_piece.has_moved
+            and not rook_piece.has_moved
+            and king_pos.row == rook_pos.row
+            and king_piece.can_move()
+            and rook_piece.can_move()
+        )
 
     def get_legal_castle(
         self,

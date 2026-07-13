@@ -11,7 +11,7 @@ Also contains:
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
-import consts
+from kungfu_chess.config import consts
 from kungfu_chess.errors import MissingValidatorError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface

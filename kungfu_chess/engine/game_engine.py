@@ -1,19 +1,26 @@
 """Game engine — application-service coordination (Layer 5).
 
-Owns: game-over guard, validation delegation, starting legal motions,
-      wait delegation, and board snapshots.
+Owns: command dispatching, the resolve/game-over tick, and composing the
+click/jump/castling collaborators.
 Must not own: piece-specific movement logic, rendering, input parsing,
               DSL parsing, or pixel mapping.
+
+Concrete collaborators live in:
+  - engine/engine_interfaces.py (PixelMapperInterface, BoardRepositoryInterface,
+    GameStateRepositoryInterface, BoardPrinterInterface, MoveEventListenerInterface,
+    MoveEventPublisher)
+  - engine/play_state.py     (GamePlayState, ActivePlayState, GameOverPlayState,
+    GamePlayStateFactory)
+  - engine/click_commands.py (ClickCommandProcessor — selection state machine)
+  - engine/jump_commands.py  (JumpCommandProcessor)
+  - engine/castling_commands.py (CastlingCommands)
 """
 
-from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Optional
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
-from kungfu_chess.model.piece import PieceInterface
-from kungfu_chess.model.game_state import GameState, Movement
-from kungfu_chess.model.game_state import Result
+from kungfu_chess.model.game_state import GameState
 from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
 from kungfu_chess.rules.rule_engine import (
     PathCheckerInterface,
@@ -22,121 +29,38 @@ from kungfu_chess.rules.rule_engine import (
     CastlingValidator,
     serialize_board_state,
 )
-from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiterInterface
+from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
+from kungfu_chess.engine.engine_interfaces import (
+    PixelMapperInterface,
+    BoardRepositoryInterface,
+    GameStateRepositoryInterface,
+    BoardPrinterInterface,
+    MoveEventListenerInterface,
+    MoveEventPublisher,
+)
+from kungfu_chess.engine.play_state import (
+    GamePlayState,
+    ActivePlayState,
+    GameOverPlayState,
+    GamePlayStateFactory,
+)
+from kungfu_chess.engine.click_commands import ClickCommandProcessor
+from kungfu_chess.engine.jump_commands import JumpCommandProcessor
+from kungfu_chess.engine.castling_commands import CastlingCommands
 
-
-# ---------------------------------------------------------------------------
-# Pixel mapper interface (owned by engine so it can decouple from input/)
-# ---------------------------------------------------------------------------
-
-class PixelMapperInterface(ABC):
-    """Translates raw pixel coordinates into board positions.
-
-    Defined here (Layer 4) rather than imported from input/ (Layer 6) so the
-    dependency points inward: input.BoardMapper implements this interface,
-    it is never the other way around.
-    """
-
-    @abstractmethod
-    def pixel_to_position(self, x: int, y: int, board: BoardInterface) -> Optional[Position]:
-        """Convert pixel coordinates (x, y) to a board Position, or None if off-board."""
-
-
-# ---------------------------------------------------------------------------
-# Repository interfaces (owned by engine so it can decouple from storage)
-# ---------------------------------------------------------------------------
-
-class BoardRepositoryInterface(ABC):
-    @abstractmethod
-    def get_board(self) -> Optional[BoardInterface]:
-        """Retrieve the currently stored board."""
-
-    @abstractmethod
-    def save_board(self, board: BoardInterface) -> None:
-        """Persist the given board."""
-
-
-class GameStateRepositoryInterface(ABC):
-    @abstractmethod
-    def get_state(self) -> GameState:
-        """Retrieve the current game state."""
-
-    @abstractmethod
-    def save_state(self, state: GameState) -> None:
-        """Persist the given game state."""
-
-
-# ---------------------------------------------------------------------------
-# Event publisher interface
-# ---------------------------------------------------------------------------
-
-class MoveEventListenerInterface(ABC):
-    """Observer notified when a piece is successfully moved."""
-
-    @abstractmethod
-    def on_move(self, piece, frm: Position, to: Position) -> None:
-        """Called after a legal move has been committed to the board."""
-
-
-class MoveEventPublisher:
-    """Subject in the Observer pattern; notifies registered listeners."""
-
-    def __init__(self) -> None:
-        self._listeners: List[MoveEventListenerInterface] = []
-
-    def subscribe(self, listener: MoveEventListenerInterface) -> None:
-        self._listeners.append(listener)
-
-    def publish(self, piece, frm: Position, to: Position) -> None:
-        for listener in self._listeners:
-            listener.on_move(piece, frm, to)
-
-
-# ---------------------------------------------------------------------------
-# GamePlayState (State pattern for active / game-over)
-# ---------------------------------------------------------------------------
-
-class GamePlayState(ABC):
-    """Represents the current play state (active or game-over)."""
-
-    @abstractmethod
-    def handle_click(self, engine: 'GameEngine', target: Position) -> None:
-        """Handle a click in this state."""
-
-    @abstractmethod
-    def handle_jump(self, engine: 'GameEngine', target: Position) -> None:
-        """Handle a jump in this state."""
-
-
-class ActivePlayState(GamePlayState):
-    def handle_click(self, engine: 'GameEngine', target: Position) -> None:
-        engine._execute_active_click(target)
-
-    def handle_jump(self, engine: 'GameEngine', target: Position) -> None:
-        engine._execute_active_jump(target)
-
-
-class GameOverPlayState(GamePlayState):
-    def handle_click(self, engine: 'GameEngine', target: Position) -> None:
-        pass  # Ignored after game over.
-
-    def handle_jump(self, engine: 'GameEngine', target: Position) -> None:
-        pass  # Ignored after game over.
-
-
-class GamePlayStateFactory:
-    def get_state(self, game_over: bool) -> GamePlayState:
-        return GameOverPlayState() if game_over else ActivePlayState()
-
-
-# ---------------------------------------------------------------------------
-# BoardPrinter interface
-# ---------------------------------------------------------------------------
-
-class BoardPrinterInterface(ABC):
-    @abstractmethod
-    def print_board(self, board: BoardInterface) -> None:
-        """Write the board layout to an output stream."""
+__all__ = [
+    "PixelMapperInterface",
+    "BoardRepositoryInterface",
+    "GameStateRepositoryInterface",
+    "BoardPrinterInterface",
+    "MoveEventListenerInterface",
+    "MoveEventPublisher",
+    "GamePlayState",
+    "ActivePlayState",
+    "GameOverPlayState",
+    "GamePlayStateFactory",
+    "GameEngine",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +73,7 @@ class GameEngine:
     Handles:
       - Click/jump/wait/print-board command dispatching
       - Delegating move and castling legality to piece_rules and rule_engine
+        (via ClickCommandProcessor/CastlingCommands)
       - Starting legal motions via the arbiter (including castling's king+rook pair)
       - Game-over detection after each command
 
@@ -222,8 +147,26 @@ class GameEngine:
         self._endgame_validator = endgame_validator
 
         if castling_validator is None:
-            castling_validator = CastlingValidator(threat_validator=self._threat_validator)
+            castling_validator = CastlingValidator(threat_validator=self._threat_validator, config=config)
         self._castling_validator = castling_validator
+
+        self._castling_commands = CastlingCommands(
+            arbiter=self._arbiter,
+            castling_validator=self._castling_validator,
+            state_repo=state_repo,
+            resolve_pending=self._resolve_pending,
+        )
+        self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo)
+        self._click_commands = ClickCommandProcessor(
+            move_validator_factory=move_validator_factory,
+            path_checker=path_checker,
+            threat_validator=self._threat_validator,
+            arbiter=self._arbiter,
+            castling_commands=self._castling_commands,
+            jump_commands=self._jump_commands,
+            state_repo=state_repo,
+            resolve_pending=self._resolve_pending,
+        )
 
     # ------------------------------------------------------------------
     # Public command dispatcher
@@ -316,108 +259,8 @@ class GameEngine:
         board = self._board_repo.get_board()
         if board is None:
             return
-
         state = self._state_repo.get_state()
-        target_piece = board.get_piece(target)
-
-        if state.selected_pos is None:
-            self._handle_initial_selection(state, target, target_piece)
-        else:
-            self._handle_active_selection_click(state, board, target, target_piece)
-
-        self._state_repo.save_state(state)
-
-    def _handle_initial_selection(
-        self,
-        state: GameState,
-        target: Position,
-        target_piece: Optional[PieceInterface]
-    ) -> None:
-        if target_piece is not None and target_piece.can_select():
-            state.selected_pos = target
-
-    def _handle_active_selection_click(
-        self,
-        state: GameState,
-        board: BoardInterface,
-        target: Position,
-        target_piece: Optional[PieceInterface]
-    ) -> None:
-        selected_piece = board.get_piece(state.selected_pos)
-
-        if selected_piece is None:
-            if target_piece is not None and target_piece.can_select():
-                state.selected_pos = target
-            else:
-                state.selected_pos = None
-        elif target == state.selected_pos:
-            self._execute_active_jump(target)
-        elif target_piece is not None and target_piece.color == selected_piece.color:
-            self._handle_friendly_click(state, board, target, selected_piece, target_piece)
-        else:
-            self._handle_move_attempt(state, board, target, selected_piece)
-
-    def _handle_friendly_click(
-        self,
-        state: GameState,
-        board: BoardInterface,
-        target: Position,
-        selected_piece: PieceInterface,
-        target_piece: PieceInterface
-    ) -> None:
-        # Castling check
-        if (selected_piece.piece_type in self._config.king_pieces
-                and target_piece.piece_type == "R"
-                and not selected_piece.has_moved
-                and not target_piece.has_moved
-                and state.selected_pos.row == target.row
-                and selected_piece.can_move()
-                and target_piece.can_move()):
-            if self._try_castle(state, board, state.selected_pos, target, selected_piece, target_piece):
-                return
-        if target_piece.can_select():
-            state.selected_pos = target
-
-    def _handle_move_attempt(
-        self,
-        state: GameState,
-        board: BoardInterface,
-        target: Position,
-        selected_piece: PieceInterface
-    ) -> None:
-        if not selected_piece.can_move():
-            return
-
-        validator = self._move_validator_factory.get_validator(selected_piece.piece_type)
-        if not validator.is_legal(state.selected_pos, target, selected_piece.color, board.rows):
-            return
-
-        origin = state.selected_pos
-        eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-
-        if not self._path_checker.is_path_clear(eff_board, origin, target):
-            return
-
-        en_passant_targets = self._arbiter.get_valid_en_passant_positions(board, state, selected_piece.color, state.clock_ms)
-        if not self._path_checker.can_land(eff_board, selected_piece, origin, target, en_passant_targets):
-            return
-
-        if not self._threat_validator.is_move_safe_from_check(eff_board, origin, target, selected_piece):
-            return
-
-        arrival_ms = self._arbiter.calculate_arrival(origin, target, selected_piece, state.clock_ms)
-        mov = Movement(
-            frm=origin,
-            to=target,
-            piece=selected_piece,
-            start_ms=state.clock_ms,
-            arrival_ms=arrival_ms,
-        )
-        state.active_movements.append(mov)
-        selected_piece.transition_to_moving()
-        state.selected_pos = None
-        self._state_repo.save_state(state)
-        self._resolve_pending()
+        self._click_commands.handle_click(state, board, target)
 
     def _handle_jump(self, x: int, y: int) -> None:
         self._resolve_pending()
@@ -435,27 +278,8 @@ class GameEngine:
         board = self._board_repo.get_board()
         if board is None:
             return
-
         state = self._state_repo.get_state()
-        piece = board.get_piece(target)
-
-        if piece is not None:
-            if not piece.can_move():
-                return
-
-            arrival_ms = state.clock_ms + self._config.jump_duration_ms
-            mov = Movement(
-                frm=target,
-                to=target,
-                piece=piece,
-                start_ms=state.clock_ms,
-                arrival_ms=arrival_ms,
-            )
-            state.active_movements.append(mov)
-            piece.transition_to_jumping()
-            if state.selected_pos == target:
-                state.selected_pos = None
-            self._state_repo.save_state(state)
+        self._jump_commands.execute_active_jump(state, board, target)
 
     def _handle_wait(self, ms: int) -> None:
         if ms <= 0:
@@ -470,45 +294,3 @@ class GameEngine:
         board = self._board_repo.get_board()
         if board is not None:
             self._printer.print_board(board)
-
-    def _try_castle(
-        self,
-        state: GameState,
-        board: BoardInterface,
-        king_pos: Position,
-        rook_pos: Position,
-        king_piece,
-        rook_piece,
-    ) -> bool:
-        eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-        destinations = self._castling_validator.get_legal_castle(eff_board, king_pos, rook_pos, king_piece)
-        if destinations is None:
-            return False
-
-        self._execute_castle(
-            state, king_pos, rook_pos, destinations.king_dest, destinations.rook_dest, king_piece, rook_piece
-        )
-        return True
-
-    def _execute_castle(
-        self,
-        state: GameState,
-        king_pos: Position,
-        rook_pos: Position,
-        king_dest: Position,
-        rook_dest: Position,
-        king_piece,
-        rook_piece,
-    ) -> None:
-        king_arrival = self._arbiter.calculate_arrival(king_pos, king_dest, king_piece, state.clock_ms)
-        rook_arrival = king_arrival
-
-        king_mov = Movement(frm=king_pos, to=king_dest, piece=king_piece, start_ms=state.clock_ms, arrival_ms=king_arrival)
-        rook_mov = Movement(frm=rook_pos, to=rook_dest, piece=rook_piece, start_ms=state.clock_ms, arrival_ms=rook_arrival)
-
-        state.active_movements.extend([rook_mov, king_mov])
-        king_piece.transition_to_moving()
-        rook_piece.transition_to_moving()
-        state.selected_pos = None
-        self._state_repo.save_state(state)
-        self._resolve_pending()
