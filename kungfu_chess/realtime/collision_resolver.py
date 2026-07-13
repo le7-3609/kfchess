@@ -28,6 +28,7 @@ class CollisionResolver:
         self,
         board: BoardInterface,
         state: GameState,
+        movements: List[Movement],
         current_active: List[Movement],
         positions: dict,
         t: int,
@@ -81,8 +82,8 @@ class CollisionResolver:
                     elif mov2.start_ms < mov1.start_ms:
                         early, late = mov2, mov1
                     else:
-                        idx1 = state.active_movements.index(mov1)
-                        idx2 = state.active_movements.index(mov2)
+                        idx1 = movements.index(mov1)
+                        idx2 = movements.index(mov2)
                         early, late = (mov1, mov2) if idx1 < idx2 else (mov2, mov1)
 
                     if early.piece.color != late.piece.color:
@@ -114,8 +115,8 @@ class CollisionResolver:
                         state.selected_pos = None
 
         # Remove aborted/captured movements.
-        for mov in list(state.active_movements):
+        for mov in list(movements):
             if id(mov) in aborted_or_captured:
-                state.active_movements.remove(mov)
+                movements.remove(mov)
 
         return reset_halfmove

@@ -42,7 +42,7 @@ class TestSpecialMoves(unittest.TestCase):
         # Castling should NOT occur
         self.assertEqual(self.board.get_piece(k_pos).piece_type, "K")
         self.assertEqual(self.board.get_piece(r_pos).piece_type, "R")
-        self.assertEqual(len(self.state.active_movements), 0)
+        self.assertEqual(len(self.service._engine._arbiter.movements()), 0)
 
     def test_castling_fails_if_king_or_rook_not_idle(self) -> None:
         self._clear_board()

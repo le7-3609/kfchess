@@ -160,7 +160,7 @@ class GameEngine:
             state_repo=state_repo,
             resolve_pending=self._resolve_pending,
         )
-        self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo)
+        self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo, arbiter=self._arbiter)
         self._click_commands = ClickCommandProcessor(
             rule_engine=self._rule_engine,
             threat_validator=self._threat_validator,

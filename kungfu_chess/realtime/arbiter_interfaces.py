@@ -14,7 +14,39 @@ from kungfu_chess.model.game_state import GameState, Movement
 
 
 class RealTimeArbiterInterface(ABC):
-    """Abstract contract for the real-time arbiter."""
+    """Abstract contract for the real-time arbiter.
+
+    Owns the collection of active Motion (Movement) objects — GameState
+    does not store them. Other layers register/query motions through
+    register_motion / has_active_motion / movements / remove_motion
+    rather than reaching into a shared list themselves.
+    """
+
+    @abstractmethod
+    def register_motion(self, mov: Movement) -> None:
+        """Add *mov* to the set of active motions."""
+
+    @abstractmethod
+    def remove_motion(self, mov: Movement) -> None:
+        """Remove *mov* from the set of active motions, if present."""
+
+    @abstractmethod
+    def movements(self) -> List[Movement]:
+        """Return a snapshot list of currently active motions."""
+
+    @abstractmethod
+    def has_active_motion(self, piece: Optional[PieceInterface] = None) -> bool:
+        """Return whether a motion is active.
+
+        With no argument, returns whether any motion is active at all.
+        With *piece*, returns whether that specific piece has a motion
+        in flight — this is the check GameEngine/command processors use
+        to enforce the one-active-motion-per-piece policy.
+        """
+
+    @abstractmethod
+    def has_active_motion_for_color(self, color: str) -> bool:
+        """Return whether any piece of *color* currently has a motion in flight."""
 
     @abstractmethod
     def calculate_arrival(self, frm: Position, to: Position, piece: PieceInterface, start_ms: int) -> int:
