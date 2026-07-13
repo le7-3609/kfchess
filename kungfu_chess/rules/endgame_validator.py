@@ -92,13 +92,9 @@ class EndgameValidator:
         en_passant_targets: List[Position]
     ) -> List[Tuple[Position, Position]]:
         validator = self._move_validator_factory.get_validator(piece.piece_type)
-        candidates = validator.get_candidate_targets(pos, piece.color, board.rows, board.cols)
+        candidates = validator.legal_destinations(board, piece, en_passant_targets)
         moves: List[Tuple[Position, Position]] = []
         for target in candidates:
-            if not validator.is_legal(pos, target, piece.color, board.rows):
-                continue
-            if not self._path_checker.is_path_clear(board, pos, target):
-                continue
             if not self._path_checker.can_land(board, piece, pos, target, en_passant_targets):
                 continue
             if self._threat_validator.is_move_safe_from_check(board, pos, target, piece):
@@ -113,7 +109,7 @@ class EndgameValidator:
         """Return True if *color* is in checkmate."""
         if not self._has_king(board, color):
             return False
-        if any(mov.piece.color == color for mov in state.active_movements):
+        if self._movement_manager.has_active_motion_for_color(color):
             return False
         if any(cd.piece.color == color for cd in state.active_cooldowns):
             return False
@@ -126,7 +122,7 @@ class EndgameValidator:
         """Return True if *color* is in stalemate."""
         if not self._has_king(board, color):
             return False
-        if any(mov.piece.color == color for mov in state.active_movements):
+        if self._movement_manager.has_active_motion_for_color(color):
             return False
         if any(cd.piece.color == color for cd in state.active_cooldowns):
             return False

@@ -79,7 +79,7 @@ class ThreatValidator:
         target_pos: Position
     ) -> bool:
         validator = self._move_validator_factory.get_validator(enemy_piece.piece_type)
-        if not validator.is_legal(enemy_pos, target_pos, enemy_piece.color, board.rows):
+        if target_pos not in validator.legal_destinations(board, enemy_piece):
             return False
         return (self._path_checker.is_path_clear(board, enemy_pos, target_pos)
                 and self._path_checker.can_land(board, enemy_piece, enemy_pos, target_pos))

@@ -17,6 +17,7 @@ is king capture. Game-over is handled by GameEngine, not RuleEngine.
 """
 
 from dataclasses import dataclass
+from typing import List, Optional
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
@@ -54,19 +55,28 @@ class RuleEngine:
 
     Rejects moves outside the board, from empty cells, or onto a
     friendly-occupied destination, then defers to the relevant movement
-    rule for destination legality. Does not implement check, pins,
-    checkmate, castling, en passant, or promotion — those live in
-    ThreatValidator, CastlingValidator, and EndgameValidator. Path-blocking
-    and landing/capture legality are PathChecker's responsibility, not
-    RuleEngine's — callers apply PathChecker as an additional gate after
-    RuleEngine returns is_valid=True.
+    rule for destination legality — including en passant, when the caller
+    supplies the currently-valid target squares. Does not implement check,
+    pins, checkmate, castling, or promotion — those live in ThreatValidator,
+    CastlingValidator, and EndgameValidator.
     """
 
     def __init__(self, move_validator_factory: MoveValidatorFactoryInterface) -> None:
         self._move_validator_factory = move_validator_factory
 
-    def validate_move(self, board: BoardInterface, frm: Position, to: Position) -> MoveValidation:
-        """Return whether moving from *frm* to *to* is legal on *board* right now."""
+    def validate_move(
+        self,
+        board: BoardInterface,
+        frm: Position,
+        to: Position,
+        en_passant_targets: Optional[List[Position]] = None,
+    ) -> MoveValidation:
+        """Return whether moving from *frm* to *to* is legal on *board* right now.
+
+        *en_passant_targets*, when given, lets a pawn's currently-valid
+        en-passant square pass this check too — RuleEngine itself holds no
+        move-history state; it just forwards whatever the caller supplies.
+        """
         if not board.is_valid_position(frm) or not board.is_valid_position(to):
             return MoveValidation(False, "outside_board")
 
@@ -79,7 +89,7 @@ class RuleEngine:
             return MoveValidation(False, "friendly_destination")
 
         validator = self._move_validator_factory.get_validator(piece.piece_type)
-        if not validator.is_legal(frm, to, piece.color, board.rows):
+        if to not in validator.legal_destinations(board, piece, en_passant_targets):
             return MoveValidation(False, "illegal_piece_move")
 
         return MoveValidation(True, "ok")
