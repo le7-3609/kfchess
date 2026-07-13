@@ -11,9 +11,10 @@ from typing import List
 from kungfu_chess.model.position import Position
 from kungfu_chess.rules.rule_engine import EndgameValidator
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface
+from kungfu_chess.engine.engine_interfaces import InputSourceInterface
 
 
-class RandomBotInputSource:
+class RandomBotInputSource(InputSourceInterface):
     """A bot that selects a random legal move for its color."""
 
     def __init__(

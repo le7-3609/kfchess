@@ -128,11 +128,11 @@ class PieceInterface(ABC):
 class TextPiece(PieceInterface):
     """Text-based implementation of a chess piece."""
 
-    def __init__(self, color: str, piece_type: str) -> None:
+    def __init__(self, color: str, piece_type: str, has_moved: bool = False) -> None:
         self._color = color
         self._piece_type = piece_type
         self._state: PieceStateInterface = IdleState()
-        self._has_moved = False
+        self._has_moved = has_moved
 
     @property
     def color(self) -> str:
@@ -145,10 +145,6 @@ class TextPiece(PieceInterface):
     @property
     def has_moved(self) -> bool:
         return self._has_moved
-
-    @piece_type.setter
-    def piece_type(self, value: str) -> None:
-        self._piece_type = value
 
     def transition_to_moving(self) -> None:
         """Transition the piece to MovingState and mark it as having moved."""

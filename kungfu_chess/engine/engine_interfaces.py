@@ -13,6 +13,19 @@ from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState
 
 
+class InputSourceInterface(ABC):
+    """An automated or external source of player commands (e.g. a bot).
+
+    Defined here (Layer 4) rather than imported from input/ (Layer 6) so the
+    dependency points inward: input.RandomBotInputSource implements this
+    interface, it is never the other way around.
+    """
+
+    @abstractmethod
+    def get_next_commands(self) -> List[str]:
+        """Return the next batch of command strings to execute, if any."""
+
+
 class PixelMapperInterface(ABC):
     """Translates raw pixel coordinates into board positions.
 
