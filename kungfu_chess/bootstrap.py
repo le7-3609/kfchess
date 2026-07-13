@@ -4,6 +4,7 @@ This is the composition root for the kungfu_chess package.
 """
 
 import sys
+from dataclasses import dataclass
 
 from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.rules.piece_rules import (
@@ -33,11 +34,31 @@ from kungfu_chess.repos import _InMemoryBoardRepo, _InMemoryStateRepo
 from kungfu_chess.service import GameService
 
 
-def _build_core(config: GameConfig, require_kings: bool, duration_strategy):
+@dataclass
+class CoreComponents:
+    """Output of build_core(): the shared wiring used to build a GameService.
+
+    Also exposes everything bot_factory.build_random_bot() needs, so bot
+    construction can happen outside this composition root without duplicating
+    any wiring.
+    """
+    board_repo: _InMemoryBoardRepo
+    state_repo: _InMemoryStateRepo
+    parser: BoardParser
+    validator: BoardValidator
+    move_validator_factory: MoveValidatorFactory
+    path_checker: PathChecker
+    arbiter: RealTimeArbiter
+    engine: GameEngine
+
+
+def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> CoreComponents:
     """Wire the common repo/parser/validator/printer/publisher/validators/engine stack.
 
     Shared by build_service() and build_realtime_service(); they differ only in
-    duration_strategy and in build_realtime_service()'s extra replay/bot wiring.
+    duration_strategy and in build_realtime_service()'s extra replay wiring.
+    Also used directly by callers (e.g. bot_factory) that need a bot wired
+    against the same component instances as the resulting GameService.
     """
     board_repo = _InMemoryBoardRepo()
     state_repo = _InMemoryStateRepo()
@@ -81,7 +102,16 @@ def _build_core(config: GameConfig, require_kings: bool, duration_strategy):
         board_mapper=board_mapper,
     ))
 
-    return board_repo, state_repo, parser, validator, move_validator_factory, path_checker, arbiter, engine
+    return CoreComponents(
+        board_repo=board_repo,
+        state_repo=state_repo,
+        parser=parser,
+        validator=validator,
+        move_validator_factory=move_validator_factory,
+        path_checker=path_checker,
+        arbiter=arbiter,
+        engine=engine,
+    )
 
 
 def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
@@ -89,16 +119,14 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
     if config is None:
         config = GameConfig()
 
-    board_repo, state_repo, parser, validator, _move_validator_factory, _path_checker, _arbiter, engine = _build_core(
-        config, require_kings, InstantMovementDuration()
-    )
+    core = build_core(config, require_kings, InstantMovementDuration())
 
     return GameService(
-        board_repo=board_repo,
-        state_repo=state_repo,
-        parser=parser,
-        validator=validator,
-        engine=engine,
+        board_repo=core.board_repo,
+        state_repo=core.state_repo,
+        parser=core.parser,
+        validator=core.validator,
+        engine=core.engine,
         config=config,
     )
 
@@ -107,7 +135,6 @@ def build_realtime_service(
     config: GameConfig = None,
     ms_per_square: int = None,
     replay_file: str = None,
-    bot: InputSourceInterface = None,
     require_kings: bool = True
 ) -> GameService:
     """Construct a GameService with ChebyshevDistanceDuration for real-time movement.
@@ -115,31 +142,30 @@ def build_realtime_service(
     Use this when you want pieces to travel over time (the full Kung Fu Chess experience).
     Use ``build_service()`` for instant-movement tests.
 
-    ``bot`` is injected by the caller (see bot_factory.build_random_bot) rather
-    than constructed here, so this composition root stays free of bot-specific
-    configuration details.
+    Does not support bots: a bot needs the same board_repo/arbiter/etc.
+    instances wired here, so it cannot be constructed by the caller ahead of
+    time and injected as a parameter. Callers that want a bot should use
+    bot_factory.build_bot_service() instead, which composes build_core() with
+    bot construction directly.
     """
     if config is None:
         config = GameConfig()
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
 
-    board_repo, state_repo, parser, validator, _move_validator_factory, _path_checker, _arbiter, engine = _build_core(
-        config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square)
+    core = build_core(config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square))
 
-    )
-
+    engine = core.engine
     if replay_file:
         writer = ReplayWriter(replay_file)
         engine = ReplayEngineDecorator(engine, writer)
 
     return GameService(
-        board_repo=board_repo,
-        state_repo=state_repo,
-        parser=parser,
-        validator=validator,
+        board_repo=core.board_repo,
+        state_repo=core.state_repo,
+        parser=core.parser,
+        validator=core.validator,
         engine=engine,
-        bot=bot,
         config=config,
     )
 
@@ -147,7 +173,7 @@ def build_realtime_service(
 def bootstrap() -> None:
     """Entry point: read from stdin and run the game engine with real-time movement."""
     # To enable replay in a normal run, pass replay_file to build_realtime_service.
-    # To enable a bot, build one with bot_factory.build_random_bot and pass it in.
+    # To enable a bot, use bot_factory.build_bot_service() instead.
     service = build_realtime_service()
     input_lines = sys.stdin.readlines()
     result = service.execute(input_lines)

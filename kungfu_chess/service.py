@@ -6,9 +6,9 @@ from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.model.game_state import GameState, Result
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface, GameEngine
+from kungfu_chess.engine.engine_interfaces import InputSourceInterface
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_validator import BoardValidator
-from kungfu_chess.input.bot import RandomBotInputSource
 
 
 class GameService:
@@ -21,7 +21,7 @@ class GameService:
         parser: BoardParser,
         validator: BoardValidator,
         engine: GameEngine,
-        bot: RandomBotInputSource = None,
+        bot: InputSourceInterface = None,
         config: GameConfig = None,
     ) -> None:
         self._board_repo = board_repo
