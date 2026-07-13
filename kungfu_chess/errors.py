@@ -30,3 +30,19 @@ class MissingValidatorError(KungFuChessError):
 
 class ResultAccessError(KungFuChessError):
     """Raised when a Result's value/error is accessed on the wrong branch."""
+
+
+class OccupiedCellError(KungFuChessError):
+    """Raised when adding a piece to a cell that is already occupied."""
+
+    def __init__(self, pos: Position) -> None:
+        self.pos = pos
+        super().__init__(f"Cell already occupied: {pos!r}")
+
+
+class EmptyCellError(KungFuChessError):
+    """Raised when moving a piece from a cell that has no piece on it."""
+
+    def __init__(self, pos: Position) -> None:
+        self.pos = pos
+        super().__init__(f"No piece to move from: {pos!r}")

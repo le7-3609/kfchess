@@ -7,7 +7,7 @@ Must not own: pixels, clicks, rendering, script parsing, movement rules, or timi
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from kungfu_chess.errors import InvalidPositionError
+from kungfu_chess.errors import EmptyCellError, InvalidPositionError, OccupiedCellError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
 
@@ -44,6 +44,22 @@ class BoardInterface(ABC):
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         """Place or remove a piece at *pos*."""
 
+    @abstractmethod
+    def add_piece(self, pos: Position, piece: PieceInterface) -> None:
+        """Place *piece* at *pos*. Raises OccupiedCellError if *pos* is already occupied."""
+
+    @abstractmethod
+    def remove_piece(self, pos: Position) -> Optional[PieceInterface]:
+        """Clear *pos* and return the piece that was there, or None if it was empty."""
+
+    @abstractmethod
+    def move_piece(self, frm: Position, to: Position) -> Optional[PieceInterface]:
+        """Relocate the piece at *frm* to *to*, assuming the move has already been validated.
+
+        Returns whatever piece previously occupied *to* (e.g. a captured piece),
+        or None if *to* was empty. Raises EmptyCellError if *frm* has no piece.
+        """
+
 
 # ---------------------------------------------------------------------------
 # Concrete implementation
@@ -79,3 +95,28 @@ class ArrayBoard(BoardInterface):
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)
         self._grid[pos.row][pos.col] = piece
+
+    def add_piece(self, pos: Position, piece: PieceInterface) -> None:
+        if not self.is_valid_position(pos):
+            raise InvalidPositionError(pos)
+        if self._grid[pos.row][pos.col] is not None:
+            raise OccupiedCellError(pos)
+        self._grid[pos.row][pos.col] = piece
+
+    def remove_piece(self, pos: Position) -> Optional[PieceInterface]:
+        if not self.is_valid_position(pos):
+            raise InvalidPositionError(pos)
+        piece = self._grid[pos.row][pos.col]
+        self._grid[pos.row][pos.col] = None
+        return piece
+
+    def move_piece(self, frm: Position, to: Position) -> Optional[PieceInterface]:
+        if not self.is_valid_position(frm) or not self.is_valid_position(to):
+            raise InvalidPositionError(frm if not self.is_valid_position(frm) else to)
+        piece = self._grid[frm.row][frm.col]
+        if piece is None:
+            raise EmptyCellError(frm)
+        captured = self._grid[to.row][to.col]
+        self._grid[to.row][to.col] = piece
+        self._grid[frm.row][frm.col] = None
+        return captured
