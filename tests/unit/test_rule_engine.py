@@ -3,7 +3,7 @@
 import unittest
 
 from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard as Board
+from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.piece import TextPiece as Piece
 from kungfu_chess.rules.rule_engine import PathChecker, ThreatValidator
 from kungfu_chess.rules.piece_rules import (
@@ -35,8 +35,8 @@ class TestPathChecker(unittest.TestCase):
     def setUp(self) -> None:
         self.pc = PathChecker()
 
-    def _board(self, rows: int = 8, cols: int = 8) -> Board:
-        return Board(rows, cols)
+    def _board(self, rows: int = 8, cols: int = 8) -> ArrayBoard:
+        return ArrayBoard(rows, cols)
 
     # ------------------------------------------------------------------
     # is_path_clear
@@ -132,20 +132,20 @@ class TestPathChecker(unittest.TestCase):
 
 class TestThreatValidator(unittest.TestCase):
 
-    def _setup(self, board: Board) -> ThreatValidator:
+    def _setup(self, board: ArrayBoard) -> ThreatValidator:
         config = GameConfig()
         factory = _make_factory()
         return ThreatValidator(move_validator_factory=factory, path_checker=PathChecker(), config=config)
 
     def test_king_not_threatened(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         board.set_piece(Position(0, 0), Piece("w", "K"))
         board.set_piece(Position(7, 7), Piece("b", "K"))
         tv = self._setup(board)
         self.assertFalse(tv.is_king_threatened(board, "w"))
 
     def test_king_threatened_by_rook(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         board.set_piece(Position(0, 0), Piece("w", "K"))
         board.set_piece(Position(0, 5), Piece("b", "R"))
         board.set_piece(Position(7, 7), Piece("b", "K"))
@@ -153,7 +153,7 @@ class TestThreatValidator(unittest.TestCase):
         self.assertTrue(tv.is_king_threatened(board, "w"))
 
     def test_king_not_threatened_when_blocked(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         board.set_piece(Position(0, 0), Piece("w", "K"))
         board.set_piece(Position(0, 3), Piece("w", "P"))  # blocker
         board.set_piece(Position(0, 5), Piece("b", "R"))
@@ -162,7 +162,7 @@ class TestThreatValidator(unittest.TestCase):
         self.assertFalse(tv.is_king_threatened(board, "w"))
 
     def test_no_king_returns_false(self) -> None:
-        board = Board(4, 4)
+        board = ArrayBoard(4, 4)
         board.set_piece(Position(0, 0), Piece("b", "R"))
         tv = self._setup(board)
         self.assertFalse(tv.is_king_threatened(board, "w"))

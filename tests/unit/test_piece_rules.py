@@ -169,5 +169,51 @@ class TestStandardPawnPromotion(unittest.TestCase):
         self.assertEqual(piece.piece_type, "Q")
 
 
+class TestGetCandidateTargets(unittest.TestCase):
+    def setUp(self) -> None:
+        self.config = GameConfig()
+
+    def test_king_candidate_targets(self) -> None:
+        v = KingMoveValidator()
+        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
+        self.assertEqual(len(targets), 8)
+        # On edge
+        targets_edge = v.get_candidate_targets(Position(0, 0), "w", 8, 8)
+        self.assertEqual(len(targets_edge), 3)
+
+    def test_knight_candidate_targets(self) -> None:
+        v = KnightMoveValidator()
+        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
+        self.assertEqual(len(targets), 8)
+        # On edge
+        targets_edge = v.get_candidate_targets(Position(0, 0), "w", 8, 8)
+        self.assertEqual(set(targets_edge), {Position(1, 2), Position(2, 1)})
+
+    def test_rook_candidate_targets(self) -> None:
+        v = RookMoveValidator()
+        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
+        self.assertEqual(len(targets), 14)
+
+    def test_bishop_candidate_targets(self) -> None:
+        v = BishopMoveValidator()
+        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
+        self.assertEqual(len(targets), 13)
+
+    def test_queen_candidate_targets(self) -> None:
+        v = QueenMoveValidator()
+        targets = v.get_candidate_targets(Position(4, 4), "w", 8, 8)
+        self.assertEqual(len(targets), 27)
+
+    def test_pawn_candidate_targets(self) -> None:
+        v = PawnMoveValidator(self.config)
+        # White pawn starting row (6)
+        targets_start = v.get_candidate_targets(Position(6, 4), "w", 8, 8)
+        self.assertEqual(set(targets_start), {Position(5, 4), Position(4, 4), Position(5, 3), Position(5, 5)})
+
+        # Black pawn starting row (1)
+        targets_start_black = v.get_candidate_targets(Position(1, 4), "b", 8, 8)
+        self.assertEqual(set(targets_start_black), {Position(2, 4), Position(3, 4), Position(2, 3), Position(2, 5)})
+
+
 if __name__ == "__main__":
     unittest.main()

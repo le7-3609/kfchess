@@ -3,7 +3,7 @@
 import unittest
 
 from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard as Board
+from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.piece import TextPiece as Piece
 from kungfu_chess.model.game_state import GameState, Movement
 from kungfu_chess.realtime.real_time_arbiter import (
@@ -74,7 +74,7 @@ class TestResolveMovements(unittest.TestCase):
         self.config = GameConfig()
 
     def test_piece_arrives_at_destination(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         rook = Piece("w", "R")
         board.set_piece(Position(0, 0), rook)
 
@@ -92,7 +92,7 @@ class TestResolveMovements(unittest.TestCase):
         self.assertEqual(len(state.active_movements), 0)
 
     def test_piece_not_arrived_before_time(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         rook = Piece("w", "R")
         board.set_piece(Position(0, 0), rook)
 
@@ -109,7 +109,7 @@ class TestResolveMovements(unittest.TestCase):
         self.assertEqual(len(state.active_movements), 1)
 
     def test_capture_on_arrival(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         rook = Piece("w", "R")
         enemy = Piece("b", "P")
         board.set_piece(Position(0, 0), rook)
@@ -127,7 +127,7 @@ class TestResolveMovements(unittest.TestCase):
         self.assertEqual(board.get_piece(Position(0, 3)), rook)
 
     def test_king_capture_sets_game_over(self) -> None:
-        board = Board(8, 8)
+        board = ArrayBoard(8, 8)
         config = GameConfig()
         rook = Piece("w", "R")
         king = Piece("b", "K")
@@ -149,7 +149,7 @@ class TestResolveMovements(unittest.TestCase):
 
 class TestProxyBoard(unittest.TestCase):
     def test_moving_piece_hidden_at_origin(self) -> None:
-        board = Board(4, 4)
+        board = ArrayBoard(4, 4)
         rook = Piece("w", "R")
         board.set_piece(Position(0, 0), rook)
 
@@ -168,7 +168,7 @@ class TestProxyBoard(unittest.TestCase):
 class TestArbiterCollisions(unittest.TestCase):
     def setUp(self) -> None:
         self.arbiter = _make_arbiter(ms_per_square=1000)
-        self.board = Board(8, 8)
+        self.board = ArrayBoard(8, 8)
         self.state = GameState()
 
     def _add_movement(self, piece, frm, to, start, arrival):
@@ -222,6 +222,26 @@ class TestArbiterCollisions(unittest.TestCase):
         
         # Jumping piece (p1) wins same-square collision
         self.assertEqual(self.board.get_piece(Position(1, 2)), p1)
+
+    def test_collision_loser_source_square_not_cleared_if_occupied_by_other_piece(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("b", "R")
+        p3 = Piece("w", "P")
+
+        # p2 moves from (0, 2) to (0, 0), starting at 0 ms (so p2 wins the collision)
+        m2 = self._add_movement(p2, Position(0, 2), Position(0, 0), 0, 2000)
+        # p1 moves from (0, 0) to (0, 2), starting at 10 ms (so p1 loses the collision)
+        m1 = self._add_movement(p1, Position(0, 0), Position(0, 2), 10, 2010)
+
+        # Now, replace the piece at p1's origin (0, 0) with p3
+        self.board.set_piece(Position(0, 0), p3)
+
+        # Advance clock to 1000 where they cross paths (collision occurs)
+        self.state.clock_ms = 1000
+        self.arbiter.resolve_movements(self.board, self.state, 1000)
+
+        # Check that p3 (at (0, 0)) was NOT deleted from the board
+        self.assertEqual(self.board.get_piece(Position(0, 0)), p3)
 
     def test_pawn_promotion(self) -> None:
         p = Piece("w", "P")

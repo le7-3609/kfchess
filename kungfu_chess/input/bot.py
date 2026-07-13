@@ -48,7 +48,7 @@ class RandomBotInputSource:
             return []
 
         eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-        en_passant_targets = [ep.pos for ep in state.en_passant_targets]
+        en_passant_targets = self._arbiter.get_valid_en_passant_positions(board, state, self._color, state.clock_ms)
 
         valid_moves: List[Tuple[Position, Position]] = []
 

@@ -2,7 +2,7 @@
 
 import unittest
 
-from kungfu_chess.model.board import ArrayBoard as Board
+from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.position import Position
 from kungfu_chess.input.board_mapper import BoardMapper
 
@@ -11,7 +11,7 @@ class TestBoardMapper(unittest.TestCase):
     def setUp(self) -> None:
         # 100px cell size, 4-col x 2-row board
         self.mapper = BoardMapper(cell_size_px=100)
-        self.board = Board(2, 4)
+        self.board = ArrayBoard(2, 4)
 
     def test_top_left_click(self) -> None:
         pos = self.mapper.pixel_to_position(50, 50, self.board)

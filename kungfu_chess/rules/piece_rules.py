@@ -9,7 +9,7 @@ Also contains:
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
@@ -34,6 +34,10 @@ class MoveValidatorInterface(ABC):
     def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
         """Return True iff the move shape is valid for this piece type."""
 
+    @abstractmethod
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        """Generate all candidate positions that this piece type can geometrically reach from *frm*."""
+
 
 # ---------------------------------------------------------------------------
 # Concrete piece validators
@@ -47,6 +51,17 @@ class KingMoveValidator(MoveValidatorInterface):
         dc = abs(to.col - frm.col)
         return (dr, dc) != (0, 0) and dr <= 1 and dc <= 1
 
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        targets = []
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                r, c = frm.row + dr, frm.col + dc
+                if 0 <= r < board_rows and 0 <= c < board_cols:
+                    targets.append(Position(r, c))
+        return targets
+
 
 class RookMoveValidator(MoveValidatorInterface):
     """Rook moves any number of squares along a rank or file."""
@@ -56,6 +71,17 @@ class RookMoveValidator(MoveValidatorInterface):
         dc = to.col - frm.col
         return (dr == 0) != (dc == 0)
 
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        targets = []
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            for step in range(1, max(board_rows, board_cols)):
+                r, c = frm.row + dr * step, frm.col + dc * step
+                if 0 <= r < board_rows and 0 <= c < board_cols:
+                    targets.append(Position(r, c))
+                else:
+                    break
+        return targets
+
 
 class BishopMoveValidator(MoveValidatorInterface):
     """Bishop moves any number of squares diagonally."""
@@ -64,6 +90,17 @@ class BishopMoveValidator(MoveValidatorInterface):
         dr = abs(to.row - frm.row)
         dc = abs(to.col - frm.col)
         return dr == dc and dr != 0
+
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        targets = []
+        for dr, dc in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+            for step in range(1, max(board_rows, board_cols)):
+                r, c = frm.row + dr * step, frm.col + dc * step
+                if 0 <= r < board_rows and 0 <= c < board_cols:
+                    targets.append(Position(r, c))
+                else:
+                    break
+        return targets
 
 
 class QueenMoveValidator(MoveValidatorInterface):
@@ -76,6 +113,10 @@ class QueenMoveValidator(MoveValidatorInterface):
     def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
         return self._rook.is_legal(frm, to, color, board_rows) or self._bishop.is_legal(frm, to, color, board_rows)
 
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        return (self._rook.get_candidate_targets(frm, color, board_rows, board_cols) +
+                self._bishop.get_candidate_targets(frm, color, board_rows, board_cols))
+
 
 class KnightMoveValidator(MoveValidatorInterface):
     """Knight moves in an L-shape: 2 squares on one axis, 1 on the other."""
@@ -84,6 +125,14 @@ class KnightMoveValidator(MoveValidatorInterface):
         dr = abs(to.row - frm.row)
         dc = abs(to.col - frm.col)
         return {dr, dc} == {1, 2}
+
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        targets = []
+        for dr, dc in ((-2,-1), (-2,1), (-1,-2), (-1,2), (1,-2), (1,2), (2,-1), (2,1)):
+            r, c = frm.row + dr, frm.col + dc
+            if 0 <= r < board_rows and 0 <= c < board_cols:
+                targets.append(Position(r, c))
+        return targets
 
 
 class PawnMoveValidator(MoveValidatorInterface):
@@ -109,6 +158,20 @@ class PawnMoveValidator(MoveValidatorInterface):
         if frm.row in player_config.pawn_start_rows and row_diff == expected_row_diff * 2 and col_diff == 0:
             return True
         return False
+
+    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
+        targets = []
+        player_config = self._config.get_player(color)
+        if not player_config:
+            return targets
+        direction = player_config.forward_direction
+        for dr in (direction, direction * 2):
+            for dc in (-1, 0, 1):
+                r, c = frm.row + dr, frm.col + dc
+                if 0 <= r < board_rows and 0 <= c < board_cols:
+                    if self.is_legal(frm, Position(r, c), color, board_rows):
+                        targets.append(Position(r, c))
+        return targets
 
 
 # ---------------------------------------------------------------------------

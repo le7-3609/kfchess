@@ -29,7 +29,3 @@ class BoardPrinter:
                 piece = board.get_piece(Position(r, c))
                 tokens.append('.' if piece is None else str(piece))
             sys.stdout.write(" ".join(tokens) + "\n")
-
-
-# Alias for backward-compatibility with kfchess imports.
-ConsoleBoardPrinter = BoardPrinter

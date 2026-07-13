@@ -3,7 +3,7 @@
 import unittest
 
 from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard, Board
+from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.piece import TextPiece as Piece, PieceFactory
 
 
@@ -48,11 +48,6 @@ class TestArrayBoard(unittest.TestCase):
             board.get_piece(Position(5, 5))
         with self.assertRaises(IndexError):
             board.set_piece(Position(5, 5), Piece("w", "K"))
-
-    def test_board_alias(self) -> None:
-        """Board should be an alias for ArrayBoard."""
-        board = Board(2, 2)
-        self.assertIsInstance(board, ArrayBoard)
 
 
 if __name__ == "__main__":

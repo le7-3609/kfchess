@@ -78,7 +78,3 @@ class ArrayBoard(BoardInterface):
         if not self.is_valid_position(pos):
             raise IndexError("Position out of board bounds.")
         self._grid[pos.row][pos.col] = piece
-
-
-# Alias for backward-compatibility.
-Board = ArrayBoard

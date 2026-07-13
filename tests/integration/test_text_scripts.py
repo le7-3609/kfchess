@@ -12,7 +12,7 @@ _SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "scripts")
 
 
 def _runner() -> ScriptRunner:
-    return ScriptRunner(service_factory=build_service)
+    return ScriptRunner(service_factory=lambda: build_service(require_kings=False))
 
 
 class TestTextScripts(unittest.TestCase):

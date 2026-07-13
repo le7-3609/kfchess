@@ -137,19 +137,19 @@ class ThreatValidator:
         self._path_checker = path_checker
         self._config = config
 
-    def is_king_threatened(self, board: BoardInterface, color: str) -> bool:
-        """Return True if the king of *color* is threatened by any enemy piece on *board*."""
-        king_pos: Optional[Position] = None
+    def find_king(self, board: BoardInterface, color: str) -> Optional[Position]:
+        """Locate the king of *color* on *board* using configured king pieces."""
         for r in range(board.rows):
             for c in range(board.cols):
                 pos = Position(r, c)
                 piece = board.get_piece(pos)
                 if piece is not None and piece.piece_type in self._config.king_pieces and piece.color == color:
-                    king_pos = pos
-                    break
-            if king_pos is not None:
-                break
+                    return pos
+        return None
 
+    def is_king_threatened(self, board: BoardInterface, color: str) -> bool:
+        """Return True if the king of *color* is threatened by any enemy piece on *board*."""
+        king_pos = self.find_king(board, color)
         if king_pos is None:
             return False
 
@@ -159,13 +159,22 @@ class ThreatValidator:
                 enemy_piece = board.get_piece(enemy_pos)
                 if enemy_piece is None or enemy_piece.color == color:
                     continue
-                validator = self._move_validator_factory.get_validator(enemy_piece.piece_type)
-                if not validator.is_legal(enemy_pos, king_pos, enemy_piece.color, board.rows):
-                    continue
-                if (self._path_checker.is_path_clear(board, enemy_pos, king_pos)
-                        and self._path_checker.can_land(board, enemy_piece, enemy_pos, king_pos)):
+                if self._is_piece_threatening_target(board, enemy_pos, enemy_piece, king_pos):
                     return True
         return False
+
+    def _is_piece_threatening_target(
+        self,
+        board: BoardInterface,
+        enemy_pos: Position,
+        enemy_piece: PieceInterface,
+        target_pos: Position
+    ) -> bool:
+        validator = self._move_validator_factory.get_validator(enemy_piece.piece_type)
+        if not validator.is_legal(enemy_pos, target_pos, enemy_piece.color, board.rows):
+            return False
+        return (self._path_checker.is_path_clear(board, enemy_pos, target_pos)
+                and self._path_checker.can_land(board, enemy_piece, enemy_pos, target_pos))
 
 
 # ---------------------------------------------------------------------------
@@ -225,79 +234,57 @@ class EndgameValidator:
     # ------------------------------------------------------------------
 
     def _has_king(self, board: BoardInterface, color: str) -> bool:
-        for r in range(board.rows):
-            for c in range(board.cols):
-                pos = Position(r, c)
-                piece = board.get_piece(pos)
-                if piece is not None and piece.piece_type in self._config.king_pieces and piece.color == color:
-                    return True
-        return False
+        return self._threat_validator.find_king(board, color) is not None
 
     def _has_any_legal_move(self, board: BoardInterface, state: GameState, color: str) -> bool:
         eff_board = self._movement_manager.get_effective_board(board, state, state.clock_ms)
-        en_passant_targets = [ep.pos for ep in state.en_passant_targets]
-
-        def iter_targets(pos: Position, pt: str, rows: int, cols: int):
-            if pt == "K":
-                for dr in (-1, 0, 1):
-                    for dc in (-1, 0, 1):
-                        if dr == 0 and dc == 0: continue
-                        if 0 <= pos.row + dr < rows and 0 <= pos.col + dc < cols:
-                            yield Position(pos.row + dr, pos.col + dc)
-            elif pt == "N":
-                for dr, dc in ((-2,-1), (-2,1), (-1,-2), (-1,2), (1,-2), (1,2), (2,-1), (2,1)):
-                    if 0 <= pos.row + dr < rows and 0 <= pos.col + dc < cols:
-                        yield Position(pos.row + dr, pos.col + dc)
-            elif pt == "P":
-                player_config = self._config.get_player(color)
-                dir = player_config.forward_direction if player_config else 1
-                for dr in (dir, dir * 2):
-                    for dc in (-1, 0, 1):
-                        if 0 <= pos.row + dr < rows and 0 <= pos.col + dc < cols:
-                            yield Position(pos.row + dr, pos.col + dc)
-            elif pt in ("R", "B", "Q"):
-                dirs = []
-                if pt in ("R", "Q"): dirs.extend([(-1,0), (1,0), (0,-1), (0,1)])
-                if pt in ("B", "Q"): dirs.extend([(-1,-1), (-1,1), (1,-1), (1,1)])
-                for dr, dc in dirs:
-                    for step in range(1, max(rows, cols)):
-                        r, c = pos.row + dr * step, pos.col + dc * step
-                        if 0 <= r < rows and 0 <= c < cols:
-                            yield Position(r, c)
-                        else:
-                            break
-            else:
-                for tr in range(rows):
-                    for tc in range(cols):
-                        if tr != pos.row or tc != pos.col:
-                            yield Position(tr, tc)
+        en_passant_targets = self._movement_manager.get_valid_en_passant_positions(board, state, color, state.clock_ms)
 
         for r in range(eff_board.rows):
             for c in range(eff_board.cols):
                 pos = Position(r, c)
                 piece = eff_board.get_piece(pos)
-                if piece is None or piece.color != color:
+                if piece is None or piece.color != color or not piece.can_move():
                     continue
-                if not piece.can_move():
-                    continue
-                validator = self._move_validator_factory.get_validator(piece.piece_type)
-                for target in iter_targets(pos, piece.piece_type, eff_board.rows, eff_board.cols):
-                    if not validator.is_legal(pos, target, color, eff_board.rows):
-                        continue
-                    if not self._path_checker.is_path_clear(eff_board, pos, target):
-                        continue
-                    if not self._path_checker.can_land(eff_board, piece, pos, target, en_passant_targets):
-                        continue
-                    # Simulate move
-                    original_target_piece = eff_board.get_piece(target)
-                    eff_board.set_piece(pos, None)
-                    eff_board.set_piece(target, piece)
-                    is_threatened = self._threat_validator.is_king_threatened(eff_board, color)
-                    eff_board.set_piece(pos, piece)
-                    eff_board.set_piece(target, original_target_piece)
-                    if not is_threatened:
-                        return True
+                if self._piece_has_any_legal_move(eff_board, pos, piece, en_passant_targets):
+                    return True
         return False
+
+    def _piece_has_any_legal_move(
+        self,
+        board: BoardInterface,
+        pos: Position,
+        piece: PieceInterface,
+        en_passant_targets: List[Position]
+    ) -> bool:
+        validator = self._move_validator_factory.get_validator(piece.piece_type)
+        candidates = validator.get_candidate_targets(pos, piece.color, board.rows, board.cols)
+        for target in candidates:
+            if not validator.is_legal(pos, target, piece.color, board.rows):
+                continue
+            if not self._path_checker.is_path_clear(board, pos, target):
+                continue
+            if not self._path_checker.can_land(board, piece, pos, target, en_passant_targets):
+                continue
+            if self._is_legal_move_safe_from_check(board, pos, target, piece):
+                return True
+        return False
+
+    def _is_legal_move_safe_from_check(
+        self,
+        board: BoardInterface,
+        frm: Position,
+        to: Position,
+        piece: PieceInterface
+    ) -> bool:
+        """Simulates the move and checks if it leaves the king threatened."""
+        original_target_piece = board.get_piece(to)
+        board.set_piece(frm, None)
+        board.set_piece(to, piece)
+        is_threatened = self._threat_validator.is_king_threatened(board, piece.color)
+        board.set_piece(frm, piece)
+        board.set_piece(to, original_target_piece)
+        return not is_threatened
 
     # ------------------------------------------------------------------
     # Public checks

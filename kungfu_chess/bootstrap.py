@@ -135,7 +135,7 @@ class GameService:
 
 
 
-def build_service(config: GameConfig = None) -> GameService:
+def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
     """Construct and wire a fully functional GameService."""
     if config is None:
         config = GameConfig()
@@ -143,7 +143,7 @@ def build_service(config: GameConfig = None) -> GameService:
     board_repo = _InMemoryBoardRepo()
     state_repo = _InMemoryStateRepo()
     parser = BoardParser()
-    validator = BoardValidator()
+    validator = BoardValidator(require_kings=require_kings)
     printer = BoardPrinter()
     publisher = MoveEventPublisher()
 
@@ -192,7 +192,8 @@ def build_realtime_service(
     config: GameConfig = None, 
     ms_per_square: int = None,
     replay_file: str = None,
-    bot_color: str = None
+    bot_color: str = None,
+    require_kings: bool = True
 ) -> GameService:
     """Construct a GameService with ChebyshevDistanceDuration for real-time movement.
 
@@ -207,7 +208,7 @@ def build_realtime_service(
     board_repo = _InMemoryBoardRepo()
     state_repo = _InMemoryStateRepo()
     parser = BoardParser()
-    validator = BoardValidator()
+    validator = BoardValidator(require_kings=require_kings)
     printer = BoardPrinter()
     publisher = MoveEventPublisher()
 

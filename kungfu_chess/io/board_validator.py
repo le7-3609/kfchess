@@ -1,4 +1,4 @@
-"""Board validator — validates raw token rows and builds a Board (io layer).
+"""ArrayBoard validator — validates raw token rows and builds a ArrayBoard (io layer).
 
 Lives in io because validation is part of the textual board-setup pipeline.
 Must not own: movement rules, command execution, rendering, or timing.
@@ -7,16 +7,19 @@ Must not own: movement rules, command execution, rendering, or timing.
 from typing import List
 
 from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard as Board, BoardInterface
+from kungfu_chess.model.board import ArrayBoard, BoardInterface
 from kungfu_chess.model.piece import PieceFactory
 from kungfu_chess.model.game_state import Result
 
 
 class BoardValidator:
-    """Validates raw token rows and assembles a Board on success."""
+    """Validates raw token rows and assembles a ArrayBoard on success."""
+
+    def __init__(self, require_kings: bool = True) -> None:
+        self._require_kings = require_kings
 
     def validate_and_build(self, raw_board: List[List[str]]) -> 'Result[BoardInterface, str]':
-        """Validate *raw_board* and construct a Board.
+        """Validate *raw_board* and construct a ArrayBoard.
 
         Returns:
             Result.ok(board) on success, or Result.fail(error_code) on failure.
@@ -45,13 +48,13 @@ class BoardValidator:
                 elif token == 'bK':
                     black_kings += 1
 
-        # Ensure exactly one king per color, except when running in a test environment
-        if not self._is_test_environment():
+        # Ensure exactly one king per color, if required
+        if self._require_kings:
             if white_kings != 1 or black_kings != 1:
                 return Result.fail("INVALID_KING_COUNT")
 
 
-        board = Board(rows=len(raw_board), cols=expected_width)
+        board = ArrayBoard(rows=len(raw_board), cols=expected_width)
         for r_idx, row in enumerate(raw_board):
             for c_idx, token in enumerate(row):
                 if token != '.':
@@ -59,17 +62,4 @@ class BoardValidator:
 
         return Result.ok(board)
 
-    def _is_test_environment(self) -> bool:
-        import sys
-        import os
-        # Detect standard test runners
-        if "pytest" in sys.modules or "unittest" in sys.modules:
-            return True
-        # Detect standard test environment variables
-        if "PYTEST_CURRENT_TEST" in os.environ or os.environ.get("TESTING") == "true":
-            return True
-        # Detect if any command-line argument contains "test"
-        if any("test" in arg.lower() for arg in sys.argv):
-            return True
-        return False
 

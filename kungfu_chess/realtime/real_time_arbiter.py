@@ -143,6 +143,16 @@ class RealTimeArbiterInterface(ABC):
     def get_effective_board(self, board: BoardInterface, state: GameState, t: int) -> BoardInterface:
         """Return a BoardInterface showing all piece locations at time *t*."""
 
+    @abstractmethod
+    def get_valid_en_passant_positions(
+        self,
+        board: BoardInterface,
+        state: GameState,
+        color: str,
+        t: int
+    ) -> List[Position]:
+        """Return a list of valid en-passant target positions for a player of *color* at time *t*."""
+
 
 # ---------------------------------------------------------------------------
 # Concrete implementation
@@ -209,6 +219,21 @@ class RealTimeArbiter(RealTimeArbiterInterface):
     def get_effective_board(self, board: BoardInterface, state: GameState, t: int) -> BoardInterface:
         """Return a proxy board showing all piece positions at time *t*."""
         return self._build_proxy(board, state, t)
+
+    def get_valid_en_passant_positions(
+        self,
+        board: BoardInterface,
+        state: GameState,
+        color: str,
+        t: int
+    ) -> List[Position]:
+        eff_board = self.get_effective_board(board, state, t)
+        valid = []
+        for ep in state.en_passant_targets:
+            p = eff_board.get_piece(ep.capture_pos)
+            if p is not None and p.piece_type == "P" and p.color != color:
+                valid.append(ep.pos)
+        return valid
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -384,7 +409,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                     else:
                         eff_board = self._build_proxy(board, state, t, exclude_mov=mov)
                         path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-                        ep_targets = [ep.pos for ep in state.en_passant_targets]
+                        ep_targets = self.get_valid_en_passant_positions(board, state, mov.piece.color, t)
                         can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
 
                         if path_clear and can_land:
@@ -420,12 +445,22 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                             # En-passant capture.
                             is_ep = False
                             if mov.piece.piece_type == "P":
-                                for ep in state.en_passant_targets:
+                                for ep in list(state.en_passant_targets):
                                     if ep.pos == mov.to:
                                         captured_piece = board.get_piece(ep.capture_pos)
                                         if captured_piece:
                                             captured_piece.transition_to_idle()
+                                            # Clean up movements and cooldowns for the captured piece
+                                            for am in list(state.active_movements):
+                                                if am.piece == captured_piece:
+                                                    if am in arriving:
+                                                        arriving.remove(am)
+                                                    state.active_movements.remove(am)
+                                            for cd in list(state.active_cooldowns):
+                                                if cd.piece == captured_piece:
+                                                    state.active_cooldowns.remove(cd)
                                         board.set_piece(ep.capture_pos, None)
+                                        state.en_passant_targets.remove(ep)
                                         is_ep = True
                                         break
 
@@ -477,7 +512,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                 frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
                 eff_board = self._build_proxy(board, state, t, exclude_mov=mov)
                 path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-                ep_targets = [ep.pos for ep in state.en_passant_targets]
+                ep_targets = self.get_valid_en_passant_positions(board, state, mov.piece.color, t)
                 can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
 
                 if not path_clear or not can_land:

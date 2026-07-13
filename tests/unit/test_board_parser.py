@@ -53,10 +53,6 @@ class TestBoardParser(unittest.TestCase):
         self.assertEqual(board, [])
         self.assertEqual(cmds, [])
 
-    def test_simple_board_alias(self) -> None:
-        from kungfu_chess.io.board_parser import SimpleBoardParser
-        self.assertIs(SimpleBoardParser, BoardParser)
-
 
 if __name__ == "__main__":
     unittest.main()

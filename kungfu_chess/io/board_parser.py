@@ -53,7 +53,3 @@ class BoardParser:
                 commands.append(stripped)
 
         return board_lines, commands
-
-
-# Alias for backward-compatibility with kfchess imports.
-SimpleBoardParser = BoardParser
