@@ -222,7 +222,7 @@ class GameEngine:
         self._endgame_validator = endgame_validator
 
         if castling_validator is None:
-            castling_validator = CastlingValidator(threat_validator=self._threat_validator)
+            castling_validator = CastlingValidator(threat_validator=self._threat_validator, config=config)
         self._castling_validator = castling_validator
 
     # ------------------------------------------------------------------
