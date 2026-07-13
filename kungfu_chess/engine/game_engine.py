@@ -175,6 +175,25 @@ class GameEngine:
     # Public command dispatcher
     # ------------------------------------------------------------------
 
+    def request_move(self, source: Position, destination: Position) -> None:
+        """Attempt a move from *source* to *destination*.
+
+        This is the Controller-facing entry point: the caller (Controller)
+        already resolved pixels to cells and owns selection state itself, so
+        unlike ``execute_command("click ...")`` no selection bookkeeping is
+        read from or written back to GameState here beyond what the legality
+        gate (RuleEngine/PathChecker/ThreatValidator) needs to run.
+        """
+        self._resolve_pending()
+        board = self._board_repo.get_board()
+        if board is None:
+            return
+        state = self._state_repo.get_state()
+        if state.game_over:
+            return
+        state.selected_pos = source
+        self._click_commands.handle_click(state, board, destination)
+
     def execute_command(self, command: str) -> None:
         """Execute a single text command against the current game state."""
         parts = command.split()
