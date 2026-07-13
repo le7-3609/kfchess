@@ -6,14 +6,10 @@ violating the rules or board layers.
 """
 
 import random
-from typing import List, Tuple
+from typing import List
 
 from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import BoardInterface
-from kungfu_chess.model.game_state import GameState
-from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
-from kungfu_chess.rules.rule_engine import PathCheckerInterface, ThreatValidator
-from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiterInterface
+from kungfu_chess.rules.rule_engine import EndgameValidator
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface
 
 
@@ -25,23 +21,17 @@ class RandomBotInputSource:
         color: str,
         board_repo: BoardRepositoryInterface,
         state_repo: GameStateRepositoryInterface,
-        move_validator_factory: MoveValidatorFactoryInterface,
-        path_checker: PathCheckerInterface,
-        threat_validator: ThreatValidator,
-        arbiter: RealTimeArbiterInterface,
+        endgame_validator: EndgameValidator,
         config,
     ) -> None:
         self._color = color
         self._board_repo = board_repo
         self._state_repo = state_repo
-        self._move_validator_factory = move_validator_factory
-        self._path_checker = path_checker
-        self._threat_validator = threat_validator
-        self._arbiter = arbiter
+        self._endgame_validator = endgame_validator
         self._config = config
 
     def get_next_commands(self) -> List[str]:
-        """Generate click commands for a random valid move."""
+        """Generate click commands for a random legal move."""
         board = self._board_repo.get_board()
         if board is None:
             return []
@@ -49,56 +39,12 @@ class RandomBotInputSource:
         if state.game_over:
             return []
 
-        valid_moves = self._find_all_valid_moves(board, state)
+        valid_moves = self._endgame_validator.get_legal_moves(board, state, self._color)
         if not valid_moves:
             return []
 
         src, dst = random.choice(valid_moves)
         return self._move_to_click_commands(src, dst)
-
-    def _find_all_valid_moves(
-        self, board: BoardInterface, state: GameState
-    ) -> List[Tuple[Position, Position]]:
-        """Enumerate every legal (frm, to) pair for self._color, incl. self-check simulation."""
-        eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-        en_passant_targets = self._arbiter.get_valid_en_passant_positions(board, state, self._color, state.clock_ms)
-
-        valid_moves: List[Tuple[Position, Position]] = []
-
-        for r in range(eff_board.rows):
-            for c in range(eff_board.cols):
-                pos = Position(r, c)
-                piece = eff_board.get_piece(pos)
-                if piece is None or piece.color != self._color:
-                    continue
-                if not piece.can_move():
-                    continue
-
-                validator = self._move_validator_factory.get_validator(piece.piece_type)
-                for tr in range(eff_board.rows):
-                    for tc in range(eff_board.cols):
-                        target = Position(tr, tc)
-                        if pos == target:
-                            continue
-
-                        if not validator.is_legal(pos, target, self._color, eff_board.rows):
-                            continue
-                        if not self._path_checker.is_path_clear(eff_board, pos, target):
-                            continue
-                        if not self._path_checker.can_land(eff_board, piece, pos, target, en_passant_targets):
-                            continue
-
-                        original_target_piece = eff_board.get_piece(target)
-                        eff_board.set_piece(pos, None)
-                        eff_board.set_piece(target, piece)
-                        is_threatened = self._threat_validator.is_king_threatened(eff_board, self._color)
-                        eff_board.set_piece(pos, piece)
-                        eff_board.set_piece(target, original_target_piece)
-
-                        if not is_threatened:
-                            valid_moves.append((pos, target))
-
-        return valid_moves
 
     def _move_to_click_commands(self, src: Position, dst: Position) -> List[str]:
         cell_size = self._config.cell_size_px

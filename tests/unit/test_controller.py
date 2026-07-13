@@ -19,9 +19,6 @@ class TestController(unittest.TestCase):
         cmd = self.ctrl.on_jump(50, 50)
         self.assertEqual(cmd, "jump 50 50")
 
-    def test_selected_pos_initially_none(self) -> None:
-        self.assertIsNone(self.ctrl.selected_pos)
-
 
 if __name__ == "__main__":
     unittest.main()

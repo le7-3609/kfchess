@@ -66,29 +66,34 @@ class EndgameValidator:
     def _has_king(self, board: BoardInterface, color: str) -> bool:
         return self._threat_validator.find_king(board, color) is not None
 
-    def _has_any_legal_move(self, board: BoardInterface, state: GameState, color: str) -> bool:
+    def get_legal_moves(self, board: BoardInterface, state: GameState, color: str) -> List[Tuple[Position, Position]]:
+        """Return every legal (frm, to) pair for *color*, honoring self-check safety."""
         eff_board = self._movement_manager.get_effective_board(board, state, state.clock_ms)
         en_passant_targets = self._movement_manager.get_valid_en_passant_positions(board, state, color, state.clock_ms)
 
+        moves: List[Tuple[Position, Position]] = []
         for r in range(eff_board.rows):
             for c in range(eff_board.cols):
                 pos = Position(r, c)
                 piece = eff_board.get_piece(pos)
                 if piece is None or piece.color != color or not piece.can_move():
                     continue
-                if self._piece_has_any_legal_move(eff_board, pos, piece, en_passant_targets):
-                    return True
-        return False
+                moves.extend(self._piece_legal_moves(eff_board, pos, piece, en_passant_targets))
+        return moves
 
-    def _piece_has_any_legal_move(
+    def _has_any_legal_move(self, board: BoardInterface, state: GameState, color: str) -> bool:
+        return bool(self.get_legal_moves(board, state, color))
+
+    def _piece_legal_moves(
         self,
         board: BoardInterface,
         pos: Position,
         piece: PieceInterface,
         en_passant_targets: List[Position]
-    ) -> bool:
+    ) -> List[Tuple[Position, Position]]:
         validator = self._move_validator_factory.get_validator(piece.piece_type)
         candidates = validator.get_candidate_targets(pos, piece.color, board.rows, board.cols)
+        moves: List[Tuple[Position, Position]] = []
         for target in candidates:
             if not validator.is_legal(pos, target, piece.color, board.rows):
                 continue
@@ -96,25 +101,9 @@ class EndgameValidator:
                 continue
             if not self._path_checker.can_land(board, piece, pos, target, en_passant_targets):
                 continue
-            if self._is_legal_move_safe_from_check(board, pos, target, piece):
-                return True
-        return False
-
-    def _is_legal_move_safe_from_check(
-        self,
-        board: BoardInterface,
-        frm: Position,
-        to: Position,
-        piece: PieceInterface
-    ) -> bool:
-        """Simulates the move and checks if it leaves the king threatened."""
-        original_target_piece = board.get_piece(to)
-        board.set_piece(frm, None)
-        board.set_piece(to, piece)
-        is_threatened = self._threat_validator.is_king_threatened(board, piece.color)
-        board.set_piece(frm, piece)
-        board.set_piece(to, original_target_piece)
-        return not is_threatened
+            if self._threat_validator.is_move_safe_from_check(board, pos, target, piece):
+                moves.append((pos, target))
+        return moves
 
     # ------------------------------------------------------------------
     # Public checks

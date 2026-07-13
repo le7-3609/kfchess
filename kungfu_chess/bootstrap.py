@@ -127,15 +127,20 @@ def build_realtime_service(
 
     bot = None
     if bot_color:
-        from kungfu_chess.rules.rule_engine import ThreatValidator
+        from kungfu_chess.rules.rule_engine import ThreatValidator, EndgameValidator
+        threat_validator = ThreatValidator(move_validator_factory, path_checker, config)
+        endgame_validator = EndgameValidator(
+            move_validator_factory=move_validator_factory,
+            path_checker=path_checker,
+            movement_manager=arbiter,
+            threat_validator=threat_validator,
+            config=config,
+        )
         bot = RandomBotInputSource(
             color=bot_color,
             board_repo=board_repo,
             state_repo=state_repo,
-            move_validator_factory=move_validator_factory,
-            path_checker=path_checker,
-            threat_validator=ThreatValidator(move_validator_factory, path_checker, config),
-            arbiter=arbiter,
+            endgame_validator=endgame_validator,
             config=config,
         )
 

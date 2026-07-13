@@ -51,6 +51,26 @@ class ThreatValidator:
                     return True
         return False
 
+    def is_move_safe_from_check(
+        self,
+        board: BoardInterface,
+        frm: Position,
+        to: Position,
+        piece: PieceInterface,
+    ) -> bool:
+        """Return True if moving *piece* from *frm* to *to* does not leave its own king in check.
+
+        Temporarily mutates *board* to simulate the move and restores it before
+        returning, so the check remains read-only from the caller's perspective.
+        """
+        original_target_piece = board.get_piece(to)
+        board.set_piece(frm, None)
+        board.set_piece(to, piece)
+        is_threatened = self.is_king_threatened(board, piece.color)
+        board.set_piece(frm, piece)
+        board.set_piece(to, original_target_piece)
+        return not is_threatened
+
     def _is_piece_threatening_target(
         self,
         board: BoardInterface,

@@ -19,9 +19,27 @@ from kungfu_chess.rules.rule_engine import (
     PathCheckerInterface,
     ThreatValidator,
     EndgameValidator,
+    CastlingValidator,
     serialize_board_state,
 )
 from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiterInterface
+
+
+# ---------------------------------------------------------------------------
+# Pixel mapper interface (owned by engine so it can decouple from input/)
+# ---------------------------------------------------------------------------
+
+class PixelMapperInterface(ABC):
+    """Translates raw pixel coordinates into board positions.
+
+    Defined here (Layer 4) rather than imported from input/ (Layer 6) so the
+    dependency points inward: input.BoardMapper implements this interface,
+    it is never the other way around.
+    """
+
+    @abstractmethod
+    def pixel_to_position(self, x: int, y: int, board: BoardInterface) -> Optional[Position]:
+        """Convert pixel coordinates (x, y) to a board Position, or None if off-board."""
 
 
 # ---------------------------------------------------------------------------
@@ -130,15 +148,15 @@ class GameEngine:
 
     Handles:
       - Click/jump/wait/print-board command dispatching
-      - Delegating move validation to piece_rules and rule_engine
-      - Starting legal motions via the arbiter
+      - Delegating move and castling legality to piece_rules and rule_engine
+      - Starting legal motions via the arbiter (including castling's king+rook pair)
       - Game-over detection after each command
-      - Castling orchestration
 
-    Pixel-to-cell mapping is delegated to a BoardMapper (see input/board_mapper.py).
-    Selection state is owned by the Controller (see input/controller.py).
-    The GameEngine therefore receives *already-resolved* board positions from
-    the Controller when handling clicks.
+    Pixel-to-cell mapping is delegated to a PixelMapperInterface implementation
+    (see input/board_mapper.py for the concrete BoardMapper); the engine layer
+    depends only on the interface, never on the input/ package.
+    Selection state (GameState.selected_pos) is owned and mutated here, not by
+    the Controller — the Controller is a stateless click-to-command translator.
     """
 
     def __init__(
@@ -150,11 +168,12 @@ class GameEngine:
         move_event_publisher: MoveEventPublisher,
         path_checker: PathCheckerInterface,
         config: 'GameConfig',  # type: ignore[name-defined]
+        board_mapper: PixelMapperInterface,
         arbiter: Optional[RealTimeArbiterInterface] = None,
         game_play_state_factory: Optional[GamePlayStateFactory] = None,
         threat_validator: Optional[ThreatValidator] = None,
         endgame_validator: Optional[EndgameValidator] = None,
-        board_mapper: Optional['BoardMapper'] = None,  # type: ignore[name-defined]
+        castling_validator: Optional[CastlingValidator] = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -163,10 +182,6 @@ class GameEngine:
         self._move_event_publisher = move_event_publisher
         self._path_checker = path_checker
         self._config = config
-
-        if board_mapper is None:
-            from kungfu_chess.input.board_mapper import BoardMapper as _BoardMapper
-            board_mapper = _BoardMapper(self._config.cell_size_px)
         self._board_mapper = board_mapper
 
         # Arbiter — default to instant movement if not provided.
@@ -205,6 +220,10 @@ class GameEngine:
                 config=config,
             )
         self._endgame_validator = endgame_validator
+
+        if castling_validator is None:
+            castling_validator = CastlingValidator(threat_validator=self._threat_validator)
+        self._castling_validator = castling_validator
 
     # ------------------------------------------------------------------
     # Public command dispatcher
@@ -383,7 +402,7 @@ class GameEngine:
         if not self._path_checker.can_land(eff_board, selected_piece, origin, target, en_passant_targets):
             return
 
-        if not self._is_move_safe_from_self_check(eff_board, origin, target, selected_piece):
+        if not self._threat_validator.is_move_safe_from_check(eff_board, origin, target, selected_piece):
             return
 
         arrival_ms = self._arbiter.calculate_arrival(origin, target, selected_piece, state.clock_ms)
@@ -399,22 +418,6 @@ class GameEngine:
         state.selected_pos = None
         self._state_repo.save_state(state)
         self._resolve_pending()
-
-    def _is_move_safe_from_self_check(
-        self,
-        eff_board: BoardInterface,
-        origin: Position,
-        target: Position,
-        piece: PieceInterface,
-    ) -> bool:
-        """Simulate piece moving origin->target on eff_board; True if king NOT left in check."""
-        original_target_piece = eff_board.get_piece(target)
-        eff_board.set_piece(origin, None)
-        eff_board.set_piece(target, piece)
-        is_threatened = self._threat_validator.is_king_threatened(eff_board, piece.color)
-        eff_board.set_piece(origin, piece)
-        eff_board.set_piece(target, original_target_piece)
-        return not is_threatened
 
     def _handle_jump(self, x: int, y: int) -> None:
         self._resolve_pending()
@@ -478,62 +481,13 @@ class GameEngine:
         rook_piece,
     ) -> bool:
         eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-        dc = 1 if rook_pos.col > king_pos.col else -1
-
-        if not self._castle_path_clear(eff_board, king_pos, rook_pos, dc):
+        destinations = self._castling_validator.get_legal_castle(eff_board, king_pos, rook_pos, king_piece)
+        if destinations is None:
             return False
 
-        king_dest = Position(king_pos.row, king_pos.col + 2 * dc)
-        rook_dest = Position(rook_pos.row, king_pos.col + 1 * dc)
-
-        if not board.is_valid_position(king_dest) or not board.is_valid_position(rook_dest):
-            return False
-
-        if not self._castle_squares_safe(eff_board, king_pos, king_piece, dc, king_dest):
-            return False
-
-        self._execute_castle(state, king_pos, rook_pos, king_dest, rook_dest, king_piece, rook_piece)
-        return True
-
-    def _castle_path_clear(
-        self,
-        eff_board: BoardInterface,
-        king_pos: Position,
-        rook_pos: Position,
-        dc: int,
-    ) -> bool:
-        cur_col = king_pos.col + dc
-        while cur_col != rook_pos.col:
-            if eff_board.get_piece(Position(king_pos.row, cur_col)) is not None:
-                return False
-            cur_col += dc
-        return True
-
-    def _castle_squares_safe(
-        self,
-        eff_board: BoardInterface,
-        king_pos: Position,
-        king_piece,
-        dc: int,
-        king_dest: Position,
-    ) -> bool:
-        """Simulates the king passing through king_pos, pass_pos, king_dest.
-
-        Restores eff_board's king_pos occupant before returning, on both the
-        failure and success path.
-        """
-        pass_pos = Position(king_pos.row, king_pos.col + dc)
-
-        for pos_to_check in [king_pos, pass_pos, king_dest]:
-            eff_board.set_piece(king_pos, None)
-            eff_board.set_piece(pos_to_check, king_piece)
-            threatened = self._threat_validator.is_king_threatened(eff_board, king_piece.color)
-            eff_board.set_piece(pos_to_check, None)
-            if threatened:
-                eff_board.set_piece(king_pos, king_piece)
-                return False
-
-        eff_board.set_piece(king_pos, king_piece)
+        self._execute_castle(
+            state, king_pos, rook_pos, destinations.king_dest, destinations.rook_dest, king_piece, rook_piece
+        )
         return True
 
     def _execute_castle(
