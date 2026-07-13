@@ -7,6 +7,7 @@ Must not own: pixels, clicks, rendering, script parsing, movement rules, or timi
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
+from kungfu_chess.errors import InvalidPositionError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
 
@@ -71,10 +72,10 @@ class ArrayBoard(BoardInterface):
 
     def get_piece(self, pos: Position) -> Optional[PieceInterface]:
         if not self.is_valid_position(pos):
-            raise IndexError("Position out of board bounds.")
+            raise InvalidPositionError(pos)
         return self._grid[pos.row][pos.col]
 
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         if not self.is_valid_position(pos):
-            raise IndexError("Position out of board bounds.")
+            raise InvalidPositionError(pos)
         self._grid[pos.row][pos.col] = piece

@@ -4,11 +4,8 @@ This is the composition root for the kungfu_chess package.
 """
 
 import sys
-from typing import List
 
 from kungfu_chess.config.game_config import GameConfig
-from kungfu_chess.model.game_state import GameState, Result
-from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.rules.piece_rules import (
     MoveValidatorFactory,
     KingMoveValidator,
@@ -19,127 +16,25 @@ from kungfu_chess.rules.piece_rules import (
     PawnMoveValidator,
     StandardPawnPromotion,
 )
-from kungfu_chess.rules.rule_engine import PathChecker, ThreatValidator, EndgameValidator
+from kungfu_chess.rules.rule_engine import PathChecker
 from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiter, ChebyshevDistanceDuration, InstantMovementDuration
-from kungfu_chess.engine.game_engine import (
-    GameEngine,
-    MoveEventPublisher,
-    BoardRepositoryInterface,
-    GameStateRepositoryInterface,
-    GamePlayStateFactory,
-    BoardPrinterInterface,
-)
+from kungfu_chess.engine.game_engine import GameEngine, MoveEventPublisher, GamePlayStateFactory
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_printer import BoardPrinter
 from kungfu_chess.io.board_validator import BoardValidator
 from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
 from kungfu_chess.input.bot import RandomBotInputSource
+from kungfu_chess.input.board_mapper import BoardMapper
+from kungfu_chess.repos import _InMemoryBoardRepo, _InMemoryStateRepo
+from kungfu_chess.service import GameService
 
 
+def _build_core(config: GameConfig, require_kings: bool, duration_strategy):
+    """Wire the common repo/parser/validator/printer/publisher/validators/engine stack.
 
-
-class _InMemoryBoardRepo(BoardRepositoryInterface):
-    def __init__(self) -> None:
-        self._board = None
-
-    def get_board(self):
-        return self._board
-
-    def save_board(self, board) -> None:
-        self._board = board
-
-
-class _InMemoryStateRepo(GameStateRepositoryInterface):
-    def __init__(self) -> None:
-        self._state: GameState = GameState()
-
-    def get_state(self) -> GameState:
-        return self._state
-
-    def save_state(self, state: GameState) -> None:
-        self._state = state
-
-
-
-
-class GameService:
-    """Thin orchestrator: parse, validate, build board, execute commands."""
-
-    def __init__(
-        self,
-        board_repo: BoardRepositoryInterface,
-        state_repo: GameStateRepositoryInterface,
-        parser: BoardParser,
-        validator: BoardValidator,
-        engine: GameEngine,
-        bot: RandomBotInputSource = None,
-        config: GameConfig = None,
-    ) -> None:
-        self._board_repo = board_repo
-        self._state_repo = state_repo
-        self._parser = parser
-        self._validator = validator
-        self._engine = engine
-        self._bot = bot
-        self._config = config
-
-    def execute(self, input_lines: List[str]) -> Result:
-        raw_board, commands = self._parser.parse(input_lines)
-        if not raw_board:
-            return Result.ok(None)
-
-        validation = self._validator.validate_and_build(raw_board)
-        if not validation.is_ok:
-            return Result.fail(validation.error)
-
-        board = validation.value
-        self._board_repo.save_board(board)
-        self._state_repo.save_state(GameState())
-
-        self._adjust_pawn_rules_for_board_height(board)
-
-        for cmd in commands:
-            self._engine.execute_command(cmd)
-            self._trigger_bot_reaction_if_active()
-
-        return Result.ok(None)
-
-    def _adjust_pawn_rules_for_board_height(self, board: BoardInterface) -> None:
-        if not self._config:
-            return
-        self._config.board_rows = board.rows
-        self._config.board_cols = board.cols
-        w_player = self._config.get_player("w")
-        b_player = self._config.get_player("b")
-        if board.rows == 8:
-            if w_player:
-                w_player.pawn_start_rows = [6]
-                w_player.promotion_rank = 0
-            if b_player:
-                b_player.pawn_start_rows = [1]
-                b_player.promotion_rank = 7
-        else:
-            if w_player:
-                w_player.pawn_start_rows = [board.rows - 1]
-                w_player.promotion_rank = 0
-            if b_player:
-                b_player.pawn_start_rows = [0]
-                b_player.promotion_rank = board.rows - 1
-
-    def _trigger_bot_reaction_if_active(self) -> None:
-        if self._bot and not self._state_repo.get_state().game_over:
-            bot_cmds = self._bot.get_next_commands()
-            for b_cmd in bot_cmds:
-                self._engine.execute_command(b_cmd)
-
-
-
-
-def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
-    """Construct and wire a fully functional GameService."""
-    if config is None:
-        config = GameConfig()
-
+    Shared by build_service() and build_realtime_service(); they differ only in
+    duration_strategy and in build_realtime_service()'s extra replay/bot wiring.
+    """
     board_repo = _InMemoryBoardRepo()
     state_repo = _InMemoryStateRepo()
     parser = BoardParser()
@@ -159,9 +54,10 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
     path_checker = PathChecker()
     promotion_strategy = StandardPawnPromotion()
     game_play_state_factory = GamePlayStateFactory()
+    board_mapper = BoardMapper(config.cell_size_px)
 
     arbiter = RealTimeArbiter(
-        duration_strategy=InstantMovementDuration(),
+        duration_strategy=duration_strategy,
         path_checker=path_checker,
         config=config,
         promotion_strategy=promotion_strategy,
@@ -178,6 +74,19 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
         config=config,
         arbiter=arbiter,
         game_play_state_factory=game_play_state_factory,
+        board_mapper=board_mapper,
+    )
+
+    return board_repo, state_repo, parser, validator, move_validator_factory, path_checker, arbiter, engine
+
+
+def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
+    """Construct and wire a fully functional GameService."""
+    if config is None:
+        config = GameConfig()
+
+    board_repo, state_repo, parser, validator, _move_validator_factory, _path_checker, _arbiter, engine = _build_core(
+        config, require_kings, InstantMovementDuration()
     )
 
     return GameService(
@@ -188,8 +97,10 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
         engine=engine,
         config=config,
     )
+
+
 def build_realtime_service(
-    config: GameConfig = None, 
+    config: GameConfig = None,
     ms_per_square: int = None,
     replay_file: str = None,
     bot_color: str = None,
@@ -205,44 +116,8 @@ def build_realtime_service(
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
 
-    board_repo = _InMemoryBoardRepo()
-    state_repo = _InMemoryStateRepo()
-    parser = BoardParser()
-    validator = BoardValidator(require_kings=require_kings)
-    printer = BoardPrinter()
-    publisher = MoveEventPublisher()
-
-    move_validators = {
-        "K": KingMoveValidator(),
-        "Q": QueenMoveValidator(),
-        "R": RookMoveValidator(),
-        "B": BishopMoveValidator(),
-        "N": KnightMoveValidator(),
-        "P": PawnMoveValidator(config=config),
-    }
-    move_validator_factory = MoveValidatorFactory(validators=move_validators)
-    path_checker = PathChecker()
-    promotion_strategy = StandardPawnPromotion()
-    game_play_state_factory = GamePlayStateFactory()
-
-    arbiter = RealTimeArbiter(
-        duration_strategy=ChebyshevDistanceDuration(ms_per_square=ms_per_square),
-        path_checker=path_checker,
-        config=config,
-        promotion_strategy=promotion_strategy,
-        move_event_publisher=publisher,
-    )
-
-    engine = GameEngine(
-        board_repo=board_repo,
-        state_repo=state_repo,
-        printer=printer,
-        move_validator_factory=move_validator_factory,
-        move_event_publisher=publisher,
-        path_checker=path_checker,
-        config=config,
-        arbiter=arbiter,
-        game_play_state_factory=game_play_state_factory,
+    board_repo, state_repo, parser, validator, move_validator_factory, path_checker, arbiter, engine = _build_core(
+        config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square)
     )
 
     if replay_file:

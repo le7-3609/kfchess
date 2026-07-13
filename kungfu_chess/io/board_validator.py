@@ -4,7 +4,7 @@ Lives in io because validation is part of the textual board-setup pipeline.
 Must not own: movement rules, command execution, rendering, or timing.
 """
 
-from typing import List
+from typing import List, Optional
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import ArrayBoard, BoardInterface
@@ -33,16 +33,24 @@ class BoardValidator:
         if not raw_board:
             return Result.fail("EMPTY_BOARD")
 
+        error = self._validate(raw_board)
+        if error is not None:
+            return Result.fail(error)
+
+        return Result.ok(self._build(raw_board))
+
+    def _validate(self, raw_board: List[List[str]]) -> Optional[str]:
+        """Return an error code string if *raw_board* is structurally invalid, else None."""
         expected_width = len(raw_board[0])
         white_kings = 0
         black_kings = 0
 
         for row in raw_board:
             if len(row) != expected_width:
-                return Result.fail("ROW_WIDTH_MISMATCH")
+                return "ROW_WIDTH_MISMATCH"
             for token in row:
                 if token != '.' and PieceFactory.from_string(token) is None:
-                    return Result.fail("UNKNOWN_TOKEN")
+                    return "UNKNOWN_TOKEN"
                 if token == 'wK':
                     white_kings += 1
                 elif token == 'bK':
@@ -51,15 +59,18 @@ class BoardValidator:
         # Ensure exactly one king per color, if required
         if self._require_kings:
             if white_kings != 1 or black_kings != 1:
-                return Result.fail("INVALID_KING_COUNT")
+                return "INVALID_KING_COUNT"
 
+        return None
 
+    def _build(self, raw_board: List[List[str]]) -> BoardInterface:
+        expected_width = len(raw_board[0])
         board = ArrayBoard(rows=len(raw_board), cols=expected_width)
         for r_idx, row in enumerate(raw_board):
             for c_idx, token in enumerate(row):
                 if token != '.':
                     board.set_piece(Position(r_idx, c_idx), PieceFactory.from_string(token))
 
-        return Result.ok(board)
+        return board
 
 

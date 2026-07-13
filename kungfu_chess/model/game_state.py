@@ -7,6 +7,7 @@ Must not own: pixels, clicks, rendering, script parsing, movement rules.
 from dataclasses import dataclass, field
 from typing import Generic, List, Optional, TypeVar
 
+from kungfu_chess.errors import ResultAccessError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
 
@@ -30,13 +31,13 @@ class Result(Generic[T, E]):
     @property
     def value(self) -> T:
         if not self.is_ok:
-            raise ValueError(f"Cannot retrieve value from a failed Result: {self._error}")
+            raise ResultAccessError(f"Cannot retrieve value from a failed Result: {self._error}")
         return self._value  # type: ignore[return-value]
 
     @property
     def error(self) -> E:
         if self.is_ok:
-            raise ValueError("Cannot retrieve error from a successful Result")
+            raise ResultAccessError("Cannot retrieve error from a successful Result")
         return self._error  # type: ignore[return-value]
 
     @classmethod

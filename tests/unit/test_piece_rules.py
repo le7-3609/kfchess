@@ -2,6 +2,7 @@
 
 import unittest
 
+from kungfu_chess.errors import MissingValidatorError
 from kungfu_chess.model.position import Position
 from kungfu_chess.rules.piece_rules import (
     KingMoveValidator,
@@ -142,7 +143,7 @@ class TestMoveValidatorFactory(unittest.TestCase):
 
     def test_unknown_type_raises(self) -> None:
         factory = MoveValidatorFactory({"K": KingMoveValidator()})
-        with self.assertRaises(KeyError):
+        with self.assertRaises(MissingValidatorError):
             factory.get_validator("X")
 
 

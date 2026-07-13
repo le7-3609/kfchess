@@ -11,6 +11,8 @@ Also contains:
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
+import consts
+from kungfu_chess.errors import MissingValidatorError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
 
@@ -195,7 +197,7 @@ class MoveValidatorFactory(MoveValidatorFactoryInterface):
     def get_validator(self, piece_type: str) -> MoveValidatorInterface:
         validator = self._validators.get(piece_type)
         if validator is None:
-            raise KeyError(f"No move validator registered for piece type '{piece_type}'.")
+            raise MissingValidatorError(piece_type)
         return validator
 
 
@@ -210,8 +212,6 @@ class PromotionStrategyInterface(ABC):
     def evaluate_promotion(self, piece: PieceInterface, to_pos: Position, config: 'GameConfig') -> None:  # type: ignore[name-defined]
         """Evaluate and apply any promotion rules to *piece* after it moves to *to_pos*."""
 
-
-import consts
 
 class StandardPawnPromotion(PromotionStrategyInterface):
     """Auto-promotes a pawn to queen when it reaches the opposite back rank."""

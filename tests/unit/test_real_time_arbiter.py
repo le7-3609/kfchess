@@ -202,9 +202,10 @@ class TestArbiterCollisions(unittest.TestCase):
         # They will cross paths at (0, 1)
         self.state.clock_ms = 1000
         self.arbiter.resolve_movements(self.board, self.state, 1000)
-        
-        # p1 should capture p2 due to index priority
-        # If p1 captures p2, p1 keeps moving and p2 is removed from the board.
+
+        # Same start time -> tie-broken by registration order. p2 (registered
+        # second) counts as the later arrival and captures p1, per the rule that
+        # the later arrival eats the earlier one on an enemy collision.
         self.assertEqual(len(self.state.active_movements), 1)
         pieces_on_board = sum(1 for r in range(self.board.rows) for c in range(self.board.cols) if self.board.get_piece(Position(r, c)) is not None)
         self.assertEqual(pieces_on_board, 1)
@@ -212,15 +213,16 @@ class TestArbiterCollisions(unittest.TestCase):
     def test_jump_collision(self) -> None:
         p1 = Piece("w", "N")
         p2 = Piece("b", "R")
-        m1 = self._add_movement(p1, Position(0, 0), Position(1, 2), 0, 2000)
-        p1.transition_to_idle()
+        # p1 jumps in place (frm == to) at (1, 2), ambushing the square.
+        m1 = self._add_movement(p1, Position(1, 2), Position(1, 2), 0, 2000)
         p1.transition_to_jumping()
         m2 = self._add_movement(p2, Position(0, 2), Position(1, 2), 0, 2000)
-        
+
         self.state.clock_ms = 2000
         self.arbiter.resolve_movements(self.board, self.state, 2000)
-        
-        # Jumping piece (p1) wins same-square collision
+
+        # An ambushing (jump-in-place) piece always wins a same-square collision,
+        # regardless of arrival order.
         self.assertEqual(self.board.get_piece(Position(1, 2)), p1)
 
     def test_collision_loser_source_square_not_cleared_if_occupied_by_other_piece(self) -> None:

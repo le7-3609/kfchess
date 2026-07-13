@@ -154,6 +154,7 @@ class GameEngine:
         game_play_state_factory: Optional[GamePlayStateFactory] = None,
         threat_validator: Optional[ThreatValidator] = None,
         endgame_validator: Optional[EndgameValidator] = None,
+        board_mapper: Optional['BoardMapper'] = None,  # type: ignore[name-defined]
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -163,8 +164,10 @@ class GameEngine:
         self._path_checker = path_checker
         self._config = config
 
-        from kungfu_chess.input.board_mapper import BoardMapper
-        self._board_mapper = BoardMapper(self._config.cell_size_px)
+        if board_mapper is None:
+            from kungfu_chess.input.board_mapper import BoardMapper as _BoardMapper
+            board_mapper = _BoardMapper(self._config.cell_size_px)
+        self._board_mapper = board_mapper
 
         # Arbiter — default to instant movement if not provided.
         if arbiter is None:
@@ -380,15 +383,7 @@ class GameEngine:
         if not self._path_checker.can_land(eff_board, selected_piece, origin, target, en_passant_targets):
             return
 
-        # Simulate move to check for self-check.
-        original_target_piece = eff_board.get_piece(target)
-        eff_board.set_piece(origin, None)
-        eff_board.set_piece(target, selected_piece)
-        is_threatened = self._threat_validator.is_king_threatened(eff_board, selected_piece.color)
-        eff_board.set_piece(origin, selected_piece)
-        eff_board.set_piece(target, original_target_piece)
-
-        if is_threatened:
+        if not self._is_move_safe_from_self_check(eff_board, origin, target, selected_piece):
             return
 
         arrival_ms = self._arbiter.calculate_arrival(origin, target, selected_piece, state.clock_ms)
@@ -404,6 +399,22 @@ class GameEngine:
         state.selected_pos = None
         self._state_repo.save_state(state)
         self._resolve_pending()
+
+    def _is_move_safe_from_self_check(
+        self,
+        eff_board: BoardInterface,
+        origin: Position,
+        target: Position,
+        piece: PieceInterface,
+    ) -> bool:
+        """Simulate piece moving origin->target on eff_board; True if king NOT left in check."""
+        original_target_piece = eff_board.get_piece(target)
+        eff_board.set_piece(origin, None)
+        eff_board.set_piece(target, piece)
+        is_threatened = self._threat_validator.is_king_threatened(eff_board, piece.color)
+        eff_board.set_piece(origin, piece)
+        eff_board.set_piece(target, original_target_piece)
+        return not is_threatened
 
     def _handle_jump(self, x: int, y: int) -> None:
         self._resolve_pending()
@@ -470,14 +481,10 @@ class GameEngine:
         rook_piece,
     ) -> bool:
         eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-
         dc = 1 if rook_pos.col > king_pos.col else -1
 
-        cur_col = king_pos.col + dc
-        while cur_col != rook_pos.col:
-            if eff_board.get_piece(Position(king_pos.row, cur_col)) is not None:
-                return False
-            cur_col += dc
+        if not self._castle_path_clear(eff_board, king_pos, rook_pos, dc):
+            return False
 
         king_dest_col = king_pos.col + 2 * dc
         rook_dest_col = king_pos.col + 1 * dc
@@ -487,6 +494,40 @@ class GameEngine:
 
         king_dest = Position(king_pos.row, king_dest_col)
         rook_dest = Position(rook_pos.row, rook_dest_col)
+
+        if not self._castle_squares_safe(eff_board, king_pos, king_piece, dc, king_dest):
+            return False
+
+        self._execute_castle(state, king_pos, rook_pos, king_dest, rook_dest, king_piece, rook_piece)
+        return True
+
+    def _castle_path_clear(
+        self,
+        eff_board: BoardInterface,
+        king_pos: Position,
+        rook_pos: Position,
+        dc: int,
+    ) -> bool:
+        cur_col = king_pos.col + dc
+        while cur_col != rook_pos.col:
+            if eff_board.get_piece(Position(king_pos.row, cur_col)) is not None:
+                return False
+            cur_col += dc
+        return True
+
+    def _castle_squares_safe(
+        self,
+        eff_board: BoardInterface,
+        king_pos: Position,
+        king_piece,
+        dc: int,
+        king_dest: Position,
+    ) -> bool:
+        """Simulates the king passing through king_pos, pass_pos, king_dest.
+
+        Restores eff_board's king_pos occupant before returning, on both the
+        failure and success path.
+        """
         pass_pos = Position(king_pos.row, king_pos.col + dc)
 
         for pos_to_check in [king_pos, pass_pos, king_dest]:
@@ -499,7 +540,18 @@ class GameEngine:
                 return False
 
         eff_board.set_piece(king_pos, king_piece)
+        return True
 
+    def _execute_castle(
+        self,
+        state: GameState,
+        king_pos: Position,
+        rook_pos: Position,
+        king_dest: Position,
+        rook_dest: Position,
+        king_piece,
+        rook_piece,
+    ) -> None:
         king_arrival = self._arbiter.calculate_arrival(king_pos, king_dest, king_piece, state.clock_ms)
         rook_arrival = king_arrival
 
@@ -512,4 +564,3 @@ class GameEngine:
         state.selected_pos = None
         self._state_repo.save_state(state)
         self._resolve_pending()
-        return True

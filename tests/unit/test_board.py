@@ -2,6 +2,7 @@
 
 import unittest
 
+from kungfu_chess.errors import InvalidPositionError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.piece import TextPiece as Piece, PieceFactory
@@ -44,9 +45,9 @@ class TestArrayBoard(unittest.TestCase):
 
     def test_out_of_bounds_raises(self) -> None:
         board = ArrayBoard(3, 3)
-        with self.assertRaises(IndexError):
+        with self.assertRaises(InvalidPositionError):
             board.get_piece(Position(5, 5))
-        with self.assertRaises(IndexError):
+        with self.assertRaises(InvalidPositionError):
             board.set_piece(Position(5, 5), Piece("w", "K"))
 
 

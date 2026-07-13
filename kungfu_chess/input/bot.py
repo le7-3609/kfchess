@@ -9,6 +9,8 @@ import random
 from typing import List, Tuple
 
 from kungfu_chess.model.position import Position
+from kungfu_chess.model.board import BoardInterface
+from kungfu_chess.model.game_state import GameState
 from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
 from kungfu_chess.rules.rule_engine import PathCheckerInterface, ThreatValidator
 from kungfu_chess.realtime.real_time_arbiter import RealTimeArbiterInterface
@@ -47,6 +49,17 @@ class RandomBotInputSource:
         if state.game_over:
             return []
 
+        valid_moves = self._find_all_valid_moves(board, state)
+        if not valid_moves:
+            return []
+
+        src, dst = random.choice(valid_moves)
+        return self._move_to_click_commands(src, dst)
+
+    def _find_all_valid_moves(
+        self, board: BoardInterface, state: GameState
+    ) -> List[Tuple[Position, Position]]:
+        """Enumerate every legal (frm, to) pair for self._color, incl. self-check simulation."""
         eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
         en_passant_targets = self._arbiter.get_valid_en_passant_positions(board, state, self._color, state.clock_ms)
 
@@ -85,11 +98,9 @@ class RandomBotInputSource:
                         if not is_threatened:
                             valid_moves.append((pos, target))
 
-        if not valid_moves:
-            return []
+        return valid_moves
 
-        src, dst = random.choice(valid_moves)
-
+    def _move_to_click_commands(self, src: Position, dst: Position) -> List[str]:
         cell_size = self._config.cell_size_px
         src_x, src_y = src.col * cell_size, src.row * cell_size
         dst_x, dst_y = dst.col * cell_size, dst.row * cell_size
