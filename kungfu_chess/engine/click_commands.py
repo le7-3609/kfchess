@@ -2,8 +2,9 @@
 
 Owns: the selection state machine driven by clicks — initial selection,
 re-selection, castling attempts (delegated to CastlingCommands), and
-move-attempt legality checks (delegated to piece_rules/rule_engine) followed
-by enqueuing the resulting Movement.
+move-attempt legality checks (delegated to RuleEngine for the common route,
+plus PathChecker/ThreatValidator as additional gates) followed by enqueuing
+the resulting Movement.
 Must not own: piece-specific movement legality itself, castling legality
 itself, or rendering.
 """
@@ -14,8 +15,7 @@ from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
 from kungfu_chess.model.game_state import GameState, Movement
-from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
-from kungfu_chess.rules.rule_engine import PathCheckerInterface, ThreatValidator
+from kungfu_chess.rules.rule_engine import PathCheckerInterface, RuleEngine, ThreatValidator
 from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
 from kungfu_chess.engine.engine_interfaces import GameStateRepositoryInterface
 from kungfu_chess.engine.castling_commands import CastlingCommands
@@ -27,7 +27,7 @@ class ClickCommandProcessor:
 
     def __init__(
         self,
-        move_validator_factory: MoveValidatorFactoryInterface,
+        rule_engine: RuleEngine,
         path_checker: PathCheckerInterface,
         threat_validator: ThreatValidator,
         arbiter: RealTimeArbiterInterface,
@@ -36,7 +36,7 @@ class ClickCommandProcessor:
         state_repo: GameStateRepositoryInterface,
         resolve_pending: Callable[[], None],
     ) -> None:
-        self._move_validator_factory = move_validator_factory
+        self._rule_engine = rule_engine
         self._path_checker = path_checker
         self._threat_validator = threat_validator
         self._arbiter = arbiter
@@ -110,12 +110,12 @@ class ClickCommandProcessor:
         if not selected_piece.can_move():
             return
 
-        validator = self._move_validator_factory.get_validator(selected_piece.piece_type)
-        if not validator.is_legal(state.selected_pos, target, selected_piece.color, board.rows):
-            return
-
         origin = state.selected_pos
         eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
+
+        validation = self._rule_engine.validate_move(eff_board, origin, target)
+        if not validation.is_valid:
+            return
 
         if not self._path_checker.is_path_clear(eff_board, origin, target):
             return

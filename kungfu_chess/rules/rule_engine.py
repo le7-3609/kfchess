@@ -1,4 +1,4 @@
-"""Rule engine — re-exports (Layer 3).
+"""Rule engine — re-exports plus the common-route legality gate (Layer 3).
 
 Concrete implementations live in:
   - rules/path_checker.py      (PathCheckerInterface, PathChecker)
@@ -6,10 +6,80 @@ Concrete implementations live in:
   - rules/endgame_validator.py (EndgameValidator, serialize_board_state)
   - rules/castling_validator.py (CastlingValidator, CastlingDestinations)
 
-Must not own: board mutation, animation, click interpretation, game-over state transitions.
+RuleEngine answers one question: given a source cell and a destination
+cell, is this command legal now? It is read-only with respect to Board —
+it inspects state and returns a MoveValidation, but never moves pieces,
+removes captures, starts motions, or updates game state.
+
+The common route (RuleEngine.validate_move) does not implement check,
+pins, checkmate, castling, en passant, or promotion. The win condition
+is king capture. Game-over is handled by GameEngine, not RuleEngine.
 """
 
+from dataclasses import dataclass
+
+from kungfu_chess.model.position import Position
+from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.rules.path_checker import PathCheckerInterface, PathChecker
+from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
 from kungfu_chess.rules.threat_validator import ThreatValidator
 from kungfu_chess.rules.endgame_validator import EndgameValidator, serialize_board_state
 from kungfu_chess.rules.castling_validator import CastlingValidator, CastlingDestinations
+
+__all__ = [
+    "MoveValidation",
+    "RuleEngine",
+    "PathCheckerInterface",
+    "PathChecker",
+    "ThreatValidator",
+    "EndgameValidator",
+    "serialize_board_state",
+    "CastlingValidator",
+    "CastlingDestinations",
+]
+
+
+@dataclass(frozen=True)
+class MoveValidation:
+    """Result of a RuleEngine legality check. *reason* is always present:
+    "ok" when valid, otherwise a stable machine-readable code.
+    """
+
+    is_valid: bool
+    reason: str
+
+
+class RuleEngine:
+    """Read-only common-route legality gate.
+
+    Rejects moves outside the board, from empty cells, or onto a
+    friendly-occupied destination, then defers to the relevant movement
+    rule for destination legality. Does not implement check, pins,
+    checkmate, castling, en passant, or promotion — those live in
+    ThreatValidator, CastlingValidator, and EndgameValidator. Path-blocking
+    and landing/capture legality are PathChecker's responsibility, not
+    RuleEngine's — callers apply PathChecker as an additional gate after
+    RuleEngine returns is_valid=True.
+    """
+
+    def __init__(self, move_validator_factory: MoveValidatorFactoryInterface) -> None:
+        self._move_validator_factory = move_validator_factory
+
+    def validate_move(self, board: BoardInterface, frm: Position, to: Position) -> MoveValidation:
+        """Return whether moving from *frm* to *to* is legal on *board* right now."""
+        if not board.is_valid_position(frm) or not board.is_valid_position(to):
+            return MoveValidation(False, "outside_board")
+
+        piece = board.get_piece(frm)
+        if piece is None:
+            return MoveValidation(False, "empty_source")
+
+        destination = board.get_piece(to)
+        if destination is not None and destination.color == piece.color:
+            return MoveValidation(False, "friendly_destination")
+
+        validator = self._move_validator_factory.get_validator(piece.piece_type)
+        if not validator.is_legal(frm, to, piece.color, board.rows):
+            return MoveValidation(False, "illegal_piece_move")
+
+        return MoveValidation(True, "ok")

@@ -24,6 +24,7 @@ from kungfu_chess.model.game_state import GameState
 from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
 from kungfu_chess.rules.rule_engine import (
     PathCheckerInterface,
+    RuleEngine,
     ThreatValidator,
     EndgameValidator,
     CastlingValidator,
@@ -124,6 +125,9 @@ class GameEngine:
             )
         self._arbiter = arbiter
 
+        rule_engine = RuleEngine(move_validator_factory=move_validator_factory)
+        self._rule_engine = rule_engine
+
         if threat_validator is None:
             threat_validator = ThreatValidator(
                 move_validator_factory=move_validator_factory,
@@ -158,7 +162,7 @@ class GameEngine:
         )
         self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo)
         self._click_commands = ClickCommandProcessor(
-            move_validator_factory=move_validator_factory,
+            rule_engine=self._rule_engine,
             path_checker=path_checker,
             threat_validator=self._threat_validator,
             arbiter=self._arbiter,
