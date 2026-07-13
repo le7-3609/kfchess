@@ -1,22 +1,20 @@
-"""Path checker — path-blocking and capture legality (Layer 3).
+"""Path checker — capture-legality helpers for the Rule Engine (Layer 3).
 
-Must not own: board mutation, animation, click interpretation, game-over state transitions.
+Sliding/blocking geometry now lives in the piece rule classes
+(kungfu_chess.rules.piece_rules.legal_destinations); this module answers two
+narrower questions that stay outside those stateless piece rules because they
+need board occupancy at a specific square (is_path_clear) or move-history
+state the piece rules never see (can_land's en-passant branch).
+
+Must not own: board mutation, animation, click interpretation, game-over state.
 """
 
-from typing import FrozenSet, List, Optional
+from typing import List, Optional
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
-
-
-def _sign(n: int) -> int:
-    """Return -1, 0, or +1 — the sign of *n*."""
-    if n > 0:
-        return 1
-    if n < 0:
-        return -1
-    return 0
+from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
 
 
 class PathCheckerInterface:
@@ -36,12 +34,16 @@ class PathCheckerInterface:
         raise NotImplementedError
 
 
-# Piece types whose movement traces a straight line that can be blocked.
-_SLIDING_TYPES: FrozenSet[str] = frozenset(("R", "B", "Q", "P"))
-
-
 class PathChecker(PathCheckerInterface):
     """Concrete board-aware checker for path-blocking and capture rules."""
+
+    def __init__(
+        self,
+        move_validator_factory: MoveValidatorFactoryInterface,
+        config: 'GameConfig',  # type: ignore[name-defined]
+    ) -> None:
+        self._move_validator_factory = move_validator_factory
+        self._config = config
 
     def is_path_clear(
         self,
@@ -49,26 +51,19 @@ class PathChecker(PathCheckerInterface):
         frm: Position,
         to: Position,
     ) -> bool:
-        """Return True if no piece occupies any square strictly between *frm* and *to*.
+        """Return True if *to* is a legal (blocking- and occupancy-aware) destination
+        for whatever piece currently sits at *frm*.
 
-        Only sliding pieces (Rook, Bishop, Queen, Pawn) can be blocked.
-        Knights always return True because they jump over pieces.
-        The King moves only one square so there are never intermediate squares.
+        Returns True if *frm* has no visible piece on *board* — e.g. when called
+        with a re-validation snapshot that excludes the moving piece itself
+        (see RealTimeArbiter.get_effective_board(..., exclude_mov=...)); there is
+        nothing to check against, so the caller's other checks decide.
         """
         piece = board.get_piece(frm)
-        if piece is None or piece.piece_type not in _SLIDING_TYPES:
+        if piece is None:
             return True
-
-        dr = _sign(to.row - frm.row)
-        dc = _sign(to.col - frm.col)
-
-        cur = Position(frm.row + dr, frm.col + dc)
-        while cur != to:
-            if board.get_piece(cur) is not None:
-                return False
-            cur = Position(cur.row + dr, cur.col + dc)
-
-        return True
+        validator = self._move_validator_factory.get_validator(piece.piece_type)
+        return to in validator.legal_destinations(board, piece)
 
     def can_land(
         self,
@@ -82,7 +77,11 @@ class PathChecker(PathCheckerInterface):
 
         - Never land on a friendly piece.
         - Pawn forward move: destination must be empty.
-        - Pawn diagonal move: destination must have an enemy, or be an en-passant target.
+        - Pawn diagonal move: destination must have an enemy, or be a
+          currently-valid en-passant target reached by a genuine one-square
+          diagonal-forward step (this is the one case legal_destinations
+          intentionally excludes, since en passant depends on move-history
+          state a stateless piece rule never sees).
         """
         occupant = board.get_piece(to)
         if occupant is not None and occupant.color == moving_piece.color:
@@ -96,7 +95,8 @@ class PathChecker(PathCheckerInterface):
             elif col_diff == 1:
                 if occupant is None:
                     if en_passant_targets is not None and to in en_passant_targets:
-                        return True
+                        player_config = self._config.get_player(moving_piece.color)
+                        return player_config is not None and (to.row - frm.row) == player_config.forward_direction
                     return False
             else:
                 return False

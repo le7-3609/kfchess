@@ -1,6 +1,8 @@
 """Game-state model — mutable runtime state of a Kung Fu Chess game.
 
-Owns: clock, selection, active motions, cooldowns, en-passant targets, game-over flag.
+Owns: clock, selection, cooldowns, en-passant targets, game-over flag.
+Active motions are owned by RealTimeArbiter, not GameState — see
+realtime/arbiter.py.
 Must not own: pixels, clicks, rendering, script parsing, movement rules.
 """
 
@@ -84,10 +86,14 @@ class EnPassantTarget:
 
 @dataclass
 class GameState:
-    """Tracks mutable game state: clock, selected piece, and motions in transit."""
+    """Tracks mutable game state: clock, selected piece, cooldowns, etc.
+
+    Active motions in transit are not stored here — RealTimeArbiter owns
+    that collection privately. Use the arbiter's register_motion /
+    has_active_motion / movements methods instead of a GameState field.
+    """
     clock_ms: int = 0
     selected_pos: Optional[Position] = None
-    active_movements: List[Movement] = field(default_factory=list)
     active_cooldowns: List[Cooldown] = field(default_factory=list)
     en_passant_targets: List[EnPassantTarget] = field(default_factory=list)
     game_over: bool = False

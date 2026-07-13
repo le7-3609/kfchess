@@ -36,13 +36,18 @@ class ArrivalResolver:
     # ------------------------------------------------------------------
 
     def resolve_arrivals(
-        self, board: BoardInterface, state: GameState, t: int, arbiter: RealTimeArbiterInterface
+        self,
+        board: BoardInterface,
+        state: GameState,
+        movements: List[Movement],
+        t: int,
+        arbiter: RealTimeArbiterInterface,
     ) -> Tuple[bool, bool]:
         """Resolve every movement arriving at *t*. Returns (reset_halfmove, increment_halfmove)."""
         reset_halfmove = False
         increment_halfmove = False
 
-        arriving = [mov for mov in state.active_movements if mov.arrival_ms == t]
+        arriving = [mov for mov in movements if mov.arrival_ms == t]
         for mov in arriving:
             frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
 
@@ -51,20 +56,20 @@ class ArrivalResolver:
                 if self._resolve_jump_landing(state, mov, t):
                     reset_halfmove = True
             else:
-                airborne_enemy_jump = self._find_airborne_enemy_capturing(state, mov, t)
+                airborne_enemy_jump = self._find_airborne_enemy_capturing(movements, mov, t)
 
                 if airborne_enemy_jump is not None:
                     if self._resolve_airborne_capture(board, state, mov, t, frm_still_mine):
                         reset_halfmove = True
                 else:
                     arr_reset, arr_increment = self._resolve_normal_arrival(
-                        board, state, mov, t, frm_still_mine, arriving, arbiter
+                        board, state, mov, t, frm_still_mine, arriving, movements, arbiter
                     )
                     reset_halfmove = reset_halfmove or arr_reset
                     increment_halfmove = increment_halfmove or arr_increment
 
-            if mov in state.active_movements:
-                state.active_movements.remove(mov)
+            if mov in movements:
+                movements.remove(mov)
 
         return reset_halfmove, increment_halfmove
 
@@ -76,9 +81,9 @@ class ArrivalResolver:
         )
         return mov.piece.piece_type == "P"
 
-    def _find_airborne_enemy_capturing(self, state: GameState, mov: Movement, t: int) -> Optional[Movement]:
+    def _find_airborne_enemy_capturing(self, movements: List[Movement], mov: Movement, t: int) -> Optional[Movement]:
         """Return the airborne (jumping) enemy Movement occupying mov's destination, if any."""
-        for active_mov in state.active_movements:
+        for active_mov in movements:
             if (active_mov.frm == active_mov.to
                     and active_mov.frm == mov.to
                     and active_mov.start_ms <= t <= active_mov.arrival_ms
@@ -108,6 +113,7 @@ class ArrivalResolver:
         t: int,
         frm_still_mine: bool,
         arriving: List[Movement],
+        movements: List[Movement],
         arbiter: RealTimeArbiterInterface,
     ) -> Tuple[bool, bool]:
         eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
@@ -128,26 +134,32 @@ class ArrivalResolver:
             return False, False
 
         # Successful arrival!
-        is_capture = self._apply_capture_at_destination(board, state, mov, t, arriving)
+        is_capture = self._apply_capture_at_destination(board, state, mov, t, arriving, movements)
 
         if frm_still_mine:
             board.set_piece(mov.frm, None)
         board.set_piece(mov.to, mov.piece)
 
-        is_ep = self._apply_en_passant_capture(board, state, mov, arriving)
+        is_ep = self._apply_en_passant_capture(board, state, mov, arriving, movements)
         self._maybe_create_en_passant_target(state, mov, t)
 
         return self._finalize_arrival_cooldown_and_event(state, mov, t, is_capture, is_ep)
 
     def _apply_capture_at_destination(
-        self, board: BoardInterface, state: GameState, mov: Movement, t: int, arriving: List[Movement]
+        self,
+        board: BoardInterface,
+        state: GameState,
+        mov: Movement,
+        t: int,
+        arriving: List[Movement],
+        movements: List[Movement],
     ) -> bool:
         target_piece = board.get_piece(mov.to)
         is_capture = False
         if target_piece is not None:
             is_in_flight_future = any(
                 am.piece == target_piece and am.arrival_ms > t
-                for am in state.active_movements
+                for am in movements
             )
             if not is_in_flight_future:
                 is_capture = (target_piece.color != mov.piece.color)
@@ -157,18 +169,23 @@ class ArrivalResolver:
                     state.game_over = True
                     state.game_over_reason = "king_captured"
                 target_piece.transition_to_idle()
-                for am in list(state.active_movements):
+                for am in list(movements):
                     if am.piece == target_piece:
                         if am in arriving:
                             arriving.remove(am)
-                        state.active_movements.remove(am)
+                        movements.remove(am)
                 for cd in list(state.active_cooldowns):
                     if cd.piece == target_piece:
                         state.active_cooldowns.remove(cd)
         return is_capture
 
     def _apply_en_passant_capture(
-        self, board: BoardInterface, state: GameState, mov: Movement, arriving: List[Movement]
+        self,
+        board: BoardInterface,
+        state: GameState,
+        mov: Movement,
+        arriving: List[Movement],
+        movements: List[Movement],
     ) -> bool:
         is_ep = False
         if mov.piece.piece_type == "P":
@@ -178,11 +195,11 @@ class ArrivalResolver:
                     if captured_piece:
                         captured_piece.transition_to_idle()
                         # Clean up movements and cooldowns for the captured piece
-                        for am in list(state.active_movements):
+                        for am in list(movements):
                             if am.piece == captured_piece:
                                 if am in arriving:
                                     arriving.remove(am)
-                                state.active_movements.remove(am)
+                                movements.remove(am)
                         for cd in list(state.active_cooldowns):
                             if cd.piece == captured_piece:
                                 state.active_cooldowns.remove(cd)
@@ -232,10 +249,15 @@ class ArrivalResolver:
     # ------------------------------------------------------------------
 
     def cancel_blocked_ongoing_movements(
-        self, board: BoardInterface, state: GameState, t: int, arbiter: RealTimeArbiterInterface
+        self,
+        board: BoardInterface,
+        state: GameState,
+        movements: List[Movement],
+        t: int,
+        arbiter: RealTimeArbiterInterface,
     ) -> None:
         """Cancel movements still in flight at *t* whose path/landing has since become invalid."""
-        ongoing = [mov for mov in state.active_movements if mov.start_ms <= t and mov.arrival_ms > t]
+        ongoing = [mov for mov in movements if mov.start_ms <= t and mov.arrival_ms > t]
         for mov in ongoing:
             frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
             eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
@@ -252,4 +274,4 @@ class ArrivalResolver:
                 else:
                     mov.piece.transition_to_idle()
 
-                state.active_movements.remove(mov)
+                movements.remove(mov)

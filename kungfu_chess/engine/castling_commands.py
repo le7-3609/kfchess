@@ -76,7 +76,8 @@ class CastlingCommands:
         king_mov = Movement(frm=king_pos, to=king_dest, piece=king_piece, start_ms=state.clock_ms, arrival_ms=king_arrival)
         rook_mov = Movement(frm=rook_pos, to=rook_dest, piece=rook_piece, start_ms=state.clock_ms, arrival_ms=rook_arrival)
 
-        state.active_movements.extend([rook_mov, king_mov])
+        self._arbiter.register_motion(rook_mov)
+        self._arbiter.register_motion(king_mov)
         king_piece.transition_to_moving()
         rook_piece.transition_to_moving()
         state.selected_pos = None

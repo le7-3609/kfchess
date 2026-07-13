@@ -24,6 +24,7 @@ from kungfu_chess.model.game_state import GameState
 from kungfu_chess.rules.piece_rules import MoveValidatorFactoryInterface
 from kungfu_chess.rules.rule_engine import (
     PathCheckerInterface,
+    RuleEngine,
     ThreatValidator,
     EndgameValidator,
     CastlingValidator,
@@ -124,6 +125,9 @@ class GameEngine:
             )
         self._arbiter = arbiter
 
+        rule_engine = RuleEngine(move_validator_factory=move_validator_factory)
+        self._rule_engine = rule_engine
+
         if threat_validator is None:
             threat_validator = ThreatValidator(
                 move_validator_factory=move_validator_factory,
@@ -156,10 +160,9 @@ class GameEngine:
             state_repo=state_repo,
             resolve_pending=self._resolve_pending,
         )
-        self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo)
+        self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo, arbiter=self._arbiter)
         self._click_commands = ClickCommandProcessor(
-            move_validator_factory=move_validator_factory,
-            path_checker=path_checker,
+            rule_engine=self._rule_engine,
             threat_validator=self._threat_validator,
             arbiter=self._arbiter,
             castling_commands=self._castling_commands,
@@ -172,6 +175,25 @@ class GameEngine:
     # Public command dispatcher
     # ------------------------------------------------------------------
 
+    def request_move(self, source: Position, destination: Position) -> None:
+        """Attempt a move from *source* to *destination*.
+
+        This is the Controller-facing entry point: the caller (Controller)
+        already resolved pixels to cells and owns selection state itself, so
+        unlike ``execute_command("click ...")`` no selection bookkeeping is
+        read from or written back to GameState here beyond what the legality
+        gate (RuleEngine/PathChecker/ThreatValidator) needs to run.
+        """
+        self._resolve_pending()
+        board = self._board_repo.get_board()
+        if board is None:
+            return
+        state = self._state_repo.get_state()
+        if state.game_over:
+            return
+        state.selected_pos = source
+        self._click_commands.handle_click(state, board, destination)
+
     def execute_command(self, command: str) -> None:
         """Execute a single text command against the current game state."""
         parts = command.split()
@@ -180,8 +202,6 @@ class GameEngine:
 
         if parts[0] == "click" and len(parts) == 3:
             self._handle_click(int(parts[1]), int(parts[2]))
-        elif parts[0] == "jump" and len(parts) == 3:
-            self._handle_jump(int(parts[1]), int(parts[2]))
         elif parts[0] == "wait" and len(parts) == 2:
             self._handle_wait(int(parts[1]))
         elif command == "print board":
@@ -261,25 +281,6 @@ class GameEngine:
             return
         state = self._state_repo.get_state()
         self._click_commands.handle_click(state, board, target)
-
-    def _handle_jump(self, x: int, y: int) -> None:
-        self._resolve_pending()
-        board = self._board_repo.get_board()
-        if board is None:
-            return
-        target = self._board_mapper.pixel_to_position(x, y, board)
-        if target is None:
-            return
-        state = self._state_repo.get_state()
-        play_state = self._game_play_state_factory.get_state(state.game_over)
-        play_state.handle_jump(self, target)
-
-    def _execute_active_jump(self, target: Position) -> None:
-        board = self._board_repo.get_board()
-        if board is None:
-            return
-        state = self._state_repo.get_state()
-        self._jump_commands.execute_active_jump(state, board, target)
 
     def _handle_wait(self, ms: int) -> None:
         if ms <= 0:

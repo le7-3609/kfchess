@@ -7,7 +7,7 @@ copying the full board at every simulation step.
 
 from typing import List, Optional
 
-from kungfu_chess.errors import InvalidPositionError
+from kungfu_chess.errors import EmptyCellError, InvalidPositionError, OccupiedCellError
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
@@ -73,7 +73,40 @@ class ProxyBoard(BoardInterface):
             return piece
         return None
 
+    def find_position(self, piece: PieceInterface) -> Optional[Position]:
+        for r in range(self._rows):
+            for c in range(self._cols):
+                pos = Position(r, c)
+                if self.get_piece(pos) is piece:
+                    return pos
+        return None
+
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)
         self._overrides[pos] = piece
+
+    def add_piece(self, pos: Position, piece: PieceInterface) -> None:
+        if not self.is_valid_position(pos):
+            raise InvalidPositionError(pos)
+        if self.get_piece(pos) is not None:
+            raise OccupiedCellError(pos)
+        self._overrides[pos] = piece
+
+    def remove_piece(self, pos: Position) -> Optional[PieceInterface]:
+        if not self.is_valid_position(pos):
+            raise InvalidPositionError(pos)
+        piece = self.get_piece(pos)
+        self._overrides[pos] = None
+        return piece
+
+    def move_piece(self, frm: Position, to: Position) -> Optional[PieceInterface]:
+        if not self.is_valid_position(frm) or not self.is_valid_position(to):
+            raise InvalidPositionError(frm if not self.is_valid_position(frm) else to)
+        piece = self.get_piece(frm)
+        if piece is None:
+            raise EmptyCellError(frm)
+        captured = self.get_piece(to)
+        self._overrides[to] = piece
+        self._overrides[frm] = None
+        return captured

@@ -1,11 +1,11 @@
-"""Unit tests for kungfu_chess.rules.rule_engine — PathChecker and ThreatValidator."""
+"""Unit tests for kungfu_chess.rules.rule_engine — RuleEngine, PathChecker, ThreatValidator."""
 
 import unittest
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.piece import TextPiece as Piece
-from kungfu_chess.rules.rule_engine import PathChecker, ThreatValidator
+from kungfu_chess.rules.rule_engine import MoveValidation, PathChecker, RuleEngine, ThreatValidator
 from kungfu_chess.rules.piece_rules import (
     MoveValidatorFactory,
     KingMoveValidator,
@@ -30,10 +30,69 @@ def _make_factory() -> MoveValidatorFactory:
     })
 
 
+class TestRuleEngine(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self.engine = RuleEngine(move_validator_factory=_make_factory())
+
+    def _board(self, rows: int = 8, cols: int = 8) -> ArrayBoard:
+        return ArrayBoard(rows, cols)
+
+    def test_valid_move_returns_ok(self) -> None:
+        board = self._board()
+        board.set_piece(Position(3, 0), Piece("w", "R"))
+        result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
+        self.assertEqual(result, MoveValidation(True, "ok"))
+
+    def test_source_outside_board(self) -> None:
+        board = self._board()
+        result = self.engine.validate_move(board, Position(-1, 0), Position(3, 7))
+        self.assertEqual(result, MoveValidation(False, "outside_board"))
+
+    def test_destination_outside_board(self) -> None:
+        board = self._board()
+        board.set_piece(Position(3, 0), Piece("w", "R"))
+        result = self.engine.validate_move(board, Position(3, 0), Position(8, 0))
+        self.assertEqual(result, MoveValidation(False, "outside_board"))
+
+    def test_empty_source(self) -> None:
+        board = self._board()
+        result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
+        self.assertEqual(result, MoveValidation(False, "empty_source"))
+
+    def test_friendly_destination(self) -> None:
+        board = self._board()
+        board.set_piece(Position(3, 0), Piece("w", "R"))
+        board.set_piece(Position(3, 7), Piece("w", "B"))
+        result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
+        self.assertEqual(result, MoveValidation(False, "friendly_destination"))
+
+    def test_illegal_piece_move(self) -> None:
+        board = self._board()
+        board.set_piece(Position(3, 0), Piece("w", "R"))
+        result = self.engine.validate_move(board, Position(3, 0), Position(4, 1))
+        self.assertEqual(result, MoveValidation(False, "illegal_piece_move"))
+
+    def test_capture_of_enemy_is_valid(self) -> None:
+        board = self._board()
+        board.set_piece(Position(3, 0), Piece("w", "R"))
+        board.set_piece(Position(3, 7), Piece("b", "B"))
+        result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
+        self.assertEqual(result, MoveValidation(True, "ok"))
+
+    def test_detects_blocked_path(self) -> None:
+        """legal_destinations is blocking-aware, so RuleEngine's common route is too."""
+        board = self._board()
+        board.set_piece(Position(3, 0), Piece("w", "R"))
+        board.set_piece(Position(3, 4), Piece("b", "P"))
+        result = self.engine.validate_move(board, Position(3, 0), Position(3, 7))
+        self.assertEqual(result, MoveValidation(False, "illegal_piece_move"))
+
+
 class TestPathChecker(unittest.TestCase):
 
     def setUp(self) -> None:
-        self.pc = PathChecker()
+        self.pc = PathChecker(_make_factory(), GameConfig())
 
     def _board(self, rows: int = 8, cols: int = 8) -> ArrayBoard:
         return ArrayBoard(rows, cols)
@@ -135,7 +194,7 @@ class TestThreatValidator(unittest.TestCase):
     def _setup(self, board: ArrayBoard) -> ThreatValidator:
         config = GameConfig()
         factory = _make_factory()
-        return ThreatValidator(move_validator_factory=factory, path_checker=PathChecker(), config=config)
+        return ThreatValidator(move_validator_factory=factory, path_checker=PathChecker(factory, config), config=config)
 
     def test_king_not_threatened(self) -> None:
         board = ArrayBoard(8, 8)

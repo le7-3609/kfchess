@@ -39,6 +39,10 @@ class RealTimeArbiter(RealTimeArbiterInterface):
     Collision detection and arrival resolution are delegated to
     CollisionResolver and ArrivalResolver respectively; this class owns the
     tick loop that sequences them.
+
+    Owns the active-motion collection privately (not stored on GameState).
+    Other layers must go through register_motion / has_active_motion /
+    movements / remove_motion rather than mutating a shared list.
     """
 
     def __init__(
@@ -56,6 +60,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         self._config = config
         self._promotion_strategy = promotion_strategy
         self._move_event_publisher = move_event_publisher
+        self._active_movements: List[Movement] = []
 
         if collision_resolver is None:
             collision_resolver = CollisionResolver(config=config, position_at=self.get_position_at)
@@ -69,6 +74,28 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                 move_event_publisher=move_event_publisher,
             )
         self._arrival_resolver = arrival_resolver
+
+    # ------------------------------------------------------------------
+    # Active-motion ownership
+    # ------------------------------------------------------------------
+
+    def register_motion(self, mov: Movement) -> None:
+        self._active_movements.append(mov)
+
+    def remove_motion(self, mov: Movement) -> None:
+        if mov in self._active_movements:
+            self._active_movements.remove(mov)
+
+    def movements(self) -> List[Movement]:
+        return list(self._active_movements)
+
+    def has_active_motion(self, piece: Optional[PieceInterface] = None) -> bool:
+        if piece is None:
+            return bool(self._active_movements)
+        return any(mov.piece == piece for mov in self._active_movements)
+
+    def has_active_motion_for_color(self, color: str) -> bool:
+        return any(mov.piece.color == color for mov in self._active_movements)
 
     # ------------------------------------------------------------------
     # Public API
@@ -136,7 +163,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         t: int,
         exclude_mov: Optional[Movement] = None,
     ) -> BoardInterface:
-        return ProxyBoard(board, state.active_movements, t, self.get_position_at, exclude_mov)
+        return ProxyBoard(board, self._active_movements, t, self.get_position_at, exclude_mov)
 
     # ------------------------------------------------------------------
     # Arrival resolution (tick loop)
@@ -144,7 +171,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
 
     def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         """Advance the simulation to *current_ms*, resolving all arrivals and collisions."""
-        active = list(state.active_movements)
+        active = list(self._active_movements)
         active_cooldowns = list(state.active_cooldowns)
         if not active and not active_cooldowns:
             return
@@ -158,18 +185,24 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         for t in sorted_times:
             self._expire_cooldowns_at(state, t)
 
-            current_active = [mov for mov in state.active_movements if mov.start_ms <= t]
+            current_active = [mov for mov in self._active_movements if mov.start_ms <= t]
             if not current_active:
                 t_prev = t
                 continue
 
             positions = self._positions_at(current_active, t)
-            reset_halfmove = self._collision_resolver.resolve(board, state, current_active, positions, t, t_prev)
+            reset_halfmove = self._collision_resolver.resolve(
+                board, state, self._active_movements, current_active, positions, t, t_prev
+            )
 
-            arrivals_reset, arrivals_increment = self._arrival_resolver.resolve_arrivals(board, state, t, self)
+            arrivals_reset, arrivals_increment = self._arrival_resolver.resolve_arrivals(
+                board, state, self._active_movements, t, self
+            )
             reset_halfmove = reset_halfmove or arrivals_reset
 
-            self._arrival_resolver.cancel_blocked_ongoing_movements(board, state, t, self)
+            self._arrival_resolver.cancel_blocked_ongoing_movements(
+                board, state, self._active_movements, t, self
+            )
 
             if reset_halfmove:
                 state.halfmove_clock = 0

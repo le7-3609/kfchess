@@ -1,7 +1,19 @@
 """Per-piece movement rules (Layer 2).
 
-Each concrete validator encodes the geometric movement shape for one piece type.
-Validators are stateless and board-unaware.
+Each concrete validator encodes both the geometric movement shape *and* the
+blocking/capture semantics for one piece type: legal_destinations(board, piece)
+walks the board directly, so sliding pieces stop before a friendly blocker and
+include (but don't pass through) an enemy blocker. Validators are stateless —
+they read board/piece data given to them and never store selection, timing,
+or game-over state, and never mutate the board or piece.
+
+Castling is intentionally not modeled here: it depends on move-history state
+(has the king/rook moved) that these piece rules never see, and stays owned
+by the Rule Engine layer (CastlingValidator). En passant is a narrower case —
+the *destination square* is ordinary pawn-diagonal geometry, so PawnMoveValidator
+computes it too, but only when told which squares are currently valid
+en-passant targets; the piece rule still stores no history itself, it just
+reads whatever *en_passant_targets* the caller passes in for this one call.
 
 Also contains:
   - MoveValidatorFactory  — maps piece_type str -> MoveValidatorInterface
@@ -9,20 +21,13 @@ Also contains:
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from kungfu_chess.config import consts
 from kungfu_chess.errors import MissingValidatorError
 from kungfu_chess.model.position import Position
+from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
-
-
-# ---------------------------------------------------------------------------
-# Config dependency (minimal — only pawn start rows & forward direction)
-# ---------------------------------------------------------------------------
-
-# We import GameConfig lazily via type hints only, to avoid circular imports.
-# Validators that need player config accept it directly in __init__.
 
 
 # ---------------------------------------------------------------------------
@@ -30,15 +35,66 @@ from kungfu_chess.model.piece import PieceInterface
 # ---------------------------------------------------------------------------
 
 class MoveValidatorInterface(ABC):
-    """Decides whether a move from *frm* to *to* is geometrically legal."""
+    """Computes the legal destination squares for one piece type."""
 
     @abstractmethod
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        """Return True iff the move shape is valid for this piece type."""
+    def legal_destinations(
+        self,
+        board: BoardInterface,
+        piece: PieceInterface,
+        en_passant_targets: Optional[List[Position]] = None,
+    ) -> Set[Position]:
+        """Return every square *piece* may legally move to on *board*.
 
-    @abstractmethod
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        """Generate all candidate positions that this piece type can geometrically reach from *frm*."""
+        Friendly-occupied squares are excluded. Enemy-occupied squares may be
+        included (a capture), but for sliding pieces they terminate the slide.
+        *en_passant_targets*, when given, are empty squares a pawn may also
+        capture into (ignored by non-pawn validators). Does not mutate
+        *board* or *piece*.
+        """
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _step_destinations(
+    board: BoardInterface, piece: PieceInterface, offsets: Iterable[Tuple[int, int]]
+) -> Set[Position]:
+    """Legal destinations for a single-step (non-sliding) piece: King, Knight."""
+    frm = board.find_position(piece)
+    destinations: Set[Position] = set()
+    if frm is None:
+        return destinations
+    for dr, dc in offsets:
+        pos = Position(frm.row + dr, frm.col + dc)
+        if board.is_valid_position(pos):
+            occupant = board.get_piece(pos)
+            if occupant is None or occupant.color != piece.color:
+                destinations.add(pos)
+    return destinations
+
+
+def _sliding_destinations(
+    board: BoardInterface, piece: PieceInterface, directions: Iterable[Tuple[int, int]]
+) -> Set[Position]:
+    """Legal destinations for a sliding piece: Rook, Bishop (and Queen via both)."""
+    frm = board.find_position(piece)
+    destinations: Set[Position] = set()
+    if frm is None:
+        return destinations
+    for dr, dc in directions:
+        pos = Position(frm.row + dr, frm.col + dc)
+        while board.is_valid_position(pos):
+            occupant = board.get_piece(pos)
+            if occupant is None:
+                destinations.add(pos)
+            else:
+                if occupant.color != piece.color:
+                    destinations.add(pos)
+                break
+            pos = Position(pos.row + dr, pos.col + dc)
+    return destinations
 
 
 # ---------------------------------------------------------------------------
@@ -48,61 +104,34 @@ class MoveValidatorInterface(ABC):
 class KingMoveValidator(MoveValidatorInterface):
     """King may move exactly one square in any direction."""
 
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        dr = abs(to.row - frm.row)
-        dc = abs(to.col - frm.col)
-        return (dr, dc) != (0, 0) and dr <= 1 and dc <= 1
+    _OFFSETS = tuple((dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0))
 
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        targets = []
-        for dr in (-1, 0, 1):
-            for dc in (-1, 0, 1):
-                if dr == 0 and dc == 0:
-                    continue
-                r, c = frm.row + dr, frm.col + dc
-                if 0 <= r < board_rows and 0 <= c < board_cols:
-                    targets.append(Position(r, c))
-        return targets
+    def legal_destinations(
+        self, board: BoardInterface, piece: PieceInterface, en_passant_targets: Optional[List[Position]] = None
+    ) -> Set[Position]:
+        return _step_destinations(board, piece, self._OFFSETS)
 
 
 class RookMoveValidator(MoveValidatorInterface):
-    """Rook moves any number of squares along a rank or file."""
+    """Rook slides any number of squares along a rank or file, until blocked."""
 
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        dr = to.row - frm.row
-        dc = to.col - frm.col
-        return (dr == 0) != (dc == 0)
+    _DIRECTIONS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        targets = []
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            for step in range(1, max(board_rows, board_cols)):
-                r, c = frm.row + dr * step, frm.col + dc * step
-                if 0 <= r < board_rows and 0 <= c < board_cols:
-                    targets.append(Position(r, c))
-                else:
-                    break
-        return targets
+    def legal_destinations(
+        self, board: BoardInterface, piece: PieceInterface, en_passant_targets: Optional[List[Position]] = None
+    ) -> Set[Position]:
+        return _sliding_destinations(board, piece, self._DIRECTIONS)
 
 
 class BishopMoveValidator(MoveValidatorInterface):
-    """Bishop moves any number of squares diagonally."""
+    """Bishop slides any number of squares diagonally, until blocked."""
 
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        dr = abs(to.row - frm.row)
-        dc = abs(to.col - frm.col)
-        return dr == dc and dr != 0
+    _DIRECTIONS = ((-1, -1), (-1, 1), (1, -1), (1, 1))
 
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        targets = []
-        for dr, dc in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-            for step in range(1, max(board_rows, board_cols)):
-                r, c = frm.row + dr * step, frm.col + dc * step
-                if 0 <= r < board_rows and 0 <= c < board_cols:
-                    targets.append(Position(r, c))
-                else:
-                    break
-        return targets
+    def legal_destinations(
+        self, board: BoardInterface, piece: PieceInterface, en_passant_targets: Optional[List[Position]] = None
+    ) -> Set[Position]:
+        return _sliding_destinations(board, piece, self._DIRECTIONS)
 
 
 class QueenMoveValidator(MoveValidatorInterface):
@@ -112,68 +141,64 @@ class QueenMoveValidator(MoveValidatorInterface):
         self._rook = RookMoveValidator()
         self._bishop = BishopMoveValidator()
 
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        return self._rook.is_legal(frm, to, color, board_rows) or self._bishop.is_legal(frm, to, color, board_rows)
-
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        return (self._rook.get_candidate_targets(frm, color, board_rows, board_cols) +
-                self._bishop.get_candidate_targets(frm, color, board_rows, board_cols))
+    def legal_destinations(
+        self, board: BoardInterface, piece: PieceInterface, en_passant_targets: Optional[List[Position]] = None
+    ) -> Set[Position]:
+        return self._rook.legal_destinations(board, piece) | self._bishop.legal_destinations(board, piece)
 
 
 class KnightMoveValidator(MoveValidatorInterface):
-    """Knight moves in an L-shape: 2 squares on one axis, 1 on the other."""
+    """Knight moves in an L-shape, ignoring blockers along the way."""
 
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        dr = abs(to.row - frm.row)
-        dc = abs(to.col - frm.col)
-        return {dr, dc} == {1, 2}
+    _OFFSETS = ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1))
 
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        targets = []
-        for dr, dc in ((-2,-1), (-2,1), (-1,-2), (-1,2), (1,-2), (1,2), (2,-1), (2,1)):
-            r, c = frm.row + dr, frm.col + dc
-            if 0 <= r < board_rows and 0 <= c < board_cols:
-                targets.append(Position(r, c))
-        return targets
+    def legal_destinations(
+        self, board: BoardInterface, piece: PieceInterface, en_passant_targets: Optional[List[Position]] = None
+    ) -> Set[Position]:
+        return _step_destinations(board, piece, self._OFFSETS)
 
 
 class PawnMoveValidator(MoveValidatorInterface):
-    """Pawn moves 1 square forward (or 2 from start row), or 1 square diagonally forward.
+    """Pawn moves 1 square forward (or 2 from its start row) into an empty square,
+    or 1 square diagonally forward onto an enemy piece.
 
     Requires a GameConfig to determine forward direction and start rows per player.
+    En passant destinations are not inferred from board state alone — callers
+    pass the currently valid en-passant squares via *en_passant_targets*.
     """
 
     def __init__(self, config: 'GameConfig') -> None:  # type: ignore[name-defined]
         self._config = config
 
-    def is_legal(self, frm: Position, to: Position, color: str = "w", board_rows: int = 8) -> bool:
-        player_config = self._config.get_player(color)
-        if not player_config:
-            return False
-        row_diff = to.row - frm.row
-        col_diff = abs(to.col - frm.col)
-        expected_row_diff = player_config.forward_direction
-        # 1-step forward or diagonal
-        if row_diff == expected_row_diff and col_diff <= 1:
-            return True
-        # 2-step forward from start row
-        if frm.row in player_config.pawn_start_rows and row_diff == expected_row_diff * 2 and col_diff == 0:
-            return True
-        return False
+    def legal_destinations(
+        self, board: BoardInterface, piece: PieceInterface, en_passant_targets: Optional[List[Position]] = None
+    ) -> Set[Position]:
+        frm = board.find_position(piece)
+        player_config = self._config.get_player(piece.color)
+        destinations: Set[Position] = set()
+        if frm is None or player_config is None:
+            return destinations
 
-    def get_candidate_targets(self, frm: Position, color: str, board_rows: int, board_cols: int) -> List[Position]:
-        targets = []
-        player_config = self._config.get_player(color)
-        if not player_config:
-            return targets
         direction = player_config.forward_direction
-        for dr in (direction, direction * 2):
-            for dc in (-1, 0, 1):
-                r, c = frm.row + dr, frm.col + dc
-                if 0 <= r < board_rows and 0 <= c < board_cols:
-                    if self.is_legal(frm, Position(r, c), color, board_rows):
-                        targets.append(Position(r, c))
-        return targets
+
+        one_step = Position(frm.row + direction, frm.col)
+        if board.is_valid_position(one_step) and board.get_piece(one_step) is None:
+            destinations.add(one_step)
+            if frm.row in player_config.pawn_start_rows:
+                two_step = Position(frm.row + direction * 2, frm.col)
+                if board.is_valid_position(two_step) and board.get_piece(two_step) is None:
+                    destinations.add(two_step)
+
+        for dc in (-1, 1):
+            diag = Position(frm.row + direction, frm.col + dc)
+            if board.is_valid_position(diag):
+                occupant = board.get_piece(diag)
+                if occupant is not None and occupant.color != piece.color:
+                    destinations.add(diag)
+                elif occupant is None and en_passant_targets is not None and diag in en_passant_targets:
+                    destinations.add(diag)
+
+        return destinations
 
 
 # ---------------------------------------------------------------------------
