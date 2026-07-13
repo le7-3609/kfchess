@@ -1,7 +1,7 @@
 """Jump command handling (Layer 5).
 
-Owns: turning a jump target into a jump-in-place Movement (used both for the
-top-level "jump" command and for a click on an already-selected piece).
+Owns: turning a jump target into a jump-in-place Movement, triggered by a
+click on an already-selected piece.
 """
 
 from kungfu_chess.model.position import Position

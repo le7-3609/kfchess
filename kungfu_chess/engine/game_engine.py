@@ -202,8 +202,6 @@ class GameEngine:
 
         if parts[0] == "click" and len(parts) == 3:
             self._handle_click(int(parts[1]), int(parts[2]))
-        elif parts[0] == "jump" and len(parts) == 3:
-            self._handle_jump(int(parts[1]), int(parts[2]))
         elif parts[0] == "wait" and len(parts) == 2:
             self._handle_wait(int(parts[1]))
         elif command == "print board":
@@ -283,25 +281,6 @@ class GameEngine:
             return
         state = self._state_repo.get_state()
         self._click_commands.handle_click(state, board, target)
-
-    def _handle_jump(self, x: int, y: int) -> None:
-        self._resolve_pending()
-        board = self._board_repo.get_board()
-        if board is None:
-            return
-        target = self._board_mapper.pixel_to_position(x, y, board)
-        if target is None:
-            return
-        state = self._state_repo.get_state()
-        play_state = self._game_play_state_factory.get_state(state.game_over)
-        play_state.handle_jump(self, target)
-
-    def _execute_active_jump(self, target: Position) -> None:
-        board = self._board_repo.get_board()
-        if board is None:
-            return
-        state = self._state_repo.get_state()
-        self._jump_commands.execute_active_jump(state, board, target)
 
     def _handle_wait(self, ms: int) -> None:
         if ms <= 0:
