@@ -49,7 +49,7 @@ class ArrivalResolver:
 
         arriving = [mov for mov in movements if mov.arrival_ms == t]
         for mov in arriving:
-            frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
+            frm_still_mine = (board.get_piece(mov.frm) is mov.piece)
 
             if mov.frm == mov.to:
                 # Successful jump-in-place landing.
@@ -268,7 +268,7 @@ class ArrivalResolver:
             if self._is_castling_partner_ongoing(mov, ongoing):
                 continue
 
-            frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
+            frm_still_mine = (board.get_piece(mov.frm) is mov.piece)
             eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
             path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
             ep_targets = arbiter.get_valid_en_passant_positions(board, state, mov.piece.color, t)

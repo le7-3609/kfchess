@@ -268,6 +268,26 @@ class TestArbiterCollisions(unittest.TestCase):
         self.assertEqual(len(self.state.active_cooldowns), 1)
         self.assertTrue(self.state.active_cooldowns[0].piece is p2)
 
+    def test_same_color_staggered_arrival_first_stays_second_stuck(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("w", "R")
+        # p1 arrives and lands on (0, 2) well before p2 gets there — this is
+        # not a same-tick collision, it's p2 arriving at an already-occupied
+        # friendly square. p1 (identical type/color to p2) must not become
+        # invisible to p2's landing check via a same-type equality mixup.
+        self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
+        self._add_movement(p2, Position(0, 4), Position(0, 2), 0, 3000)
+
+        for t in (2000, 3000):
+            self.state.clock_ms = t
+            self.arbiter.resolve_movements(self.board, self.state, t)
+
+        # p1 (first arrival) keeps its position; p2 (second arrival) is
+        # stopped and stays at its previous square, not sent to any origin.
+        self.assertEqual(self.board.get_piece(Position(0, 2)), p1)
+        self.assertEqual(self.board.get_piece(Position(0, 4)), p2)
+        self.assertEqual(len(self.arbiter.movements()), 0)
+
     def test_jump_collision(self) -> None:
         p1 = Piece("w", "N")
         p2 = Piece("b", "R")

@@ -19,8 +19,8 @@ from kungfu_chess.view.sprite_library import SpriteLibrary
 LIGHT_SQUARE = (240, 217, 181, 255)
 DARK_SQUARE = (181, 136, 99, 255)
 SELECTION_COLOR = (220, 30, 30, 255)
-LEGAL_MOVE_CAPTURE_COLOR = (160, 70, 200, 145)
-LEGAL_MOVE_EMPTY_COLOR = (70, 140, 220, 145)
+LEGAL_MOVE_CAPTURE_COLOR = (20, 255, 47, 160)
+LEGAL_MOVE_EMPTY_COLOR = (255, 246, 79, 160)
 CASTLE_TARGET_COLOR = (240, 200, 40, 160)
 GAME_OVER_OVERLAY_COLOR = (0, 0, 0, 160)
 GAME_OVER_TEXT_COLOR = (255, 255, 255, 255)
@@ -99,11 +99,11 @@ class PillowRenderer(RendererInterface):
         img = Img().blank(self._width, self._height, (30, 30, 30, 255))
 
         self._draw_checkerboard(img, snapshot)
-        self._draw_legal_moves(img, snapshot)
         self._draw_castle_targets(img, snapshot)
         self._draw_selection(img, snapshot)
         for pos, piece in snapshot.pieces.items():
             self._draw_piece(img, pos, piece, snapshot)
+        self._draw_legal_moves(img, snapshot)
         if snapshot.game_over:
             self._draw_game_over(img, snapshot)
 
@@ -134,7 +134,12 @@ class PillowRenderer(RendererInterface):
             rect = self.geometry.cell_to_pixel(pos.row, pos.col)
             occupied = snapshot.piece_at(pos) is not None
             color = LEGAL_MOVE_CAPTURE_COLOR if occupied else LEGAL_MOVE_EMPTY_COLOR
-            img.fill_rect(rect.x, rect.y, rect.width, rect.height, color)
+            cell_w = rect.width
+            cell_h = rect.height
+            cx = rect.x + cell_w / 2
+            cy = rect.y + cell_h / 2
+            r = min(cell_w, cell_h) * 0.15
+            img.fill_ellipse(round(cx - r), round(cy - r), round(2 * r), round(2 * r), color)
 
     def _draw_castle_targets(self, img: Img, snapshot: GameSnapshot) -> None:
         for pos in snapshot.castle_targets:
