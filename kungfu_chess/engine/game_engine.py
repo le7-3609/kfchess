@@ -17,7 +17,7 @@ Concrete collaborators live in:
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
@@ -221,6 +221,47 @@ class GameEngine:
         state.selected_pos = source
         self._click_commands.handle_click(state, board, destination)
 
+    def legal_moves_from(self, source: Position) -> List[Position]:
+        """Return every legal destination for the piece at *source* right now.
+
+        Read-only view-layer query: reuses EndgameValidator.get_legal_moves
+        (the same self-check-safe legality gate ClickCommandProcessor uses)
+        so a Renderer can highlight legal squares without duplicating any
+        rule logic itself.
+        """
+        board = self._board_repo.get_board()
+        if board is None:
+            return []
+        state = self._state_repo.get_state()
+        piece = board.get_piece(source)
+        if piece is None:
+            return []
+        pairs = self._endgame_validator.get_legal_moves(board, state, piece.color)
+        return [to for (frm, to) in pairs if frm == source]
+
+    def castle_rook_targets_from(self, king_pos: Position) -> List[Position]:
+        """Return friendly rook squares *king_pos* may legally castle with right now."""
+        board = self._board_repo.get_board()
+        if board is None:
+            return []
+        state = self._state_repo.get_state()
+        king_piece = board.get_piece(king_pos)
+        if king_piece is None or king_piece.piece_type not in self._config.king_pieces:
+            return []
+
+        eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
+        targets: List[Position] = []
+        for c in range(board.cols):
+            rook_pos = Position(king_pos.row, c)
+            rook_piece = board.get_piece(rook_pos)
+            if rook_piece is None:
+                continue
+            if not self._castling_validator.is_castle_attempt(king_piece, rook_piece, king_pos, rook_pos):
+                continue
+            if self._castling_validator.get_legal_castle(eff_board, king_pos, rook_pos, king_piece) is not None:
+                targets.append(rook_pos)
+        return targets
+
     def advance_clock(self, ms: int) -> None:
         """Advance the simulation clock by *ms* and resolve pending motions.
 
@@ -287,6 +328,7 @@ class GameEngine:
             if self._endgame_validator.is_checkmate(board, state, color):
                 state.game_over = True
                 state.game_over_reason = "checkmate"
+                state.winner = "b" if color == "w" else "w"
                 return
             if self._endgame_validator.is_stalemate(board, state, color):
                 state.game_over = True

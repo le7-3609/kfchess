@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Tuple
 
 from kungfu_chess.model.position import Position
+from kungfu_chess.view.piece_visual_state import PieceVisualState
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,9 @@ class PieceSnapshot:
     has_moved: bool
     can_select: bool
     can_move: bool
+    state: PieceVisualState
+    state_elapsed_millis: int
+    state_duration_millis: int
 
 
 @dataclass(frozen=True)
@@ -47,14 +51,19 @@ class GameSnapshot:
     cols: int
     pieces: Mapping[Position, PieceSnapshot]
     selected_pos: Optional[Position]
+    legal_move_targets: Tuple[Position, ...]
+    castle_targets: Tuple[Position, ...]
     active_movements: Tuple[MovementSnapshot, ...]
     cooldown_positions: Tuple[Position, ...]
     clock_ms: int
     game_over: bool
     game_over_reason: Optional[str]
+    winner: Optional[str]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pieces", types.MappingProxyType(dict(self.pieces)))
+        object.__setattr__(self, "legal_move_targets", tuple(self.legal_move_targets))
+        object.__setattr__(self, "castle_targets", tuple(self.castle_targets))
         object.__setattr__(self, "active_movements", tuple(self.active_movements))
         object.__setattr__(self, "cooldown_positions", tuple(self.cooldown_positions))
 

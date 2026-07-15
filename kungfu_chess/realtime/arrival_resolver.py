@@ -59,7 +59,7 @@ class ArrivalResolver:
                 airborne_enemy_jump = self._find_airborne_enemy_capturing(movements, mov, t)
 
                 if airborne_enemy_jump is not None:
-                    if self._resolve_airborne_capture(board, state, mov, t, frm_still_mine):
+                    if self._resolve_airborne_capture(board, state, mov, airborne_enemy_jump, t, frm_still_mine):
                         reset_halfmove = True
                 else:
                     arr_reset, arr_increment = self._resolve_normal_arrival(
@@ -92,7 +92,7 @@ class ArrivalResolver:
         return None
 
     def _resolve_airborne_capture(
-        self, board: BoardInterface, state: GameState, mov: Movement, t: int, frm_still_mine: bool
+        self, board: BoardInterface, state: GameState, mov: Movement, airborne_mov: Movement, t: int, frm_still_mine: bool
     ) -> bool:
         """Airborne piece captures the arriving enemy. Returns whether to reset the halfmove clock."""
         if frm_still_mine:
@@ -103,6 +103,7 @@ class ArrivalResolver:
         if mov.piece.piece_type in self._config.king_pieces:
             state.game_over = True
             state.game_over_reason = "king_captured"
+            state.winner = airborne_mov.piece.color
         return True
 
     def _resolve_normal_arrival(
@@ -168,6 +169,7 @@ class ArrivalResolver:
                 if target_piece.piece_type in self._config.king_pieces:
                     state.game_over = True
                     state.game_over_reason = "king_captured"
+                    state.winner = mov.piece.color
                 target_piece.transition_to_idle()
                 for am in list(movements):
                     if am.piece == target_piece:

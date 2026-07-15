@@ -39,6 +39,30 @@ This strict separation guarantees that the core game logic is untouched by outer
 * **Current Status**: At the moment, the project consists **only of the backend simulation engine and a local graphical/textual interface**. It currently **does not have the social capabilities of a networked server** (such as matchmakers, user accounts, or multiplayer over the internet). The UI and network layers can be introduced independently later.
 
 ---
+## Graphical UI
+
+The game ships with a local graphical interface built with **Tkinter** (window/canvas/input) and **Pillow** (piece rendering). Both players share the same window and board — there is no networking involved.
+
+* **Board**: An 8x8 board is drawn on a canvas, rendered once per tick (~60 FPS) from a snapshot of the current game state.
+* **Selecting and moving**: Left-click a piece to select it, then left-click a destination square to send a move request. Illegal moves are simply rejected by the underlying engine.
+* **Jumping in place**: Right-click a piece to make it jump in place (useful for pieces like the Knight that can jump without traveling elsewhere).
+* **Real-time movement**: Since Kung Fu Chess has no turns, pieces animate traveling across the board over time, and both players can queue moves independently and concurrently while the clock keeps advancing.
+
+### Running the app with the UI
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Launch the graphical version from the `kfchess` directory:
+   ```bash
+   python main_gui.py
+   ```
+   This opens a Tkinter window with the starting position already set up — just start clicking pieces to play.
+
+A non-graphical entry point is also available via `python main.py`, which drives the same engine without the Tkinter/Pillow UI.
+
+---
 ## Tests
 
 The project puts a heavy emphasis on reliability and mathematical accuracy, given the edge cases of real-time movement (e.g., division by zero guards, precise collision resolutions).
