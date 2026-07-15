@@ -11,11 +11,15 @@ owns drawing; GameEngine owns rules/mutation).
 
 import time
 import tkinter as tk
+from typing import Optional
 
 from PIL import ImageTk
 
 from kungfu_chess.engine.game_engine import GameEngine
 from kungfu_chess.engine.engine_interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
+from kungfu_chess.gui.history_dialog import prompt_and_save, show_load_history_dialog
+from kungfu_chess.io.game_history_store import GameHistoryStore
+from kungfu_chess.io.moves_log import MovesLog
 from kungfu_chess.model.position import Position
 from kungfu_chess.view.image_view import ImageViewInterface
 from kungfu_chess.view.pillow_renderer import PillowRenderer
@@ -50,6 +54,10 @@ class TkGameWindow:
         snapshot_builder: SnapshotBuilder,
         title: str = "Kung Fu Chess",
         board_size: int = BOARD_SIZE,
+        white_name: str = "White",
+        black_name: str = "Black",
+        history_store: Optional[GameHistoryStore] = None,
+        moves_log: Optional[MovesLog] = None,
     ):
         self.engine = engine
         self.board_repo = board_repo
@@ -57,9 +65,16 @@ class TkGameWindow:
         self.renderer = renderer
         self.snapshot_builder = snapshot_builder
         self.board_size = board_size
+        self.white_name = white_name
+        self.black_name = black_name
+        self.history_store = history_store or GameHistoryStore()
+        self.moves_log = moves_log or MovesLog()
+        self._game_over_prompted = False
 
         self.root = tk.Tk()
         self.root.title(title)
+
+        self._build_menu()
 
         self.canvas = tk.Canvas(self.root, width=board_size, height=board_size, highlightthickness=0)
         self.canvas.pack()
@@ -75,6 +90,22 @@ class TkGameWindow:
         self._last_tick = time.monotonic()
         self._refresh()
         self._schedule_tick()
+
+    def _build_menu(self) -> None:
+        menu_bar = tk.Menu(self.root)
+        game_menu = tk.Menu(menu_bar, tearoff=0)
+        game_menu.add_command(label="Save History...", command=self._save_history)
+        game_menu.add_command(label="Load History...", command=self._load_history)
+        menu_bar.add_cascade(label="Game", menu=game_menu)
+        self.root.config(menu=menu_bar)
+
+    def _save_history(self) -> None:
+        prompt_and_save(
+            self.root, self.history_store, self.moves_log, self.white_name, self.black_name, None
+        )
+
+    def _load_history(self) -> None:
+        show_load_history_dialog(self.root, self.history_store)
 
     def run(self) -> None:
         self.root.mainloop()
@@ -137,3 +168,12 @@ class TkGameWindow:
         snapshot = self.snapshot_builder.build(board, state)
         self.renderer.draw(snapshot)
         self.view.show(self.renderer.get_image())
+
+        if state.game_over and not self._game_over_prompted:
+            self._game_over_prompted = True
+            self.root.after(0, lambda: self._save_history_with_winner(state.winner))
+
+    def _save_history_with_winner(self, winner) -> None:
+        prompt_and_save(
+            self.root, self.history_store, self.moves_log, self.white_name, self.black_name, winner
+        )

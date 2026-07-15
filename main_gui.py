@@ -2,7 +2,9 @@
 
 import os
 import sys
+import tkinter as tk
 from pathlib import Path
+from tkinter import simpledialog
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -13,6 +15,8 @@ from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.gui.tk_window import TkGameWindow
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_validator import BoardValidator
+from kungfu_chess.io.game_history_store import GameHistoryStore
+from kungfu_chess.io.moves_log import MovesLog
 from kungfu_chess.realtime.real_time_arbiter import ChebyshevDistanceDuration
 from kungfu_chess.view.pillow_renderer import PillowRenderer
 from kungfu_chess.view.snapshot_builder import SnapshotBuilder
@@ -33,6 +37,12 @@ wR wN wB wQ wK wB wN wR
 
 
 def main() -> None:
+    prompt_root = tk.Tk()
+    prompt_root.withdraw()
+    white_name = simpledialog.askstring("Player name", "White player name:", parent=prompt_root) or "White"
+    black_name = simpledialog.askstring("Player name", "Black player name:", parent=prompt_root) or "Black"
+    prompt_root.destroy()
+
     config = GameConfig()
     core = build_core(config, require_kings=True, duration_strategy=ChebyshevDistanceDuration(config.ms_per_square))
 
@@ -45,12 +55,20 @@ def main() -> None:
     renderer = PillowRenderer(os.path.join(_ASSETS_DIR, "pieces2"))
     snapshot_builder = SnapshotBuilder(engine=core.engine, arbiter=core.arbiter, config=config)
 
+    moves_log = MovesLog(clock_ms=lambda: core.state_repo.get_state().clock_ms)
+    core.move_event_publisher.subscribe(moves_log)
+    history_store = GameHistoryStore()
+
     window = TkGameWindow(
         engine=core.engine,
         board_repo=core.board_repo,
         state_repo=core.state_repo,
         renderer=renderer,
         snapshot_builder=snapshot_builder,
+        white_name=white_name,
+        black_name=black_name,
+        history_store=history_store,
+        moves_log=moves_log,
     )
     window.run()
 
