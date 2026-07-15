@@ -8,6 +8,20 @@ Every pixel PillowRenderer puts on screen goes through this class.
 
 from PIL import Image, ImageDraw, ImageFont
 
+_FONT_CACHE: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
+
+
+def _get_font(font_size: float) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    size = int(font_size)
+    font = _FONT_CACHE.get(size)
+    if font is None:
+        try:
+            font = ImageFont.truetype("arial.ttf", size)
+        except OSError:
+            font = ImageFont.load_default()
+        _FONT_CACHE[size] = font
+    return font
+
 
 class Img:
     """Lightweight image-utility class using only Pillow as the pixel-buffer/draw backend."""
@@ -89,10 +103,7 @@ class Img:
     ) -> None:
         self._require_loaded()
         draw = ImageDraw.Draw(self._img, "RGBA")
-        try:
-            font = ImageFont.truetype("arial.ttf", int(font_size))
-        except OSError:
-            font = ImageFont.load_default()
+        font = _get_font(font_size)
         draw.text((x, y), text, fill=color, font=font, anchor=anchor)
 
     def resize(self, w: int, h: int) -> "Img":

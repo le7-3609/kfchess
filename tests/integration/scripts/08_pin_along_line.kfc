@@ -1,0 +1,11 @@
+# Integration test: 08 — Pinned piece can still move along the pin line
+# wR is pinned to wK by bR on rank 0, but sliding along that same rank
+# (toward the attacker) keeps the king shielded, so it remains legal.
+Board:
+wK . . . wR . . bR
+Commands:
+click 450 50
+click 550 50
+print board
+Expected:
+wK . . . . wR . bR

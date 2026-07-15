@@ -265,6 +265,9 @@ class ArrivalResolver:
         """Cancel movements still in flight at *t* whose path/landing has since become invalid."""
         ongoing = [mov for mov in movements if mov.start_ms <= t and mov.arrival_ms > t]
         for mov in ongoing:
+            if self._is_castling_partner_ongoing(mov, ongoing):
+                continue
+
             frm_still_mine = (board.get_piece(mov.frm) == mov.piece)
             eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
             path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
@@ -281,3 +284,24 @@ class ArrivalResolver:
                     mov.piece.transition_to_idle()
 
                 movements.remove(mov)
+
+    def _is_castling_partner_ongoing(self, mov: Movement, ongoing: List[Movement]) -> bool:
+        """True if *mov* is one leg of a King+Rook castle whose other leg is still in flight.
+
+        Castling's King and Rook legs necessarily cross/swap paths and briefly
+        occupy each other's squares mid-transit; the normal same-color
+        path/landing re-validation would otherwise abort both. Mirrors the
+        castling exemption in CollisionResolver (same-color K+R pair sharing
+        start/arrival times).
+        """
+        if mov.piece.piece_type not in ("K", "R"):
+            return False
+        for other in ongoing:
+            if other is mov:
+                continue
+            if (other.piece.color == mov.piece.color
+                    and other.start_ms == mov.start_ms
+                    and other.arrival_ms == mov.arrival_ms
+                    and {other.piece.piece_type, mov.piece.piece_type} == {"K", "R"}):
+                return True
+        return False

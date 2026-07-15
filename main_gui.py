@@ -12,11 +12,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from kungfu_chess.bootstrap import build_core
 from kungfu_chess.config.game_config import GameConfig
+from kungfu_chess.config.piece_themes import get_theme
 from kungfu_chess.gui.tk_window import TkGameWindow
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_validator import BoardValidator
 from kungfu_chess.io.game_history_store import GameHistoryStore
 from kungfu_chess.io.moves_log import MovesLog
+from kungfu_chess.io.user_settings_store import UserSettingsStore
 from kungfu_chess.realtime.real_time_arbiter import ChebyshevDistanceDuration
 from kungfu_chess.view.pillow_renderer import PillowRenderer
 from kungfu_chess.view.snapshot_builder import SnapshotBuilder
@@ -52,7 +54,9 @@ def main() -> None:
         raise RuntimeError(f"Failed to build starting position: {validation.error}")
     core.board_repo.save_board(validation.value)
 
-    renderer = PillowRenderer(os.path.join(_ASSETS_DIR, "pieces2"))
+    settings_store = UserSettingsStore()
+    theme = get_theme(settings_store.load().piece_theme)
+    renderer = PillowRenderer(os.path.join(_ASSETS_DIR, theme.folder_name))
     snapshot_builder = SnapshotBuilder(engine=core.engine, arbiter=core.arbiter, config=config)
 
     moves_log = MovesLog(clock_ms=lambda: core.state_repo.get_state().clock_ms)
@@ -69,6 +73,8 @@ def main() -> None:
         black_name=black_name,
         history_store=history_store,
         moves_log=moves_log,
+        assets_dir=_ASSETS_DIR,
+        settings_store=settings_store,
     )
     window.run()
 

@@ -38,9 +38,12 @@ class _Animation:
         self.is_loop = is_loop
 
 
-def _folder_name(piece_type: str, color: str) -> str:
-    letter = "W" if color == "w" else "B"
-    return f"{piece_type}{letter}"
+def _folder_name_candidates(piece_type: str, color: str) -> list[str]:
+    """Different asset sets use different folder-naming conventions, e.g.
+    "KW"/"KB" (piece letter + uppercase color) vs "wK"/"bK" (lowercase color
+    + piece letter). Try both so any theme folder can be dropped in as-is."""
+    upper_color = "W" if color == "w" else "B"
+    return [f"{piece_type}{upper_color}", f"{color}{piece_type}"]
 
 
 def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
@@ -72,8 +75,16 @@ class SpriteLibrary:
                     self._load(piece_type, color, state)
 
     def _load(self, piece_type: str, color: str, state: PieceVisualState) -> None:
-        folder = _folder_name(piece_type, color)
-        state_dir = os.path.join(self._base_path, folder, "states", _STATE_NAMES[state])
+        state_dir = None
+        for folder in _folder_name_candidates(piece_type, color):
+            candidate = os.path.join(self._base_path, folder, "states", _STATE_NAMES[state])
+            if os.path.isdir(candidate):
+                state_dir = candidate
+                break
+        if state_dir is None:
+            state_dir = os.path.join(
+                self._base_path, _folder_name_candidates(piece_type, color)[0], "states", _STATE_NAMES[state]
+            )
 
         frames_per_sec, is_loop = self._read_config(state_dir)
         frames = self._read_frames(state_dir, dark=(color == "b"))

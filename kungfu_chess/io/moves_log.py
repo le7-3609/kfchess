@@ -48,3 +48,6 @@ class MovesLog(MoveEventListenerInterface):
 
     def entries(self) -> List[MoveLogEntry]:
         return list(self._entries)
+
+    def entries_for(self, color: str) -> List[MoveLogEntry]:
+        return [e for e in self._entries if e.color == color]

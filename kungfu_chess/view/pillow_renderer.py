@@ -77,6 +77,10 @@ class PillowRenderer(RendererInterface):
         self._width = width
         self._height = height
 
+    def reload_sprites(self, sprite_base_path: str) -> None:
+        """Swap in a different piece-art theme without rebuilding the renderer."""
+        self.sprites = SpriteLibrary(sprite_base_path)
+
     def get_geometry(self) -> BoardGeometry:
         assert self.geometry is not None, "draw() must be called at least once before get_geometry()"
         return self.geometry

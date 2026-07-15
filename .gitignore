@@ -219,3 +219,6 @@ __marimo__/
 
 # Kung Fu Chess saved game history
 /saved_games/
+
+# Kung Fu Chess player settings (piece theme, etc.)
+/user_settings.json

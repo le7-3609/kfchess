@@ -1,0 +1,11 @@
+# Integration test: 07 — Pin
+# wR sits between wK and bR on rank 0, so it is pinned: moving it off the
+# rank would expose wK to check, and that move must be rejected.
+Board:
+wK . . . wR . . bR
+Commands:
+click 450 50
+click 450 150
+print board
+Expected:
+wK . . . wR . . bR
