@@ -6,14 +6,14 @@ Must not own: movement rules, command execution, rendering, or test assertions
 """
 
 import sys
-from typing import List
+from typing import List, Optional, TextIO
 
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.position import Position
 
 
 class BoardPrinter:
-    """Writes the board state to stdout, one row per line.
+    """Writes the board state to an output stream, one row per line.
 
     Output format (same as the input board-description format)::
 
@@ -21,11 +21,15 @@ class BoardPrinter:
         . wR . bK
     """
 
+    def __init__(self, stream: Optional[TextIO] = None) -> None:
+        self._stream = stream
+
     def print_board(self, board: BoardInterface) -> None:
-        """Print *board* to stdout."""
+        """Print *board* to the configured stream (or sys.stdout, resolved at call time)."""
+        stream = self._stream if self._stream is not None else sys.stdout
         for r in range(board.rows):
             tokens: List[str] = []
             for c in range(board.cols):
                 piece = board.get_piece(Position(r, c))
                 tokens.append('.' if piece is None else str(piece))
-            sys.stdout.write(" ".join(tokens) + "\n")
+            stream.write(" ".join(tokens) + "\n")
