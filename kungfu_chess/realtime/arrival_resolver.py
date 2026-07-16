@@ -52,7 +52,6 @@ class ArrivalResolver:
             frm_still_mine = (board.get_piece(mov.frm) is mov.piece)
 
             if mov.frm == mov.to:
-                # Successful jump-in-place landing.
                 if self._resolve_jump_landing(state, mov, t):
                     reset_halfmove = True
             else:
@@ -134,7 +133,6 @@ class ArrivalResolver:
                 mov.piece.transition_to_idle()
             return False, False
 
-        # Successful arrival!
         is_capture = self._apply_capture_at_destination(board, state, mov, t, arriving, movements)
 
         if frm_still_mine:
@@ -196,7 +194,6 @@ class ArrivalResolver:
                     captured_piece = board.get_piece(ep.capture_pos)
                     if captured_piece:
                         captured_piece.transition_to_idle()
-                        # Clean up movements and cooldowns for the captured piece
                         for am in list(movements):
                             if am.piece == captured_piece:
                                 if am in arriving:

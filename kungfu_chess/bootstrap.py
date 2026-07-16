@@ -117,7 +117,6 @@ def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> Co
 
 
 def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
-    """Construct and wire a fully functional GameService."""
     if config is None:
         config = GameConfig()
 

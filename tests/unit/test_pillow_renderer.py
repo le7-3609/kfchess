@@ -20,7 +20,6 @@ class TestPillowRenderer(unittest.TestCase):
         renderer = PillowRenderer("")
         renderer.resize(400, 400)
 
-        # Build a minimal snapshot with some legal move targets (one occupied, one empty)
         pos_empty = Position(2, 2)
         pos_occupied = Position(3, 3)
         piece_snap = PieceSnapshot(
@@ -49,7 +48,6 @@ class TestPillowRenderer(unittest.TestCase):
             winner=None,
         )
 
-        # This should successfully run and draw legal move circles without raising exceptions.
         renderer.draw(snapshot)
         img = renderer.get_image()
         self.assertIsNotNone(img)

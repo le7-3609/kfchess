@@ -176,7 +176,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         if not active and not active_cooldowns:
             return
 
-        # Clean up expired en-passant targets.
         state.en_passant_targets = [ep for ep in state.en_passant_targets if ep.expires_ms > current_ms]
 
         sorted_times = self._collect_event_times(active, active_cooldowns, current_ms)
@@ -211,7 +210,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
 
             t_prev = t
 
-        # Expire any cooldowns that should have ended by current_ms.
         self._expire_cooldowns_le(state, current_ms)
 
     # ------------------------------------------------------------------

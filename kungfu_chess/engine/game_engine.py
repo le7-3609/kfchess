@@ -198,10 +198,6 @@ class GameEngine:
             resolve_pending=self._resolve_pending,
         )
 
-    # ------------------------------------------------------------------
-    # Public command dispatcher
-    # ------------------------------------------------------------------
-
     def request_move(self, source: Position, destination: Position) -> None:
         """Attempt a move from *source* to *destination*.
 
@@ -291,10 +287,6 @@ class GameEngine:
         elif command == "print board":
             self._handle_print_board()
         # Unknown commands are silently ignored.
-
-    # ------------------------------------------------------------------
-    # Internal command handlers
-    # ------------------------------------------------------------------
 
     def _resolve_pending(self) -> None:
         """Resolve all pending motions at the current clock time."""

@@ -18,7 +18,6 @@ class TestEngineMisc(unittest.TestCase):
     def test_click_during_game_over(self) -> None:
         self.state.game_over_reason = "checkmate"
         self.service._state_repo.save_state(self.state)
-        # Should be ignored
         self.service._engine.execute_command("click 50 50")
         self.assertEqual(self.service._state_repo.get_state().selected_pos, None)
 
