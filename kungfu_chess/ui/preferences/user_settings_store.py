@@ -6,9 +6,9 @@ import json
 import os
 from dataclasses import dataclass
 
-from kungfu_chess.config.piece_themes import DEFAULT_THEME_ID
+from kungfu_chess.ui.preferences.piece_themes import DEFAULT_THEME_ID
 
-_DEFAULT_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "user_settings.json")
+_DEFAULT_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", "user_settings.json")
 
 
 @dataclass(frozen=True)

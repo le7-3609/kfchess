@@ -1,13 +1,14 @@
-"""Save/Load History dialogs (Layer 6/7) - tkinter prompts around
-GameHistoryStore, mirroring python_port's view/history_dialog.py.
+"""Save/Load History dialogs (UI window layer) — tkinter prompts that drive
+the GameService history endpoint. This layer owns only widgets and event
+routing; all persistence goes through the service facade, never the store.
 """
 
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 from typing import Optional
 
-from kungfu_chess.io.game_history_store import GameHistoryStore, SavedGame
-from kungfu_chess.io.moves_log import MovesLog
+from kungfu_chess.io.game_history_store import SavedGame
+from kungfu_chess.service import GameService
 
 _COLOR_NAMES = {"w": "White", "b": "Black"}
 
@@ -22,15 +23,15 @@ def _format_time(millis: int) -> str:
 
 def prompt_and_save(
     parent: tk.Tk,
-    history_store: GameHistoryStore,
-    moves_log: MovesLog,
+    service: GameService,
     white_name: str,
     black_name: str,
     winner: Optional[str],
 ) -> None:
-    """Asks for a save name and writes the moves-so-far to disk. Used both for
-    the automatic prompt on game over (winner not None) and the manual
-    "Save History..." menu action (winner None - game may still be ongoing).
+    """Asks for a save name and writes the moves-so-far to disk via the service.
+    Used both for the automatic prompt on game over (winner not None) and the
+    manual "Save History..." menu action (winner None - game may still be
+    ongoing).
     """
     winner_name = _COLOR_NAMES.get(winner, winner) if winner else None
     message = f"Game over - {winner_name} wins!\nSave this game as:" if winner_name else "Save this game as:"
@@ -40,13 +41,13 @@ def prompt_and_save(
     if not save_name.strip():
         save_name = f"{white_name}_vs_{black_name}"
 
-    file_path = history_store.save(save_name, white_name, black_name, winner, moves_log)
+    file_path = service.save_history(save_name, white_name, black_name, winner)
     messagebox.showinfo("Save History", f"Saved to {file_path}", parent=parent)
 
 
-def show_load_history_dialog(parent: tk.Tk, history_store: GameHistoryStore) -> None:
+def show_load_history_dialog(parent: tk.Tk, service: GameService) -> None:
     """Lists every saved game file and, on selection, shows its full move list."""
-    saves = history_store.list_saves()
+    saves = service.list_saves()
     if not saves:
         messagebox.showinfo("Load History", "No saved games yet.", parent=parent)
         return
@@ -69,7 +70,7 @@ def show_load_history_dialog(parent: tk.Tk, history_store: GameHistoryStore) -> 
             return
         chosen = saves[selection[0]]
         picker.destroy()
-        _show_saved_game(parent, history_store.load(chosen))
+        _show_saved_game(parent, service.load_saved_game(chosen))
 
     button_row = tk.Frame(picker)
     button_row.pack(pady=(0, 10))

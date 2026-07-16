@@ -1,5 +1,5 @@
 import unittest
-from kungfu_chess.gui.pillow_renderer import (
+from kungfu_chess.ui.rendering.pillow_renderer import (
     PillowRenderer,
     LEGAL_MOVE_CAPTURE_COLOR,
     LEGAL_MOVE_EMPTY_COLOR,

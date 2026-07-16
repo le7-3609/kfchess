@@ -1,11 +1,11 @@
-"""Unit tests for kungfu_chess.io.user_settings_store."""
+"""Unit tests for kungfu_chess.ui.preferences.user_settings_store."""
 
 import os
 import tempfile
 import unittest
 
-from kungfu_chess.config.piece_themes import DEFAULT_THEME_ID
-from kungfu_chess.io.user_settings_store import UserSettings, UserSettingsStore
+from kungfu_chess.ui.preferences.piece_themes import DEFAULT_THEME_ID
+from kungfu_chess.ui.preferences.user_settings_store import UserSettings, UserSettingsStore
 
 
 class TestUserSettingsStore(unittest.TestCase):

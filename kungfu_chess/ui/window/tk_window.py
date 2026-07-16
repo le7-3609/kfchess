@@ -1,12 +1,17 @@
-"""Tkinter window — concrete ImageViewInterface plus the mouse/timer input loop (Layer 6/7).
+"""Tkinter window — the UI window/controls layer.
 
-Owns: the tkinter Canvas, translating mouse clicks into GameEngine calls, and
-driving the render loop (advance clock -> build snapshot -> draw -> show)
-once per tick. Mirrors python_port's GameController one-to-one: every pixel
-shown ever came from an Img composed by PillowRenderer, tkinter here only
-displays the already-finished frame.
-Must not own: game rules, board mutation, or pixel drawing (PillowRenderer
-owns drawing; GameEngine owns rules/mutation).
+Owns: the tkinter Tk root, canvas, menus/dialogs, translating mouse clicks
+into GameService commands, and driving the render loop (advance clock ->
+get snapshot -> draw -> show) once per tick. Every pixel shown came from an
+Img composed by PillowRenderer; tkinter here only displays the already-
+finished frame.
+
+Talks to the application only through GameService: it submits commands
+(click / right_click / advance_clock) and reads queries (get_snapshot /
+get_moves / history). It never touches the GameEngine, the board/state
+repositories, or the arbiter directly — that is the whole point of the
+UI/application split. Selection state lives inside the engine and arrives
+back through the snapshot; this layer keeps none of it.
 """
 
 import os
@@ -16,18 +21,13 @@ from typing import Optional
 
 from PIL import ImageTk
 
-from kungfu_chess.config.piece_themes import PIECE_THEMES, DEFAULT_THEME_ID, get_theme
-from kungfu_chess.engine.game_engine import GameEngine
-from kungfu_chess.engine.engine_interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
-from kungfu_chess.gui.history_dialog import prompt_and_save, show_load_history_dialog
-from kungfu_chess.gui.image_view import ImageViewInterface
-from kungfu_chess.gui.info_panel import SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
-from kungfu_chess.gui.pillow_renderer import PillowRenderer
-from kungfu_chess.io.game_history_store import GameHistoryStore
-from kungfu_chess.io.moves_log import MovesLog
-from kungfu_chess.io.user_settings_store import UserSettings, UserSettingsStore
-from kungfu_chess.model.position import Position
-from kungfu_chess.view.snapshot_builder import SnapshotBuilder
+from kungfu_chess.service import GameService
+from kungfu_chess.ui.preferences.piece_themes import PIECE_THEMES, get_theme
+from kungfu_chess.ui.preferences.user_settings_store import UserSettings, UserSettingsStore
+from kungfu_chess.ui.rendering.info_panel import SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
+from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
+from kungfu_chess.ui.window.history_dialog import prompt_and_save, show_load_history_dialog
+from kungfu_chess.ui.window.image_view import ImageViewInterface
 
 TICK_MS = 16
 BOARD_SIZE = 640
@@ -51,31 +51,21 @@ class TkGameWindow:
 
     def __init__(
         self,
-        engine: GameEngine,
-        board_repo: BoardRepositoryInterface,
-        state_repo: GameStateRepositoryInterface,
+        service: GameService,
         renderer: PillowRenderer,
-        snapshot_builder: SnapshotBuilder,
         title: str = "Kung Fu Chess",
         board_size: int = BOARD_SIZE,
         white_name: str = "White",
         black_name: str = "Black",
-        history_store: Optional[GameHistoryStore] = None,
-        moves_log: Optional[MovesLog] = None,
         assets_dir: Optional[str] = None,
         settings_store: Optional[UserSettingsStore] = None,
     ):
-        self.engine = engine
-        self.board_repo = board_repo
-        self.state_repo = state_repo
+        self.service = service
         self.renderer = renderer
-        self.snapshot_builder = snapshot_builder
         self.board_size = board_size
         self.white_name = white_name
         self.black_name = black_name
-        self.history_store = history_store or GameHistoryStore()
-        self.moves_log = moves_log or MovesLog()
-        self.info_panel = InfoPanel(self.white_name, self.black_name, self.moves_log)
+        self.info_panel = InfoPanel(self.white_name, self.black_name)
         self._game_over_prompted = False
 
         self.assets_dir = assets_dir
@@ -127,12 +117,10 @@ class TkGameWindow:
         self.root.config(menu=menu_bar)
 
     def _save_history(self) -> None:
-        prompt_and_save(
-            self.root, self.history_store, self.moves_log, self.white_name, self.black_name, None
-        )
+        prompt_and_save(self.root, self.service, self.white_name, self.black_name, None)
 
     def _load_history(self) -> None:
-        show_load_history_dialog(self.root, self.history_store)
+        show_load_history_dialog(self.root, self.service)
 
     def _on_piece_theme_selected(self, theme_id: str) -> None:
         if self.assets_dir is None:
@@ -147,7 +135,7 @@ class TkGameWindow:
 
     # -- input ------------------------------------------------------------
 
-    def _canvas_to_cell(self, event_x: int, event_y: int) -> tuple[int, int] | None:
+    def _canvas_to_cell(self, event_x: int, event_y: int) -> Optional[tuple[int, int]]:
         board_x = event_x - SIDE_PANEL_WIDTH
         board_y = event_y - TOP_HEIGHT
         return self.renderer.get_geometry().pixel_to_cell(board_x, board_y)
@@ -157,18 +145,7 @@ class TkGameWindow:
         if cell is None:
             return
         row, col = cell
-        target = Position(row, col)
-
-        state = self.state_repo.get_state()
-        selected = state.selected_pos
-        if selected is not None:
-            self.engine.request_move(selected, target)
-        else:
-            board = self.board_repo.get_board()
-            piece = board.get_piece(target) if board is not None else None
-            if piece is not None and piece.can_select():
-                state.selected_pos = target
-                self.state_repo.save_state(state)
+        self.service.click(row, col)
         self._refresh()
 
     def _on_right_click(self, event) -> None:
@@ -177,8 +154,7 @@ class TkGameWindow:
         if cell is None:
             return
         row, col = cell
-        target = Position(row, col)
-        self.engine.request_move(target, target)
+        self.service.right_click(row, col)
         self._refresh()
 
     # -- tick loop ----------------------------------------------------------
@@ -191,27 +167,24 @@ class TkGameWindow:
         elapsed_ms = int((now - self._last_tick) * 1000)
         self._last_tick = now
 
-        self.engine.advance_clock(elapsed_ms)
+        self.service.advance_clock(elapsed_ms)
         self._refresh()
         self._schedule_tick()
 
     # -- rendering ----------------------------------------------------------
 
     def _refresh(self) -> None:
-        board = self.board_repo.get_board()
-        if board is None:
+        snapshot = self.service.get_snapshot()
+        if snapshot is None:
             return
-        state = self.state_repo.get_state()
-        snapshot = self.snapshot_builder.build(board, state)
         self.renderer.draw(snapshot)
-        composed = self.info_panel.render(self.renderer.get_image(), self.board_size)
+        composed = self.info_panel.render(self.renderer.get_image(), self.board_size, self.service.get_moves())
         self.view.show(composed)
 
-        if state.game_over and not self._game_over_prompted:
+        if snapshot.game_over and not self._game_over_prompted:
             self._game_over_prompted = True
-            self.root.after(0, lambda: self._save_history_with_winner(state.winner))
+            winner = snapshot.winner
+            self.root.after(0, lambda: self._save_history_with_winner(winner))
 
     def _save_history_with_winner(self, winner) -> None:
-        prompt_and_save(
-            self.root, self.history_store, self.moves_log, self.white_name, self.black_name, winner
-        )
+        prompt_and_save(self.root, self.service, self.white_name, self.black_name, winner)

@@ -8,9 +8,9 @@ Must not own: game rules, board mutation, input parsing, or text-test logic
 
 import math
 
-from kungfu_chess.gui.board_geometry import BoardGeometry
-from kungfu_chess.gui.img import Img
-from kungfu_chess.gui.sprite_library import SpriteLibrary
+from kungfu_chess.ui.rendering.board_geometry import BoardGeometry
+from kungfu_chess.ui.rendering.img import Img
+from kungfu_chess.ui.rendering.sprite_library import SpriteLibrary
 from kungfu_chess.model.position import Position
 from kungfu_chess.view.game_snapshot import GameSnapshot, PieceSnapshot
 from kungfu_chess.view.piece_visual_state import PieceVisualState

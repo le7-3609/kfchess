@@ -28,6 +28,8 @@ from kungfu_chess.engine.game_engine import (
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_printer import BoardPrinter
 from kungfu_chess.io.board_validator import BoardValidator
+from kungfu_chess.io.game_history_store import GameHistoryStore
+from kungfu_chess.io.moves_log import MovesLog
 from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
 from kungfu_chess.input.board_mapper import BoardMapper
 from kungfu_chess.repos import _InMemoryBoardRepo, _InMemoryStateRepo
@@ -129,6 +131,7 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
         validator=core.validator,
         engine=core.engine,
         config=config,
+        arbiter=core.arbiter,
     )
 
 
@@ -161,6 +164,9 @@ def build_realtime_service(
         writer = ReplayWriter(replay_file)
         engine = ReplayEngineDecorator(engine, writer)
 
+    moves_log = MovesLog(clock_ms=lambda: core.state_repo.get_state().clock_ms)
+    core.move_event_publisher.subscribe(moves_log)
+
     return GameService(
         board_repo=core.board_repo,
         state_repo=core.state_repo,
@@ -168,6 +174,9 @@ def build_realtime_service(
         validator=core.validator,
         engine=engine,
         config=config,
+        arbiter=core.arbiter,
+        moves_log=moves_log,
+        history_store=GameHistoryStore(),
     )
 
 

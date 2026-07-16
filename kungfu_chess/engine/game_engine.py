@@ -284,6 +284,8 @@ class GameEngine:
 
         if parts[0] == "click" and len(parts) == 3:
             self._handle_click(int(parts[1]), int(parts[2]))
+        elif parts[0] == "right_click" and len(parts) == 3:
+            self._handle_right_click(int(parts[1]), int(parts[2]))
         elif parts[0] == "wait" and len(parts) == 2:
             self._handle_wait(int(parts[1]))
         elif command == "print board":
@@ -374,6 +376,22 @@ class GameEngine:
         state = self._state_repo.get_state()
         play_state = self._game_play_state_factory.get_state(state.game_over)
         play_state.handle_click(self, target)
+
+    def _handle_right_click(self, x: int, y: int) -> None:
+        """Jump the piece under (x, y) in place, regardless of current selection.
+
+        Mirrors request_move(target, target): a same-cell move is the arbiter's
+        jump-in-place. Unlike _handle_click this ignores selection state, so it
+        works as a direct "make this piece hop" command.
+        """
+        self._resolve_pending()
+        board = self._board_repo.get_board()
+        if board is None:
+            return
+        target = self._board_mapper.pixel_to_position(x, y, board)
+        if target is None:
+            return
+        self.request_move(target, target)
 
     def _execute_active_click(self, target: Position) -> None:
         board = self._board_repo.get_board()
