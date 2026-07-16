@@ -19,7 +19,6 @@ PIECE_THEMES: list[PieceTheme] = [
     PieceTheme("pieces_classic", "pieces_classic", "Classic"),
     PieceTheme("text", "text", "Minimal"),
     PieceTheme("colors", "colors", "Modern"),
-    PieceTheme("colors", "colors", "Colorful"),
     PieceTheme("pieces_mine", "pieces_mine", "My Pieces"),
     PieceTheme("pieces1", "pieces1", "Pieces"),
 ]
