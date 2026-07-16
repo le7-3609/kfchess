@@ -16,14 +16,15 @@ class PieceTheme:
 
 
 PIECE_THEMES: list[PieceTheme] = [
-    PieceTheme("pieces1", "pieces1", "Classic"),
-    PieceTheme("pieces2", "pieces2", "Modern"),
-    PieceTheme("pieces3", "pieces3", "Minimal"),
+    PieceTheme("pieces_classic", "pieces_classic", "Classic"),
+    PieceTheme("text", "text", "Minimal"),
+    PieceTheme("colors", "colors", "Modern"),
+    PieceTheme("colors", "colors", "Colorful"),
     PieceTheme("pieces_mine", "pieces_mine", "My Pieces"),
-    PieceTheme("pieces", "pieces", "Pieces"),
+    PieceTheme("pieces1", "pieces1", "Pieces"),
 ]
 
-DEFAULT_THEME_ID = "pieces2"
+DEFAULT_THEME_ID = "colors"
 
 _BY_ID = {theme.theme_id: theme for theme in PIECE_THEMES}
 

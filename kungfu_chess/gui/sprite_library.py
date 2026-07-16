@@ -68,6 +68,7 @@ class SpriteLibrary:
     def __init__(self, base_path: str):
         self._base_path = base_path
         self._animations: dict[tuple[str, str, PieceVisualState], _Animation] = {}
+        self._resize_cache: dict[tuple[int, int], Image.Image] = {}
 
         for piece_type in _PIECE_TYPES:
             for color in _COLORS:
@@ -136,3 +137,24 @@ class SpriteLibrary:
         else:
             index = min(index, len(animation.frames) - 1)
         return animation.frames[index]
+
+    def sized_frame_for(
+        self, piece_type: str, color: str, state: PieceVisualState, elapsed_millis: int, size: int
+    ) -> Image.Image | None:
+        """Like frame_for, but returns a size x size frame, caching the resize.
+
+        Source frames are loaded once at startup and never mutated, so the
+        same (frame identity, size) pair always produces the same resized
+        bitmap - safe to memoize across ticks instead of resampling every
+        piece with Pillow on every 16ms redraw.
+        """
+        frame = self.frame_for(piece_type, color, state, elapsed_millis)
+        if frame is None or size <= 0:
+            return frame
+
+        key = (id(frame), size)
+        cached = self._resize_cache.get(key)
+        if cached is None:
+            cached = frame.resize((size, size))
+            self._resize_cache[key] = cached
+        return cached

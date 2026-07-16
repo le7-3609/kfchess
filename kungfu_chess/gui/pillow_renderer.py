@@ -72,6 +72,8 @@ class PillowRenderer(RendererInterface):
         self._image: Img | None = None
         self._width = 0
         self._height = 0
+        self._background_key: tuple | None = None
+        self._background_img: Img | None = None
 
     def resize(self, width: int, height: int) -> None:
         self._width = width
@@ -96,9 +98,8 @@ class PillowRenderer(RendererInterface):
             self.geometry = BoardGeometry(snapshot.rows, snapshot.cols)
         self.geometry.resize(self._width, self._height)
 
-        img = Img().blank(self._width, self._height, (30, 30, 30, 255))
+        img = self._background(snapshot)
 
-        self._draw_checkerboard(img, snapshot)
         self._draw_castle_targets(img, snapshot)
         self._draw_selection(img, snapshot)
         for pos, piece in snapshot.pieces.items():
@@ -111,12 +112,26 @@ class PillowRenderer(RendererInterface):
 
     # -- drawing steps ----------------------------------------------------
 
-    def _draw_checkerboard(self, img: Img, snapshot: GameSnapshot) -> None:
-        for r in range(snapshot.rows):
-            for c in range(snapshot.cols):
-                rect = self.geometry.cell_to_pixel(r, c)
-                color = LIGHT_SQUARE if (r + c) % 2 == 0 else DARK_SQUARE
-                img.fill_rect(rect.x, rect.y, rect.width, rect.height, color)
+    def _background(self, snapshot: GameSnapshot) -> Img:
+        """Return a fresh copy of the blank-board+checkerboard base image.
+
+        The checkerboard never changes shape or color between frames for a
+        fixed board size, so it's built once per (size, rows, cols) and
+        reused via a cheap raw-buffer .copy() instead of reissuing 64
+        ImageDraw.rectangle calls (plus a fresh Image.new) on every 16ms
+        render tick.
+        """
+        key = (self._width, self._height, snapshot.rows, snapshot.cols)
+        if self._background_img is None or self._background_key != key:
+            base = Img().blank(self._width, self._height, (30, 30, 30, 255))
+            for r in range(snapshot.rows):
+                for c in range(snapshot.cols):
+                    rect = self.geometry.cell_to_pixel(r, c)
+                    color = LIGHT_SQUARE if (r + c) % 2 == 0 else DARK_SQUARE
+                    base.fill_rect(rect.x, rect.y, rect.width, rect.height, color)
+            self._background_img = base
+            self._background_key = key
+        return Img().from_pil(self._background_img.get())
 
     def _draw_selection(self, img: Img, snapshot: GameSnapshot) -> None:
         pos = snapshot.selected_pos
@@ -183,9 +198,11 @@ class PillowRenderer(RendererInterface):
             remaining_fraction = 1.0 - min(1.0, max(0.0, piece.state_elapsed_millis / piece.state_duration_millis))
             self._draw_rest_square(img, x, y, cell_w, cell_h, remaining_fraction)
 
-        frame = self.sprites.frame_for(piece.piece_type, piece.color, piece.state, piece.state_elapsed_millis)
-        if frame is not None and size > 0:
-            sprite_img = Img().from_pil(frame.resize((size, size)))
+        frame = self.sprites.sized_frame_for(
+            piece.piece_type, piece.color, piece.state, piece.state_elapsed_millis, size
+        )
+        if frame is not None:
+            sprite_img = Img().from_pil(frame)
             sprite_img.draw_on(img, round(draw_x), round(draw_y))
 
     def _movement_for(self, pos: Position, snapshot: GameSnapshot):

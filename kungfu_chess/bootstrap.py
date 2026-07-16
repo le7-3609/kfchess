@@ -55,7 +55,7 @@ class CoreComponents:
 
 def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> CoreComponents:
     """Wire the common repo/parser/validator/printer/publisher/validators/engine stack.
-
+    
     Shared by build_service() and build_realtime_service(); they differ only in
     duration_strategy and in build_realtime_service()'s extra replay wiring.
     Also used directly by callers (e.g. bot_factory) that need a bot wired
