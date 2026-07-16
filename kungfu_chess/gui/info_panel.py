@@ -7,8 +7,8 @@ Must not own: game rules, board mutation, or pixel drawing of the board
 itself (PillowRenderer owns that; this only composes around it).
 """
 
+from kungfu_chess.gui.img import Img
 from kungfu_chess.io.moves_log import MovesLog
-from kungfu_chess.view.img import Img
 
 BACKGROUND_COLOR = (45, 45, 45, 255)
 TEXT_COLOR = (235, 235, 235, 255)

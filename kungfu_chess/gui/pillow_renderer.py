@@ -8,13 +8,13 @@ Must not own: game rules, board mutation, input parsing, or text-test logic
 
 import math
 
+from kungfu_chess.gui.board_geometry import BoardGeometry
+from kungfu_chess.gui.img import Img
+from kungfu_chess.gui.sprite_library import SpriteLibrary
 from kungfu_chess.model.position import Position
-from kungfu_chess.view.board_geometry import BoardGeometry
 from kungfu_chess.view.game_snapshot import GameSnapshot, PieceSnapshot
-from kungfu_chess.view.img import Img
 from kungfu_chess.view.piece_visual_state import PieceVisualState
 from kungfu_chess.view.renderer import RendererInterface
-from kungfu_chess.view.sprite_library import SpriteLibrary
 
 LIGHT_SQUARE = (240, 217, 181, 255)
 DARK_SQUARE = (181, 136, 99, 255)

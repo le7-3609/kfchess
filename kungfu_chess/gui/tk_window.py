@@ -20,13 +20,13 @@ from kungfu_chess.config.piece_themes import PIECE_THEMES, DEFAULT_THEME_ID, get
 from kungfu_chess.engine.game_engine import GameEngine
 from kungfu_chess.engine.engine_interfaces import BoardRepositoryInterface, GameStateRepositoryInterface
 from kungfu_chess.gui.history_dialog import prompt_and_save, show_load_history_dialog
+from kungfu_chess.gui.image_view import ImageViewInterface
+from kungfu_chess.gui.info_panel import SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
+from kungfu_chess.gui.pillow_renderer import PillowRenderer
 from kungfu_chess.io.game_history_store import GameHistoryStore
 from kungfu_chess.io.moves_log import MovesLog
 from kungfu_chess.io.user_settings_store import UserSettings, UserSettingsStore
 from kungfu_chess.model.position import Position
-from kungfu_chess.view.image_view import ImageViewInterface
-from kungfu_chess.view.info_panel import SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
-from kungfu_chess.view.pillow_renderer import PillowRenderer
 from kungfu_chess.view.snapshot_builder import SnapshotBuilder
 
 TICK_MS = 16
