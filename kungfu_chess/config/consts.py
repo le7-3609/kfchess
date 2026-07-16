@@ -24,3 +24,19 @@ PLAYER_B_COLOR = "b"
 PLAYER_B_FORWARD_DIR = 1
 PLAYER_B_PAWN_START_ROWS = [1]
 PLAYER_B_PAWN_PROMOTION_RANK = 7
+
+# The standard opening setup, in the BoardParser DSL. Saved games record only
+# their moves, never the board they began from, so the replay has to assume
+# this same setup — keep it the one definition both the live game and the
+# replay read from.
+STARTING_POSITION = """
+Board:
+bR bN bB bQ bK bB bN bR
+bP bP bP bP bP bP bP bP
+.  .  .  .  .  .  .  .
+.  .  .  .  .  .  .  .
+.  .  .  .  .  .  .  .
+.  .  .  .  .  .  .  .
+wP wP wP wP wP wP wP wP
+wR wN wB wQ wK wB wN wR
+"""

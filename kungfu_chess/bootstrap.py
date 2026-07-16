@@ -156,6 +156,9 @@ def build_realtime_service(
         config = GameConfig()
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
+    # Mirror the caller's override back onto the config so config.ms_per_square
+    # always names the speed the duration strategy is actually running at.
+    config.ms_per_square = ms_per_square
 
     core = build_core(config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square))
 

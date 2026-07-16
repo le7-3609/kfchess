@@ -1,7 +1,7 @@
 """Registry of selectable piece-sprite themes (Layer 2).
 
 Owns: the fixed list of (id, folder name, display name) triples for the art
-sets under assets/. Must not own: reading files from disk (SpriteLibrary) or
+sets under ui/assets/. Must not own: reading files from disk (SpriteLibrary) or
 persisting the player's choice (user_settings_store).
 """
 

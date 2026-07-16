@@ -44,6 +44,7 @@ def build_bot_service(
         config = GameConfig()
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
+    config.ms_per_square = ms_per_square
 
     core = build_core(config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square))
     bot = build_random_bot(bot_color, core, config)

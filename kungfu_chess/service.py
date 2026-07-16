@@ -116,6 +116,12 @@ class GameService:
         self._engine.advance_clock(ms)
         return Result.ok(None)
 
+    def update_preferences(self, ms_per_square: int, cooldown_ms: int) -> Result:
+        """Apply new movement-speed / cooldown preferences to the running arbiter."""
+        if self._arbiter is not None:
+            self._arbiter.update_preferences(ms_per_square, cooldown_ms)
+        return Result.ok(None)
+
     # -- queries ------------------------------------------------------------
 
     def get_snapshot(self) -> Optional[GameSnapshot]:
@@ -152,9 +158,22 @@ class GameService:
         black_name: str,
         winner: Optional[str],
     ) -> str:
-        """Persist the moves-so-far to disk; returns the written file path."""
+        """Persist the moves-so-far to disk; returns the written file path.
+
+        The current speed/cooldown settings travel with the moves: a move's
+        logged timestamp is its arrival, which only means something to a reader
+        that knows how fast pieces were travelling when it was recorded.
+        """
         self._require_history()
-        return self._history_store.save(save_name, white_name, black_name, winner, self._moves_log)
+        return self._history_store.save(
+            save_name,
+            white_name,
+            black_name,
+            winner,
+            self._moves_log,
+            speed_ms=self._config.ms_per_square,
+            cooldown_ms=self._config.cooldown_duration_ms,
+        )
 
     def list_saves(self) -> List[str]:
         self._require_history()

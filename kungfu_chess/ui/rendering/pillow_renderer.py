@@ -74,6 +74,8 @@ class PillowRenderer(RendererInterface):
         self._height = 0
         self._background_key: tuple | None = None
         self._background_img: Img | None = None
+        self._light_square = LIGHT_SQUARE
+        self._dark_square = DARK_SQUARE
 
     def resize(self, width: int, height: int) -> None:
         self._width = width
@@ -82,6 +84,13 @@ class PillowRenderer(RendererInterface):
     def reload_sprites(self, sprite_base_path: str) -> None:
         """Swap in a different piece-art theme without rebuilding the renderer."""
         self.sprites = SpriteLibrary(sprite_base_path)
+
+    def set_board_theme(self, light_color: tuple, dark_color: tuple) -> None:
+        """Swap in a different board color theme without rebuilding the renderer."""
+        self._light_square = light_color
+        self._dark_square = dark_color
+        self._background_key = None
+        self._background_img = None
 
     def get_geometry(self) -> BoardGeometry:
         assert self.geometry is not None, "draw() must be called at least once before get_geometry()"
@@ -127,7 +136,7 @@ class PillowRenderer(RendererInterface):
             for r in range(snapshot.rows):
                 for c in range(snapshot.cols):
                     rect = self.geometry.cell_to_pixel(r, c)
-                    color = LIGHT_SQUARE if (r + c) % 2 == 0 else DARK_SQUARE
+                    color = self._light_square if (r + c) % 2 == 0 else self._dark_square
                     base.fill_rect(rect.x, rect.y, rect.width, rect.height, color)
             self._background_img = base
             self._background_key = key
@@ -228,8 +237,11 @@ class PillowRenderer(RendererInterface):
 
     def _draw_game_over(self, img: Img, snapshot: GameSnapshot) -> None:
         img.fill_rect(0, 0, img.get().width, img.get().height, GAME_OVER_OVERLAY_COLOR)
-        font_size = max(16, self.geometry.board_size / 16)
+        text = _game_over_text(snapshot)
+        # Ensure the text fits in the board width (approx 0.6 ratio for Arial width)
+        font_size_based_on_width = (img.get().width * 0.9) / max(1, (len(text) * 0.6))
+        font_size = min(max(10, self.geometry.board_size / 16), font_size_based_on_width)
         img.put_text(
-            _game_over_text(snapshot), img.get().width // 2, img.get().height // 2,
+            text, img.get().width // 2, img.get().height // 2,
             font_size, GAME_OVER_TEXT_COLOR, anchor="mm",
         )

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.io.moves_log import MoveLogEntry, MovesLog
 
 _DEFAULT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "saved_games")
@@ -24,6 +25,12 @@ class SavedGame:
     winner: Optional[str]
     saved_at: str
     moves: List[MoveLogEntry] = field(default_factory=list)
+    # Both are player-adjustable settings, so a move's timestamp cannot be
+    # interpreted without them: replay reconstructs when a move *started* from
+    # its arrival time and the speed in force. Saves written before these were
+    # recorded fall back to the defaults.
+    speed_ms: int = consts.DEFAULT_MS_PER_SQUARE
+    cooldown_ms: int = consts.DEFAULT_COOLDOWN_DURATION_MS
 
 
 class GameHistoryStore:
@@ -37,6 +44,8 @@ class GameHistoryStore:
         black_name: str,
         winner: Optional[str],
         moves_log: MovesLog,
+        speed_ms: int = consts.DEFAULT_MS_PER_SQUARE,
+        cooldown_ms: int = consts.DEFAULT_COOLDOWN_DURATION_MS,
     ) -> str:
         os.makedirs(self._directory, exist_ok=True)
 
@@ -51,6 +60,8 @@ class GameHistoryStore:
             "blackName": black_name,
             "winner": winner or "",
             "savedAt": timestamp,
+            "speedMs": speed_ms,
+            "cooldownMs": cooldown_ms,
             "moves": [
                 {"color": entry.color, "notation": entry.notation, "time": entry.time_ms}
                 for entry in moves_log.entries()
@@ -86,6 +97,8 @@ class GameHistoryStore:
             winner=data.get("winner") or None,
             saved_at=data.get("savedAt", ""),
             moves=moves,
+            speed_ms=data.get("speedMs", consts.DEFAULT_MS_PER_SQUARE),
+            cooldown_ms=data.get("cooldownMs", consts.DEFAULT_COOLDOWN_DURATION_MS),
         )
 
 

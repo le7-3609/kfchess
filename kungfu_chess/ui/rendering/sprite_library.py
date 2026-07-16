@@ -1,6 +1,6 @@
 """Sprite library — loads and animates per-piece sprite sheets (Layer 6).
 
-Owns: reading assets/colors/<code>/states/<state>/{config.json,sprites/*.png}
+Owns: reading ui/assets/colors/<code>/states/<state>/{config.json,sprites/*.png}
 from disk and picking the correct animation frame for a piece's current
 visual state and elapsed time.
 Must not own: game rules, board mutation, input parsing, or timing

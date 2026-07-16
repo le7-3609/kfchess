@@ -11,25 +11,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from kungfu_chess.bootstrap import build_realtime_service
+from kungfu_chess.config import consts
 from kungfu_chess.config.game_config import GameConfig
+from kungfu_chess.ui.preferences.board_themes import get_theme as get_board_theme
 from kungfu_chess.ui.preferences.piece_themes import get_theme
 from kungfu_chess.ui.preferences.user_settings_store import UserSettingsStore
 from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
 from kungfu_chess.ui.window.tk_window import TkGameWindow
 
-_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
-
-_STARTING_POSITION = """
-Board:
-bR bN bB bQ bK bB bN bR
-bP bP bP bP bP bP bP bP
-.  .  .  .  .  .  .  .
-.  .  .  .  .  .  .  .
-.  .  .  .  .  .  .  .
-.  .  .  .  .  .  .  .
-wP wP wP wP wP wP wP wP
-wR wN wB wQ wK wB wN wR
-"""
+_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "kungfu_chess", "ui", "assets")
 
 
 def main() -> None:
@@ -39,16 +29,21 @@ def main() -> None:
     black_name = simpledialog.askstring("Player name", "Black player name:", parent=prompt_root) or "Black"
     prompt_root.destroy()
 
-    config = GameConfig()
-    service = build_realtime_service(config=config, require_kings=True)
+    settings_store = UserSettingsStore()
+    settings = settings_store.load()
 
-    init_result = service.init_game(_STARTING_POSITION.splitlines())
+    config = GameConfig()
+    config.cooldown_duration_ms = settings.cooldown_level_ms
+    service = build_realtime_service(config=config, require_kings=True, ms_per_square=settings.speed_level_ms)
+
+    init_result = service.init_game(consts.STARTING_POSITION.splitlines())
     if not init_result.is_ok:
         raise RuntimeError(f"Failed to build starting position: {init_result.error}")
 
-    settings_store = UserSettingsStore()
-    theme = get_theme(settings_store.load().piece_theme)
+    theme = get_theme(settings.piece_theme)
     renderer = PillowRenderer(os.path.join(_ASSETS_DIR, theme.folder_name))
+    board_theme = get_board_theme(settings.board_theme)
+    renderer.set_board_theme(board_theme.light_color, board_theme.dark_color)
 
     window = TkGameWindow(
         service=service,
