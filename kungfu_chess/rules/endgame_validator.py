@@ -59,9 +59,6 @@ class EndgameValidator:
         self._threat_validator = threat_validator
         self._config = config
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     def _has_king(self, board: BoardInterface, color: str) -> bool:
         return self._threat_validator.find_king(board, color) is not None
@@ -101,9 +98,6 @@ class EndgameValidator:
                 moves.append((pos, target))
         return moves
 
-    # ------------------------------------------------------------------
-    # Public checks
-    # ------------------------------------------------------------------
 
     def is_checkmate(self, board: BoardInterface, state: GameState, color: str) -> bool:
         """Return True if *color* is in checkmate."""

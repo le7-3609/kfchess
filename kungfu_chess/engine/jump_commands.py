@@ -12,7 +12,6 @@ from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
 
 
 class JumpCommandProcessor:
-    """Executes jump-in-place moves."""
 
     def __init__(
         self,

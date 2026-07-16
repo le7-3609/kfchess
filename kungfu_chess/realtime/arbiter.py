@@ -127,6 +127,24 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         c_step = (mov.to.col - mov.frm.col) // dist
         return Position(mov.frm.row + step * r_step, mov.frm.col + step * c_step)
 
+    def get_stuck_position(self, mov: Movement, t: int) -> Position:
+        """Return the square *mov* should be parked at if aborted at time *t*.
+
+        A blocked movement never actually reaches its destination, so it must
+        stop one square short of wherever get_position_at(mov, t) would place
+        it — that square is the one that turned out to be blocked. Aborting
+        mid-flight (t < arrival_ms) already lands on a square the piece
+        legitimately passed through, so no step-back is needed there.
+        """
+        pos = self.get_position_at(mov, t)
+        if pos != mov.to or mov.frm == mov.to:
+            return pos
+
+        dist = max(abs(mov.to.row - mov.frm.row), abs(mov.to.col - mov.frm.col))
+        r_step = (mov.to.row - mov.frm.row) // dist
+        c_step = (mov.to.col - mov.frm.col) // dist
+        return Position(mov.to.row - r_step, mov.to.col - c_step)
+
     def get_effective_board(
         self,
         board: BoardInterface,
@@ -176,7 +194,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         if not active and not active_cooldowns:
             return
 
-        # Clean up expired en-passant targets.
         state.en_passant_targets = [ep for ep in state.en_passant_targets if ep.expires_ms > current_ms]
 
         sorted_times = self._collect_event_times(active, active_cooldowns, current_ms)
@@ -211,7 +228,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
 
             t_prev = t
 
-        # Expire any cooldowns that should have ended by current_ms.
         self._expire_cooldowns_le(state, current_ms)
 
     # ------------------------------------------------------------------

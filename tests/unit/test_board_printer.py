@@ -1,6 +1,5 @@
 """Unit tests for kungfu_chess.io.board_printer."""
 
-import sys
 import unittest
 from io import StringIO
 
@@ -12,16 +11,9 @@ from kungfu_chess.io.board_printer import BoardPrinter
 
 class TestBoardPrinter(unittest.TestCase):
 
-    def setUp(self) -> None:
-        self.printer = BoardPrinter()
-
     def _capture(self, board: ArrayBoard) -> str:
-        old = sys.stdout
-        sys.stdout = buf = StringIO()
-        try:
-            self.printer.print_board(board)
-        finally:
-            sys.stdout = old
+        buf = StringIO()
+        BoardPrinter(buf).print_board(board)
         return buf.getvalue()
 
     def test_empty_board(self) -> None:

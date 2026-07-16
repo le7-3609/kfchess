@@ -32,7 +32,6 @@ class RandomBotInputSource(InputSourceInterface):
         self._config = config
 
     def get_next_commands(self) -> List[str]:
-        """Generate click commands for a random legal move."""
         board = self._board_repo.get_board()
         if board is None:
             return []

@@ -56,7 +56,6 @@ class BoardValidator:
                 elif token == 'bK':
                     black_kings += 1
 
-        # Ensure exactly one king per color, if required
         if self._require_kings:
             if white_kings != 1 or black_kings != 1:
                 return "INVALID_KING_COUNT"

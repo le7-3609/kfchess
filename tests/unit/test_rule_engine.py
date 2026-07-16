@@ -226,6 +226,39 @@ class TestThreatValidator(unittest.TestCase):
         tv = self._setup(board)
         self.assertFalse(tv.is_king_threatened(board, "w"))
 
+    def test_pinned_piece_cannot_move_off_pin_line(self) -> None:
+        # wK(0,0) . . . wR(0,4) . . bR(0,7) -- wR is pinned along rank 0.
+        board = ArrayBoard(8, 8)
+        board.set_piece(Position(0, 0), Piece("w", "K"))
+        wr = Piece("w", "R")
+        board.set_piece(Position(0, 4), wr)
+        board.set_piece(Position(0, 7), Piece("b", "R"))
+        tv = self._setup(board)
+        # Moving off the rank would uncover the check on wK.
+        self.assertFalse(tv.is_move_safe_from_check(board, Position(0, 4), Position(1, 4), wr))
+        # Board must be restored (unmutated) after the simulation.
+        self.assertIs(board.get_piece(Position(0, 4)), wr)
+        self.assertIsNone(board.get_piece(Position(1, 4)))
+
+    def test_pinned_piece_can_move_along_pin_line(self) -> None:
+        board = ArrayBoard(8, 8)
+        board.set_piece(Position(0, 0), Piece("w", "K"))
+        wr = Piece("w", "R")
+        board.set_piece(Position(0, 4), wr)
+        board.set_piece(Position(0, 7), Piece("b", "R"))
+        tv = self._setup(board)
+        # Sliding along the same rank keeps the king shielded.
+        self.assertTrue(tv.is_move_safe_from_check(board, Position(0, 4), Position(0, 5), wr))
+
+    def test_unpinned_piece_move_is_safe(self) -> None:
+        board = ArrayBoard(8, 8)
+        board.set_piece(Position(0, 0), Piece("w", "K"))
+        board.set_piece(Position(7, 7), Piece("b", "K"))
+        wn = Piece("w", "N")
+        board.set_piece(Position(4, 4), wn)
+        tv = self._setup(board)
+        self.assertTrue(tv.is_move_safe_from_check(board, Position(4, 4), Position(6, 5), wn))
+
 
 if __name__ == "__main__":
     unittest.main()

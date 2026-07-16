@@ -50,6 +50,7 @@ class CoreComponents:
     path_checker: PathChecker
     arbiter: RealTimeArbiter
     engine: GameEngine
+    move_event_publisher: MoveEventPublisher
 
 
 def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> CoreComponents:
@@ -111,11 +112,11 @@ def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> Co
         path_checker=path_checker,
         arbiter=arbiter,
         engine=engine,
+        move_event_publisher=publisher,
     )
 
 
 def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
-    """Construct and wire a fully functional GameService."""
     if config is None:
         config = GameConfig()
 

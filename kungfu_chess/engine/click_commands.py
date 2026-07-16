@@ -92,7 +92,6 @@ class ClickCommandProcessor:
         selected_piece: PieceInterface,
         target_piece: PieceInterface
     ) -> None:
-        # Castling check
         if self._castling_commands.is_castle_attempt(selected_piece, target_piece, state.selected_pos, target):
             if self._castling_commands.try_castle(state, board, state.selected_pos, target, selected_piece, target_piece):
                 return

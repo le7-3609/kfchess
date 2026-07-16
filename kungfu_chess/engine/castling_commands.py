@@ -18,7 +18,6 @@ from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
 
 
 class CastlingCommands:
-    """Attempts and executes castling moves."""
 
     def __init__(
         self,

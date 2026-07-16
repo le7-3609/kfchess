@@ -76,7 +76,6 @@ class CollisionResolver:
                 elif is_mov2_jump and not is_mov1_jump and mov1.piece.color != mov2.piece.color:
                     winner, loser = mov2, mov1
                 else:
-                    # Determine which movement reached the square earlier vs. later.
                     if mov1.start_ms < mov2.start_ms:
                         early, late = mov1, mov2
                     elif mov2.start_ms < mov1.start_ms:
@@ -96,7 +95,6 @@ class CollisionResolver:
                 aborted_or_captured.add(id(loser))
 
                 if winner.piece.color != loser.piece.color:
-                    # Enemy collision — loser is captured.
                     board.set_piece(loser.frm, None)
                     loser.piece.transition_to_idle()
                     if state.selected_pos == loser.frm:
@@ -106,7 +104,12 @@ class CollisionResolver:
                         state.game_over_reason = "king_captured"
                     reset_halfmove = True
                 else:
-                    # Friendly collision — loser's move is aborted, piece enters cooldown.
+                    # Friendly collision — loser's move is aborted, piece enters cooldown
+                    # wherever it had actually reached when the collision happened.
+                    stuck_pos = positions[id(loser)]
+                    if board.get_piece(loser.frm) is loser.piece and stuck_pos != loser.frm:
+                        board.set_piece(loser.frm, None)
+                        board.set_piece(stuck_pos, loser.piece)
                     loser.piece.transition_to_cooldown()
                     state.active_cooldowns.append(
                         Cooldown(piece=loser.piece, end_ms=t + self._config.cooldown_duration_ms)
@@ -114,7 +117,6 @@ class CollisionResolver:
                     if state.selected_pos == loser.frm:
                         state.selected_pos = None
 
-        # Remove aborted/captured movements.
         for mov in list(movements):
             if id(mov) in aborted_or_captured:
                 movements.remove(mov)

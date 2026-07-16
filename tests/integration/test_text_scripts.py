@@ -52,6 +52,12 @@ class TestTextScripts(unittest.TestCase):
     def test_06_game_over(self) -> None:
         self._assert_script_file("06_game_over.kfc")
 
+    def test_07_pin(self) -> None:
+        self._assert_script_file("07_pin.kfc")
+
+    def test_08_pin_along_line(self) -> None:
+        self._assert_script_file("08_pin_along_line.kfc")
+
 
 if __name__ == "__main__":
     unittest.main()

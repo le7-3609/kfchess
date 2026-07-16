@@ -255,7 +255,6 @@ class StandardPawnPromotion(PromotionStrategyInterface):
         player_config = config.get_player(piece.color)
         if player_config is None:
             return None
-        # Determine the promotion rank from the player config.
         if to_pos.row != player_config.promotion_rank:
             return None
         return TextPiece(piece.color, consts.DEFAULT_PROMOTION_PIECE, has_moved=True)

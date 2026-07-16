@@ -268,6 +268,74 @@ class TestArbiterCollisions(unittest.TestCase):
         self.assertEqual(len(self.state.active_cooldowns), 1)
         self.assertTrue(self.state.active_cooldowns[0].piece is p2)
 
+    def test_same_color_staggered_arrival_first_stays_second_stuck(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("w", "R")
+        # p1 arrives and lands on (0, 2) well before p2 gets there — this is
+        # not a same-tick collision, it's p2 arriving at an already-occupied
+        # friendly square. p1 (identical type/color to p2) must not become
+        # invisible to p2's landing check via a same-type equality mixup.
+        self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
+        self._add_movement(p2, Position(0, 4), Position(0, 2), 0, 3000)
+
+        for t in (2000, 3000):
+            self.state.clock_ms = t
+            self.arbiter.resolve_movements(self.board, self.state, t)
+
+        # p1 (first arrival) keeps its position; p2 (second arrival) is
+        # stopped one square short of the blocked destination — the last
+        # square it actually reached before getting stuck — not sent back
+        # to its origin.
+        self.assertEqual(self.board.get_piece(Position(0, 2)), p1)
+        self.assertEqual(self.board.get_piece(Position(0, 3)), p2)
+        self.assertIsNone(self.board.get_piece(Position(0, 4)))
+        self.assertEqual(len(self.arbiter.movements()), 0)
+
+    def test_same_color_mid_flight_collision_stuck_at_collision_square(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("w", "R")
+        # p1 slides (0,0)->(0,2); p2 slides (2,1)->(0,1). At t=1000 (halfway
+        # for both) their interpolated positions coincide at (1, 1) — a
+        # mid-flight collision where neither piece has arrived nor started
+        # from that square.
+        self._add_movement(p1, Position(0, 0), Position(0, 2), 0, 2000)
+        self._add_movement(p2, Position(2, 1), Position(0, 1), 0, 2000)
+
+        self.state.clock_ms = 1000
+        self.arbiter.resolve_movements(self.board, self.state, 1000)
+
+        # p1 (early registration) keeps moving toward (0, 2). p2 (loser) is
+        # stuck at the collision square (1, 1) — the last place it actually
+        # reached — not sent back to its origin (2, 1).
+        self.assertEqual(len(self.arbiter.movements()), 1)
+        self.assertTrue(self.arbiter.movements()[0].piece is p1)
+        self.assertEqual(self.board.get_piece(Position(1, 1)), p2)
+        self.assertIsNone(self.board.get_piece(Position(2, 1)))
+        self.assertEqual(len(self.state.active_cooldowns), 1)
+        self.assertTrue(self.state.active_cooldowns[0].piece is p2)
+
+    def test_ongoing_movement_cancelled_mid_flight_stuck_at_current_square(self) -> None:
+        p1 = Piece("w", "R")
+        p2 = Piece("w", "R")
+        # p1 is a slow 4-square slide toward (0, 4). p2 is a faster 2-square
+        # slide that reaches (0, 4) first and lands there while p1 is still
+        # en route — this cancels p1's ongoing movement via the blocked-path
+        # re-validation, not a same-tick collision or a final-arrival block.
+        self._add_movement(p1, Position(0, 0), Position(0, 4), 0, 4000)
+        self._add_movement(p2, Position(2, 4), Position(0, 4), 0, 2000)
+
+        self.state.clock_ms = 2000
+        self.arbiter.resolve_movements(self.board, self.state, 2000)
+
+        # p2 lands on (0, 4). p1's move is cancelled at the tick it discovers
+        # the block; p1 stops at (0, 2) — the square it had actually reached
+        # by t=2000 — not back at its origin (0, 0).
+        self.assertEqual(self.board.get_piece(Position(0, 4)), p2)
+        self.assertEqual(self.board.get_piece(Position(0, 2)), p1)
+        self.assertIsNone(self.board.get_piece(Position(0, 0)))
+        self.assertEqual(len(self.arbiter.movements()), 0)
+        self.assertTrue(any(c.piece is p1 for c in self.state.active_cooldowns))
+
     def test_jump_collision(self) -> None:
         p1 = Piece("w", "N")
         p2 = Piece("b", "R")

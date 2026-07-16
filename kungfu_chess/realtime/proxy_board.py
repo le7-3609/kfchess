@@ -66,7 +66,7 @@ class ProxyBoard(BoardInterface):
             return self._moving_at_pos[pos]
         piece = self._board.get_piece(pos)
         if piece is not None:
-            if self._exclude_piece and piece == self._exclude_piece:
+            if self._exclude_piece is not None and piece is self._exclude_piece:
                 return None
             if id(piece) in self._moving_piece_ids:
                 return None

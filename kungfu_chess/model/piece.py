@@ -152,23 +152,18 @@ class TextPiece(PieceInterface):
         self._state = MovingState()
 
     def transition_to_jumping(self) -> None:
-        """Transition the piece to JumpingState."""
         self._state = JumpingState()
 
     def transition_to_idle(self) -> None:
-        """Transition the piece back to IdleState."""
         self._state = IdleState()
 
     def transition_to_cooldown(self) -> None:
-        """Transition the piece to CooldownState."""
         self._state = CooldownState()
 
     def can_select(self) -> bool:
-        """Query if the piece is selectable in its current state."""
         return self._state.can_select()
 
     def can_move(self) -> bool:
-        """Query if the piece can start a movement in its current state."""
         return self._state.can_move()
 
     def __str__(self) -> str:

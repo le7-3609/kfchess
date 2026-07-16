@@ -16,7 +16,6 @@ from kungfu_chess.service import GameService
 
 
 def build_random_bot(color: str, core: CoreComponents, config: GameConfig) -> RandomBotInputSource:
-    """Construct a RandomBotInputSource wired against the given core components."""
     threat_validator = ThreatValidator(core.move_validator_factory, core.path_checker, config)
     endgame_validator = EndgameValidator(
         move_validator_factory=core.move_validator_factory,
@@ -41,7 +40,6 @@ def build_bot_service(
     replay_file: str = None,
     require_kings: bool = True,
 ) -> GameService:
-    """Construct a real-time GameService with a RandomBotInputSource playing bot_color."""
     if config is None:
         config = GameConfig()
     if ms_per_square is None:

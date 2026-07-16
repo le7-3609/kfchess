@@ -98,5 +98,6 @@ class GameState:
     en_passant_targets: List[EnPassantTarget] = field(default_factory=list)
     game_over: bool = False
     game_over_reason: Optional[str] = None
+    winner: Optional[str] = None
     position_history: List[str] = field(default_factory=list)
     halfmove_clock: int = 0

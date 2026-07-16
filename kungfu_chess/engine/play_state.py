@@ -10,7 +10,7 @@ class GamePlayState(ABC):
 
     @abstractmethod
     def handle_click(self, engine: 'GameEngine', target: Position) -> None:
-        """Handle a click in this state."""
+        ...
 
 
 class ActivePlayState(GamePlayState):

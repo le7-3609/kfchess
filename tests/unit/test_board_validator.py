@@ -18,7 +18,6 @@ class TestBoardValidator(unittest.TestCase):
 
     def test_production_mode_invalid_kings(self) -> None:
         validator = BoardValidator(require_kings=True)
-        # No kings at all
         raw_board = [
             [".", ".", "."],
             [".", ".", "."]
@@ -29,7 +28,6 @@ class TestBoardValidator(unittest.TestCase):
 
     def test_test_mode_bypasses_king_validation(self) -> None:
         validator = BoardValidator(require_kings=False)
-        # No kings at all (allowed in test mode)
         raw_board = [
             [".", ".", "."],
             [".", ".", "."]

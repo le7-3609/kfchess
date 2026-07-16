@@ -10,7 +10,6 @@ class ReplayWriter:
         self._filename = filename
 
     def write_command(self, command: str) -> None:
-        """Append a command to the replay file."""
         with open(self._filename, "a", encoding="utf-8") as f:
             f.write(command.strip() + "\n")
 
@@ -19,7 +18,6 @@ class ReplayReader:
         self._filename = filename
 
     def read_commands(self) -> List[str]:
-        """Read all commands from the replay file."""
         try:
             with open(self._filename, "r", encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip()]
