@@ -66,10 +66,6 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# GameEngineDependencies
-# ---------------------------------------------------------------------------
-
 @dataclass
 class GameEngineDependencies:
     """Parameter object bundling GameEngine's collaborators.
@@ -94,10 +90,6 @@ class GameEngineDependencies:
     castling_validator: Optional[CastlingValidator] = None
 
 
-# ---------------------------------------------------------------------------
-# GameEngine
-# ---------------------------------------------------------------------------
-
 class GameEngine:
     """Application-service coordinator.
 
@@ -116,92 +108,107 @@ class GameEngine:
     """
 
     def __init__(self, deps: GameEngineDependencies) -> None:
-        board_repo = deps.board_repo
-        state_repo = deps.state_repo
-        move_validator_factory = deps.move_validator_factory
-        move_event_publisher = deps.move_event_publisher
-        path_checker = deps.path_checker
-        config = deps.config
-        arbiter = deps.arbiter
-        game_play_state_factory = deps.game_play_state_factory
-        threat_validator = deps.threat_validator
-        endgame_validator = deps.endgame_validator
-        castling_validator = deps.castling_validator
+        self._store_required_collaborators(deps)
+        self._build_rule_collaborators(deps)
+        self._build_command_processors(deps)
+        self._last_checked_signature = None
 
-        self._board_repo = board_repo
-        self._state_repo = state_repo
+    def _store_required_collaborators(self, deps: GameEngineDependencies) -> None:
+        """Adopt the collaborators the composition root must always supply."""
+        self._board_repo = deps.board_repo
+        self._state_repo = deps.state_repo
         self._printer = deps.printer
-        self._move_validator_factory = move_validator_factory
-        self._move_event_publisher = move_event_publisher
-        self._path_checker = path_checker
-        self._config = config
+        self._move_validator_factory = deps.move_validator_factory
+        self._move_event_publisher = deps.move_event_publisher
+        self._path_checker = deps.path_checker
+        self._config = deps.config
         self._board_mapper = deps.board_mapper
 
-        # Arbiter — default to instant movement if not provided.
-        if arbiter is None:
-            from kungfu_chess.realtime.real_time_arbiter import (
-                RealTimeArbiter, InstantMovementDuration,
-            )
-            from kungfu_chess.rules.piece_rules import StandardPawnPromotion
-            arbiter = RealTimeArbiter(
-                duration_strategy=InstantMovementDuration(),
-                path_checker=path_checker,
-                config=config,
-                promotion_strategy=StandardPawnPromotion(),
-                move_event_publisher=move_event_publisher,
-            )
-        self._arbiter = arbiter
+    def _build_rule_collaborators(self, deps: GameEngineDependencies) -> None:
+        """Adopt the rule-layer collaborators, constructing standard defaults for any omitted.
 
-        rule_engine = RuleEngine(move_validator_factory=move_validator_factory)
-        self._rule_engine = rule_engine
+        Each is assigned before the next is built: the endgame and castling
+        validators are constructed against the arbiter and threat validator
+        resolved here, whether those came from *deps* or from a default.
+        """
+        self._arbiter = self._or_default(deps.arbiter, self._create_default_arbiter)
+        self._rule_engine = RuleEngine(move_validator_factory=self._move_validator_factory)
+        self._threat_validator = self._or_default(
+            deps.threat_validator, self._create_default_threat_validator
+        )
+        self._endgame_validator = self._or_default(
+            deps.endgame_validator, self._create_default_endgame_validator
+        )
+        self._castling_validator = self._or_default(
+            deps.castling_validator, self._create_default_castling_validator
+        )
+        self._game_play_state_factory = self._or_default(
+            deps.game_play_state_factory, GamePlayStateFactory
+        )
 
-        if threat_validator is None:
-            threat_validator = ThreatValidator(
-                move_validator_factory=move_validator_factory,
-                path_checker=path_checker,
-                config=config,
-            )
-        self._threat_validator = threat_validator
+    @staticmethod
+    def _or_default(supplied, build_default):
+        """Return *supplied*, or the result of *build_default* when nothing was supplied.
 
-        if game_play_state_factory is None:
-            game_play_state_factory = GamePlayStateFactory()
-        self._game_play_state_factory = game_play_state_factory
+        Tests inject collaborators that may define __bool__/__len__, so presence
+        is decided on None rather than truthiness.
+        """
+        return build_default() if supplied is None else supplied
 
-        if endgame_validator is None:
-            endgame_validator = EndgameValidator(
-                move_validator_factory=move_validator_factory,
-                path_checker=path_checker,
-                movement_manager=self._arbiter,
-                threat_validator=self._threat_validator,
-                config=config,
-            )
-        self._endgame_validator = endgame_validator
+    def _create_default_arbiter(self) -> RealTimeArbiterInterface:
+        """Build an arbiter that completes every motion instantly."""
+        # Imported lazily: realtime.real_time_arbiter imports this module.
+        from kungfu_chess.realtime.real_time_arbiter import (
+            RealTimeArbiter, InstantMovementDuration,
+        )
+        from kungfu_chess.rules.piece_rules import StandardPawnPromotion
+        return RealTimeArbiter(
+            duration_strategy=InstantMovementDuration(),
+            path_checker=self._path_checker,
+            config=self._config,
+            promotion_strategy=StandardPawnPromotion(),
+            move_event_publisher=self._move_event_publisher,
+        )
 
-        if castling_validator is None:
-            castling_validator = CastlingValidator(threat_validator=self._threat_validator, config=config)
-        self._castling_validator = castling_validator
+    def _create_default_threat_validator(self) -> ThreatValidator:
+        return ThreatValidator(
+            move_validator_factory=self._move_validator_factory,
+            path_checker=self._path_checker,
+            config=self._config,
+        )
 
+    def _create_default_endgame_validator(self) -> EndgameValidator:
+        return EndgameValidator(
+            move_validator_factory=self._move_validator_factory,
+            path_checker=self._path_checker,
+            movement_manager=self._arbiter,
+            threat_validator=self._threat_validator,
+            config=self._config,
+        )
+
+    def _create_default_castling_validator(self) -> CastlingValidator:
+        return CastlingValidator(threat_validator=self._threat_validator, config=self._config)
+
+    def _build_command_processors(self, deps: GameEngineDependencies) -> None:
+        """Wire the per-command processors onto the rule collaborators."""
         self._castling_commands = CastlingCommands(
             arbiter=self._arbiter,
             castling_validator=self._castling_validator,
-            state_repo=state_repo,
+            state_repo=self._state_repo,
             resolve_pending=self._resolve_pending,
         )
-        self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo, arbiter=self._arbiter)
-        self._last_checked_signature = None
+        self._jump_commands = JumpCommandProcessor(
+            config=self._config, state_repo=self._state_repo, arbiter=self._arbiter
+        )
         self._click_commands = ClickCommandProcessor(
             rule_engine=self._rule_engine,
             threat_validator=self._threat_validator,
             arbiter=self._arbiter,
             castling_commands=self._castling_commands,
             jump_commands=self._jump_commands,
-            state_repo=state_repo,
+            state_repo=self._state_repo,
             resolve_pending=self._resolve_pending,
         )
-
-    # ------------------------------------------------------------------
-    # Public command dispatcher
-    # ------------------------------------------------------------------
 
     def request_move(self, source: Position, destination: Position) -> None:
         """Attempt a move from *source* to *destination*.
@@ -277,7 +284,12 @@ class GameEngine:
         self._resolve_pending()
 
     def execute_command(self, command: str) -> None:
-        """Execute a single text command against the current game state."""
+        """Execute a single text command against the current game state.
+
+        Accepts "click X Y", "right_click X Y", "wait MS", and "print board".
+        Anything else is ignored: command streams come from scripted text tests
+        and stdin, where an unrecognised line must not abort the run.
+        """
         parts = command.split()
         if not parts:
             return
@@ -290,11 +302,6 @@ class GameEngine:
             self._handle_wait(int(parts[1]))
         elif command == "print board":
             self._handle_print_board()
-        # Unknown commands are silently ignored.
-
-    # ------------------------------------------------------------------
-    # Internal command handlers
-    # ------------------------------------------------------------------
 
     def _resolve_pending(self) -> None:
         """Resolve all pending motions at the current clock time.
@@ -334,36 +341,58 @@ class GameEngine:
         self._state_repo.save_state(state)
 
     def _check_game_end_conditions(self, board: BoardInterface, state: GameState) -> None:
-        if state.game_over:
-            return
-        has_w = self._endgame_validator._has_king(board, "w")
-        has_b = self._endgame_validator._has_king(board, "b")
-        if not has_w or not has_b:
-            return
+        """Record the first end-of-game condition that applies, if any.
 
+        A king already off the board means the capture path has ended the game
+        (or is about to), so the checkmate/stalemate scans are skipped rather
+        than run against an incomplete position.
+        """
+        if state.game_over or not self._both_kings_present(board):
+            return
+        if self._check_decisive_end(board, state):
+            return
+        self._check_draw_end(board, state)
+
+    def _both_kings_present(self, board: BoardInterface) -> bool:
+        return (
+            self._endgame_validator._has_king(board, "w")
+            and self._endgame_validator._has_king(board, "b")
+        )
+
+    def _check_decisive_end(self, board: BoardInterface, state: GameState) -> bool:
+        """End the game if either color is checkmated or stalemated. Returns whether it did."""
         for color in ("w", "b"):
             if self._endgame_validator.is_checkmate(board, state, color):
-                state.game_over = True
-                state.game_over_reason = "checkmate"
-                state.winner = "b" if color == "w" else "w"
-                return
+                self._end_game(state, "checkmate", winner=self._opponent(color))
+                return True
             if self._endgame_validator.is_stalemate(board, state, color):
-                state.game_over = True
-                state.game_over_reason = "stalemate"
-                return
+                self._end_game(state, "stalemate")
+                return True
+        return False
 
-        if self._endgame_validator.is_insufficient_material(board):
-            state.game_over = True
-            state.game_over_reason = "insufficient_material"
-            return
-        if self._endgame_validator.is_threefold_repetition(board, state):
-            state.game_over = True
-            state.game_over_reason = "threefold_repetition"
-            return
-        if self._endgame_validator.is_fifty_move_rule(board, state):
-            state.game_over = True
-            state.game_over_reason = "fifty_move_rule"
-            return
+    def _check_draw_end(self, board: BoardInterface, state: GameState) -> bool:
+        """End the game if any drawn-position rule applies. Returns whether it did."""
+        draw_rules = (
+            ("insufficient_material", lambda: self._endgame_validator.is_insufficient_material(board)),
+            ("threefold_repetition", lambda: self._endgame_validator.is_threefold_repetition(board, state)),
+            ("fifty_move_rule", lambda: self._endgame_validator.is_fifty_move_rule(board, state)),
+        )
+        for reason, is_drawn in draw_rules:
+            if is_drawn():
+                self._end_game(state, reason)
+                return True
+        return False
+
+    def _end_game(self, state: GameState, reason: str, winner: Optional[str] = None) -> None:
+        """Mark the game over with *reason*, leaving the winner unset for a draw."""
+        state.game_over = True
+        state.game_over_reason = reason
+        if winner is not None:
+            state.winner = winner
+
+    @staticmethod
+    def _opponent(color: str) -> str:
+        return "b" if color == "w" else "w"
 
     def _handle_click(self, x: int, y: int) -> None:
         self._resolve_pending()

@@ -33,39 +33,15 @@ class SnapshotBuilder:
         self._config = config
 
     def build(self, board: BoardInterface, state: GameState) -> GameSnapshot:
+        """Package *board* and *state* into the immutable GameSnapshot a Renderer draws.
+
+        Reads the board, the arbiter's in-flight movements, and the engine's
+        legal-move queries as they stand right now; mutates nothing.
+        """
         clock_ms = state.clock_ms
-
-        moving_positions = {mov.frm for mov in self._arbiter.movements()}
-        cooldown_by_piece = {id(c.piece): c for c in state.active_cooldowns}
-
-        pieces: Dict[Position, PieceSnapshot] = {}
-        for r in range(board.rows):
-            for c in range(board.cols):
-                pos = Position(r, c)
-                piece = board.get_piece(pos)
-                if piece is None or pos in moving_positions:
-                    continue
-                pieces[pos] = self._static_piece_snapshot(piece, cooldown_by_piece, clock_ms)
-
-        active_movements = []
-        for mov in self._arbiter.movements():
-            piece_snapshot = self._moving_piece_snapshot(mov, clock_ms)
-            pieces[mov.frm] = piece_snapshot
-            active_movements.append(
-                MovementSnapshot(
-                    frm=mov.frm, to=mov.to, piece=piece_snapshot, start_ms=mov.start_ms, arrival_ms=mov.arrival_ms
-                )
-            )
-
-        cooldown_positions = tuple(
-            pos for pos in (self._find_cooldown_pos(board, c) for c in state.active_cooldowns) if pos is not None
-        )
-
-        legal_move_targets: tuple = ()
-        castle_targets: tuple = ()
-        if state.selected_pos is not None:
-            legal_move_targets = tuple(self._engine.legal_moves_from(state.selected_pos))
-            castle_targets = tuple(self._engine.castle_rook_targets_from(state.selected_pos))
+        pieces = self._build_resting_pieces(board, state, clock_ms)
+        active_movements = self._add_moving_pieces(pieces, clock_ms)
+        legal_move_targets, castle_targets = self._selection_targets(state)
 
         return GameSnapshot(
             rows=board.rows,
@@ -74,15 +50,71 @@ class SnapshotBuilder:
             selected_pos=state.selected_pos,
             legal_move_targets=legal_move_targets,
             castle_targets=castle_targets,
-            active_movements=tuple(active_movements),
-            cooldown_positions=cooldown_positions,
+            active_movements=active_movements,
+            cooldown_positions=self._cooldown_positions(board, state),
             clock_ms=clock_ms,
             game_over=state.game_over,
             game_over_reason=state.game_over_reason,
             winner=state.winner,
         )
 
-    # -- internals ----------------------------------------------------------
+    def _build_resting_pieces(
+        self, board: BoardInterface, state: GameState, clock_ms: int
+    ) -> Dict[Position, PieceSnapshot]:
+        """Snapshot every piece that is not currently in flight, keyed by square."""
+        moving_positions = {mov.frm for mov in self._arbiter.movements()}
+        cooldown_by_piece = {id(c.piece): c for c in state.active_cooldowns}
+
+        pieces: Dict[Position, PieceSnapshot] = {}
+        for row in range(board.rows):
+            for col in range(board.cols):
+                pos = Position(row, col)
+                piece = board.get_piece(pos)
+                if piece is None or pos in moving_positions:
+                    continue
+                pieces[pos] = self._static_piece_snapshot(piece, cooldown_by_piece, clock_ms)
+        return pieces
+
+    def _add_moving_pieces(
+        self, pieces: Dict[Position, PieceSnapshot], clock_ms: int
+    ) -> tuple:
+        """Add each in-flight piece to *pieces* at its origin and return their movements.
+
+        An in-flight piece is keyed by the square it departed from: the board
+        still holds it there until it lands, and the Renderer interpolates its
+        drawn position from the movement's start/arrival times.
+        """
+        active_movements = []
+        for mov in self._arbiter.movements():
+            piece_snapshot = self._moving_piece_snapshot(mov, clock_ms)
+            pieces[mov.frm] = piece_snapshot
+            active_movements.append(
+                MovementSnapshot(
+                    frm=mov.frm,
+                    to=mov.to,
+                    piece=piece_snapshot,
+                    start_ms=mov.start_ms,
+                    arrival_ms=mov.arrival_ms,
+                )
+            )
+        return tuple(active_movements)
+
+    def _cooldown_positions(self, board: BoardInterface, state: GameState) -> tuple:
+        """Return the squares of every piece currently resting on cooldown."""
+        positions = (self._find_cooldown_pos(board, c) for c in state.active_cooldowns)
+        return tuple(pos for pos in positions if pos is not None)
+
+    def _selection_targets(self, state: GameState) -> tuple:
+        """Return (legal move targets, castle rook targets) for the selected piece.
+
+        Both are empty when nothing is selected, so the Renderer highlights nothing.
+        """
+        if state.selected_pos is None:
+            return (), ()
+        return (
+            tuple(self._engine.legal_moves_from(state.selected_pos)),
+            tuple(self._engine.castle_rook_targets_from(state.selected_pos)),
+        )
 
     def _static_piece_snapshot(self, piece, cooldown_by_piece, clock_ms: int) -> PieceSnapshot:
         cooldown = cooldown_by_piece.get(id(piece))

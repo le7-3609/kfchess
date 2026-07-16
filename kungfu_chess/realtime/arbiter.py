@@ -75,10 +75,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
             )
         self._arrival_resolver = arrival_resolver
 
-    # ------------------------------------------------------------------
-    # Active-motion ownership
-    # ------------------------------------------------------------------
-
     def register_motion(self, mov: Movement) -> None:
         self._active_movements.append(mov)
 
@@ -96,10 +92,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
 
     def has_active_motion_for_color(self, color: str) -> bool:
         return any(mov.piece.color == color for mov in self._active_movements)
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def calculate_arrival(self, frm: Position, to: Position, piece: PieceInterface, start_ms: int) -> int:
         duration = self._duration_strategy.calculate_duration(frm, to, piece)
@@ -124,7 +116,8 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         dist = max(abs(mov.to.row - mov.frm.row), abs(mov.to.col - mov.frm.col))
         if dist == 0:
             return mov.frm
-        # Guard: never divide by zero
+        # Floors to 0 for motions faster than 1ms per square, which would make
+        # the step division below divide by zero.
         ms_per_square = max(1, (mov.arrival_ms - mov.start_ms) // dist)
         step = (t - mov.start_ms) // ms_per_square
         if step >= dist:
@@ -177,10 +170,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                 valid.append(ep.pos)
         return valid
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     def _build_proxy(
         self,
         board: BoardInterface,
@@ -189,10 +178,6 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         exclude_mov: Optional[Movement] = None,
     ) -> BoardInterface:
         return ProxyBoard(board, self._active_movements, t, self.get_position_at, exclude_mov)
-
-    # ------------------------------------------------------------------
-    # Arrival resolution (tick loop)
-    # ------------------------------------------------------------------
 
     def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         """Advance the simulation to *current_ms*, resolving all arrivals and collisions."""
@@ -203,43 +188,45 @@ class RealTimeArbiter(RealTimeArbiterInterface):
 
         state.en_passant_targets = [ep for ep in state.en_passant_targets if ep.expires_ms > current_ms]
 
-        sorted_times = self._collect_event_times(active, active_cooldowns, current_ms)
-
         t_prev: Optional[int] = None
-        for t in sorted_times:
-            self._expire_cooldowns_at(state, t)
-
-            current_active = [mov for mov in self._active_movements if mov.start_ms <= t]
-            if not current_active:
-                t_prev = t
-                continue
-
-            positions = self._positions_at(current_active, t)
-            reset_halfmove = self._collision_resolver.resolve(
-                board, state, self._active_movements, current_active, positions, t, t_prev
-            )
-
-            arrivals_reset, arrivals_increment = self._arrival_resolver.resolve_arrivals(
-                board, state, self._active_movements, t, self
-            )
-            reset_halfmove = reset_halfmove or arrivals_reset
-
-            self._arrival_resolver.cancel_blocked_ongoing_movements(
-                board, state, self._active_movements, t, self
-            )
-
-            if reset_halfmove:
-                state.halfmove_clock = 0
-            elif arrivals_increment:
-                state.halfmove_clock += 1
-
+        for t in self._collect_event_times(active, active_cooldowns, current_ms):
+            self._resolve_at(board, state, t, t_prev)
             t_prev = t
 
         self._expire_cooldowns_le(state, current_ms)
 
-    # ------------------------------------------------------------------
-    # resolve_movements — per-tick phases
-    # ------------------------------------------------------------------
+    def _resolve_at(self, board: BoardInterface, state: GameState, t: int, t_prev: Optional[int]) -> None:
+        """Resolve collisions, arrivals, and blocked movements at the single instant *t*.
+
+        *t_prev* is the previously resolved instant, which collision detection
+        needs to spot pieces that swapped squares between the two.
+        """
+        self._expire_cooldowns_at(state, t)
+
+        current_active = [mov for mov in self._active_movements if mov.start_ms <= t]
+        if not current_active:
+            return
+
+        positions = self._positions_at(current_active, t)
+        reset_halfmove = self._collision_resolver.resolve(
+            board, state, self._active_movements, current_active, positions, t, t_prev
+        )
+        arrivals_reset, arrivals_increment = self._arrival_resolver.resolve_arrivals(
+            board, state, self._active_movements, t, self
+        )
+        self._arrival_resolver.cancel_blocked_ongoing_movements(
+            board, state, self._active_movements, t, self
+        )
+        self._update_halfmove_clock(
+            state, reset_halfmove or arrivals_reset, arrivals_increment
+        )
+
+    def _update_halfmove_clock(self, state: GameState, reset: bool, increment: bool) -> None:
+        """Apply this instant's outcome to the fifty-move-rule counter."""
+        if reset:
+            state.halfmove_clock = 0
+        elif increment:
+            state.halfmove_clock += 1
 
     def _collect_event_times(self, active: List[Movement], active_cooldowns: List[Cooldown], current_ms: int) -> list:
         """Collect all discrete event times (movement start/step/arrival, cooldown end) up to current_ms."""

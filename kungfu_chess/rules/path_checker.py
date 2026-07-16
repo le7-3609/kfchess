@@ -86,19 +86,41 @@ class PathChecker(PathCheckerInterface):
         occupant = board.get_piece(to)
         if occupant is not None and occupant.color == moving_piece.color:
             return False
-
         if moving_piece.piece_type == "P":
-            col_diff = abs(to.col - frm.col)
-            if col_diff == 0:
-                if occupant is not None:
-                    return False
-            elif col_diff == 1:
-                if occupant is None:
-                    if en_passant_targets is not None and to in en_passant_targets:
-                        player_config = self._config.get_player(moving_piece.color)
-                        return player_config is not None and (to.row - frm.row) == player_config.forward_direction
-                    return False
-            else:
-                return False
-
+            return self._pawn_can_land(moving_piece, frm, to, occupant, en_passant_targets)
         return True
+
+    def _pawn_can_land(
+        self,
+        pawn: PieceInterface,
+        frm: Position,
+        to: Position,
+        occupant: Optional[PieceInterface],
+        en_passant_targets: Optional[List[Position]],
+    ) -> bool:
+        """Return True if *pawn* may land on *to*, given whatever *occupant* is there.
+
+        A pawn captures only sideways and advances only into an empty square,
+        which is the reverse of how every other piece moves.
+        """
+        col_diff = abs(to.col - frm.col)
+        if col_diff == 0:
+            return occupant is None
+        if col_diff != 1:
+            return False
+        if occupant is not None:
+            return True
+        return self._is_en_passant_landing(pawn, frm, to, en_passant_targets)
+
+    def _is_en_passant_landing(
+        self,
+        pawn: PieceInterface,
+        frm: Position,
+        to: Position,
+        en_passant_targets: Optional[List[Position]],
+    ) -> bool:
+        """Return True if *pawn*'s diagonal step onto an empty *to* is a valid en passant."""
+        if en_passant_targets is None or to not in en_passant_targets:
+            return False
+        player_config = self._config.get_player(pawn.color)
+        return player_config is not None and (to.row - frm.row) == player_config.forward_direction

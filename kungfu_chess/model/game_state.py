@@ -14,10 +14,6 @@ from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
 
 
-# ---------------------------------------------------------------------------
-# Result monad
-# ---------------------------------------------------------------------------
-
 T = TypeVar('T')
 E = TypeVar('E')
 
@@ -51,10 +47,6 @@ class Result(Generic[T, E]):
         return cls(is_ok=False, error=error)
 
 
-# ---------------------------------------------------------------------------
-# Movement, Cooldown, EnPassantTarget
-# ---------------------------------------------------------------------------
-
 @dataclass
 class Movement:
     """A piece in transit between two squares."""
@@ -79,10 +71,6 @@ class EnPassantTarget:
     capture_pos: Position  # the square holding the capturable pawn
     expires_ms: int
 
-
-# ---------------------------------------------------------------------------
-# GameState
-# ---------------------------------------------------------------------------
 
 @dataclass
 class GameState:

@@ -6,7 +6,7 @@ Must not own: movement rules, direct Board mutation, or duplicated game logic.
 
 import sys
 from io import StringIO
-from typing import Optional, Tuple
+from typing import Tuple
 
 from kungfu_chess.texttests.script_parser import ScriptParser, KfcScript
 

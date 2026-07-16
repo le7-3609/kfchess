@@ -12,10 +12,6 @@ from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import PieceInterface
 
 
-# ---------------------------------------------------------------------------
-# Board interface
-# ---------------------------------------------------------------------------
-
 class BoardInterface(ABC):
     """Abstract interface for a game board.
 
@@ -64,10 +60,6 @@ class BoardInterface(ABC):
         or None if *to* was empty. Raises EmptyCellError if *frm* has no piece.
         """
 
-
-# ---------------------------------------------------------------------------
-# Concrete implementation
-# ---------------------------------------------------------------------------
 
 class ArrayBoard(BoardInterface):
     """2-D list implementation of the board."""

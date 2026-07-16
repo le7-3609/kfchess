@@ -143,24 +143,58 @@ class ReplayDirector:
         return list(self._moves)
 
     def snapshot_at(self, clock_ms: int) -> GameSnapshot:
-        """Build the render DTO for the board as it stood at *clock_ms*."""
-        clock_ms = max(0, min(self.duration_ms, clock_ms))
-        pieces = dict(self._initial)
-        landed: Dict[Position, ReplayMove] = {}
-        in_flight: List[ReplayMove] = []
+        """Build the render DTO for the board as it stood at *clock_ms*.
 
-        for move in self._moves:  # arrival-ordered, so applying in sequence is correct
-            if move.arrival_ms <= clock_ms:
-                self._apply(pieces, landed, move)
-            elif move.start_ms <= clock_ms:
-                in_flight.append(move)
+        Clamps *clock_ms* into the replay's range, so seeking past either end
+        yields the first or last frame rather than an empty board.
+        """
+        clock_ms = max(0, min(self.duration_ms, clock_ms))
+        pieces, landed, in_flight = self._replay_up_to(clock_ms)
 
         flying_from = {move.frm: move for move in in_flight}
         piece_snapshots = {
             pos: self._piece_snapshot(pos, piece, clock_ms, flying_from.get(pos), landed.get(pos))
             for pos, piece in pieces.items()
         }
-        movements = tuple(
+
+        finished = clock_ms >= self.duration_ms
+        return GameSnapshot(
+            rows=self._config.board_rows,
+            cols=self._config.board_cols,
+            pieces=piece_snapshots,
+            selected_pos=None,
+            legal_move_targets=(),
+            castle_targets=(),
+            active_movements=self._build_movements(in_flight, piece_snapshots),
+            cooldown_positions=self._cooldown_positions(landed, clock_ms),
+            clock_ms=clock_ms,
+            # A save taken mid-game has no winner; only a finished game earns the banner.
+            game_over=finished and self._saved.winner is not None,
+            game_over_reason=None,
+            winner=self._saved.winner,
+        )
+
+    def _replay_up_to(self, clock_ms: int):
+        """Replay the log onto the opening setup, stopping at *clock_ms*.
+
+        Returns (pieces by square, most recent arrival per square, moves still
+        in flight). The log is arrival-ordered, so applying it in sequence
+        reconstructs the board correctly without sorting.
+        """
+        pieces = dict(self._initial)
+        landed: Dict[Position, ReplayMove] = {}
+        in_flight: List[ReplayMove] = []
+
+        for move in self._moves:
+            if move.arrival_ms <= clock_ms:
+                self._apply(pieces, landed, move)
+            elif move.start_ms <= clock_ms:
+                in_flight.append(move)
+        return pieces, landed, in_flight
+
+    def _build_movements(self, in_flight: List[ReplayMove], piece_snapshots: dict) -> tuple:
+        """Wrap each in-flight move as a MovementSnapshot the Renderer can interpolate."""
+        return tuple(
             MovementSnapshot(
                 frm=move.frm,
                 to=move.to,
@@ -172,23 +206,11 @@ class ReplayDirector:
             if move.frm in piece_snapshots
         )
 
-        finished = clock_ms >= self.duration_ms
-        return GameSnapshot(
-            rows=self._config.board_rows,
-            cols=self._config.board_cols,
-            pieces=piece_snapshots,
-            selected_pos=None,
-            legal_move_targets=(),
-            castle_targets=(),
-            active_movements=movements,
-            cooldown_positions=tuple(
-                pos for pos, move in landed.items() if clock_ms - move.arrival_ms < self._cooldown_ms
-            ),
-            clock_ms=clock_ms,
-            # A save taken mid-game has no winner; only a finished game earns the banner.
-            game_over=finished and self._saved.winner is not None,
-            game_over_reason=None,
-            winner=self._saved.winner,
+    def _cooldown_positions(self, landed: Dict[Position, ReplayMove], clock_ms: int) -> tuple:
+        """Return the squares whose last arrival is still within the cooldown window."""
+        return tuple(
+            pos for pos, move in landed.items()
+            if clock_ms - move.arrival_ms < self._cooldown_ms
         )
 
     def moves_until(self, clock_ms: int) -> List[MoveLogEntry]:
@@ -209,7 +231,7 @@ class ReplayDirector:
         pieces.pop(move.frm, None)
         landed.pop(move.frm, None)
         self._apply_en_passant(pieces, landed, move, mover)
-        pieces.pop(move.to, None)  # captured occupant, if any
+        pieces.pop(move.to, None)
         landed.pop(move.to, None)
         # Taking the type from the log rather than the mover is what replays a
         # promotion: the pawn is logged arriving as the piece it promoted into.
@@ -308,6 +330,12 @@ class TkReplayWindow:
         self.window.title(f"Replay: {saved.save_name}")
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        self._build_canvas(board_size)
+        self._build_controls(saved)
+        self._start_playback()
+
+    def _build_canvas(self, board_size: int) -> None:
+        """Create the canvas, its image view, and the resize binding."""
         self.canvas_width = SIDE_PANEL_WIDTH * 2 + board_size
         self.canvas_height = TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
@@ -320,10 +348,13 @@ class TkReplayWindow:
         self.view = TkImageView(self.canvas, canvas_image_id)
         self.renderer.resize(board_size, board_size)
 
-        self._build_controls(saved)
+    def _start_playback(self) -> None:
+        """Draw the first frame, then start the replay clock and tick loop.
+
+        The clock starts only once that frame is up: building the window and
+        priming the render caches must not count as replay time.
+        """
         self._refresh()
-        # Only start the clock once the first frame is up: building the window
-        # and priming the render caches must not count as replay time.
         self._last_tick = time.monotonic()
         self._schedule_tick()
 
@@ -360,8 +391,6 @@ class TkReplayWindow:
         opened from the game window, its mainloop already drives this one."""
         self.window.wait_window()
 
-    # -- controls -----------------------------------------------------------
-
     def _toggle_play(self) -> None:
         # Replaying from the end would otherwise sit frozen on the last frame.
         if not self._playing and self.clock_ms >= self.director.duration_ms:
@@ -396,8 +425,6 @@ class TkReplayWindow:
         self.renderer.resize(self.board_size, self.board_size)
         self._refresh()
 
-    # -- tick loop ----------------------------------------------------------
-
     def _schedule_tick(self) -> None:
         if not self._closed:
             self.window.after(TICK_MS, self._tick)
@@ -421,8 +448,6 @@ class TkReplayWindow:
                 self._play_button.config(text="Play")
             self._refresh()
         self._schedule_tick()
-
-    # -- rendering ----------------------------------------------------------
 
     def _refresh(self) -> None:
         snapshot = self.director.snapshot_at(self.clock_ms)

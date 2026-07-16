@@ -17,6 +17,7 @@ class BoardTheme:
 
 
 BOARD_THEMES: list[BoardTheme] = [
+    BoardTheme("original", "Original", (255, 255, 255, 255), (0, 0, 0, 255)),
     BoardTheme("classic", "Classic", (240, 217, 181, 255), (181, 136, 99, 255)),
     BoardTheme("green", "Green", (238, 238, 210, 255), (118, 150, 86, 255)),
     BoardTheme("blue", "Blue", (234, 240, 246, 255), (75, 115, 153, 255)),

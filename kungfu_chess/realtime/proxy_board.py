@@ -34,31 +34,35 @@ class ProxyBoard(BoardInterface):
         self._cols = board.cols
         self._exclude_mov = exclude_mov
         self._exclude_piece = exclude_mov.piece if exclude_mov is not None else None
+        self._overrides: dict = {}
 
+        included = [mov for mov in active_movements if mov != exclude_mov]
+        self._index_moving_pieces(included, t, get_position_fn)
+        self._index_resting_pieces(board)
+
+    def _index_moving_pieces(self, movements: List[Movement], t: int, get_position_fn) -> None:
+        """Record where each in-flight piece sits at *t*, by square and by piece identity."""
         self._moving_at_pos = {}
         self._moving_piece_ids: set = set()
-        for mov in active_movements:
-            if mov == exclude_mov:
-                continue
+        self._positions_by_piece_id: dict = {}
+        for mov in movements:
             pos_at_t = get_position_fn(mov, t)
             self._moving_at_pos[pos_at_t] = mov.piece
             self._moving_piece_ids.add(id(mov.piece))
+            self._positions_by_piece_id[id(mov.piece)] = pos_at_t
 
-        self._overrides: dict = {}
+    def _index_resting_pieces(self, board: BoardInterface) -> None:
+        """Add every stationary piece to the piece-identity position index.
 
-        # Reverse lookup (piece identity -> position), maintained incrementally
-        # by every mutator below so find_position is O(1) instead of scanning
-        # all rows*cols squares - callers like ThreatValidator/EndgameValidator
-        # call find_position() once per candidate move per enemy piece per
-        # tick, so an O(board) scan there is the dominant per-tick cost.
-        self._positions_by_piece_id: dict = {}
-        for mov in active_movements:
-            if mov == exclude_mov:
-                continue
-            self._positions_by_piece_id[id(mov.piece)] = self._moving_at_pos_reverse(mov, t, get_position_fn)
-        for r in range(self._rows):
-            for c in range(self._cols):
-                pos = Position(r, c)
+        This reverse lookup is maintained incrementally by every mutator below
+        so find_position is O(1) rather than scanning all rows*cols squares —
+        ThreatValidator/EndgameValidator call find_position() once per candidate
+        move per enemy piece per tick, so an O(board) scan there would dominate
+        the per-tick cost.
+        """
+        for row in range(self._rows):
+            for col in range(self._cols):
+                pos = Position(row, col)
                 piece = board.get_piece(pos)
                 if piece is None:
                     continue
@@ -67,10 +71,6 @@ class ProxyBoard(BoardInterface):
                 if id(piece) in self._moving_piece_ids:
                     continue
                 self._positions_by_piece_id[id(piece)] = pos
-
-    @staticmethod
-    def _moving_at_pos_reverse(mov, t, get_position_fn) -> Position:
-        return get_position_fn(mov, t)
 
     @property
     def rows(self) -> int:

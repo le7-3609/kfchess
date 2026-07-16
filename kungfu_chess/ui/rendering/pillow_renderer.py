@@ -22,6 +22,7 @@ SELECTION_COLOR = (220, 30, 30, 255)
 LEGAL_MOVE_CAPTURE_COLOR = (20, 255, 47, 160)
 LEGAL_MOVE_EMPTY_COLOR = (255, 246, 79, 160)
 CASTLE_TARGET_COLOR = (240, 200, 40, 160)
+JUMP_SHADOW_COLOR = (0, 0, 0, 90)
 GAME_OVER_OVERLAY_COLOR = (0, 0, 0, 160)
 GAME_OVER_TEXT_COLOR = (255, 255, 255, 255)
 
@@ -100,8 +101,6 @@ class PillowRenderer(RendererInterface):
         assert self._image is not None, "draw() must be called before get_image()"
         return self._image
 
-    # -- RendererInterface ----------------------------------------------
-
     def draw(self, snapshot: GameSnapshot) -> None:
         if self.geometry is None or self.geometry.rows != snapshot.rows or self.geometry.cols != snapshot.cols:
             self.geometry = BoardGeometry(snapshot.rows, snapshot.cols)
@@ -118,8 +117,6 @@ class PillowRenderer(RendererInterface):
             self._draw_game_over(img, snapshot)
 
         self._image = img
-
-    # -- drawing steps ----------------------------------------------------
 
     def _background(self, snapshot: GameSnapshot) -> Img:
         """Return a fresh copy of the blank-board+checkerboard base image.
@@ -171,48 +168,68 @@ class PillowRenderer(RendererInterface):
             img.fill_rect(rect.x, rect.y, rect.width, rect.height, CASTLE_TARGET_COLOR)
 
     def _draw_piece(self, img: Img, pos: Position, piece: PieceSnapshot, snapshot: GameSnapshot) -> None:
-        movement = self._movement_for(pos, snapshot)
-
+        """Draw *piece* onto *img*, sliding it along its path if it is mid-move."""
         cell_w = self.geometry.get_cell_width()
         cell_h = self.geometry.get_cell_height()
-
-        if movement is not None:
-            col, row = self._interpolated_cell(movement, snapshot.clock_ms)
-        else:
-            col, row = pos.col, pos.row
+        col, row = self._current_cell(pos, snapshot)
 
         x = self.geometry.origin_x + col * cell_w
         y = self.geometry.origin_y + row * cell_h
-
         size = round(min(cell_w, cell_h) * 0.85)
-        center_x = x + cell_w / 2
-        center_y = y + cell_h / 2
 
-        draw_x = center_x - size / 2
-        draw_y = center_y - size / 2
+        lift = self._draw_state_effects(img, piece, x, y, cell_w, cell_h)
+        draw_x = x + (cell_w - size) / 2
+        draw_y = y + (cell_h - size) / 2 - lift
 
+        self._blit_sprite(img, piece, size, draw_x, draw_y)
+
+    def _current_cell(self, pos: Position, snapshot: GameSnapshot):
+        """Return the (col, row) to draw at: interpolated while in flight, else *pos*."""
+        movement = self._movement_for(pos, snapshot)
+        if movement is None:
+            return pos.col, pos.row
+        return self._interpolated_cell(movement, snapshot.clock_ms)
+
+    def _draw_state_effects(
+        self, img: Img, piece: PieceSnapshot, x: float, y: float, cell_w: float, cell_h: float
+    ) -> float:
+        """Draw the overlay for *piece*'s visual state and return its vertical lift.
+
+        Only a jumping piece leaves the ground, so every other state lifts by 0.
+        """
         if piece.state == PieceVisualState.JUMP:
-            t = min(1.0, max(0.0, piece.state_elapsed_millis / piece.state_duration_millis)) \
-                if piece.state_duration_millis else 0.0
-            shadow_w = cell_w * 0.7
-            shadow_h = cell_h * 0.18
-            shadow_x = center_x - shadow_w / 2
-            shadow_y = y + cell_h * 0.82 - shadow_h / 2
-            img.fill_ellipse(round(shadow_x), round(shadow_y), round(shadow_w), round(shadow_h), (0, 0, 0, 90))
+            return self._draw_jump(img, piece, x, y, cell_w, cell_h)
+        if piece.state == PieceVisualState.SHORT_REST and piece.state_duration_millis > 0:
+            self._draw_rest_square(img, x, y, cell_w, cell_h, 1.0 - self._state_progress(piece))
+        return 0.0
 
-            bounce_height = cell_h * 0.4
-            draw_y -= bounce_height * math.sin(math.pi * t)
+    def _draw_jump(
+        self, img: Img, piece: PieceSnapshot, x: float, y: float, cell_w: float, cell_h: float
+    ) -> float:
+        """Draw the ground shadow of a jumping piece and return how far it has risen."""
+        shadow_w = cell_w * 0.7
+        shadow_h = cell_h * 0.18
+        shadow_x = x + (cell_w - shadow_w) / 2
+        shadow_y = y + cell_h * 0.82 - shadow_h / 2
+        img.fill_ellipse(
+            round(shadow_x), round(shadow_y), round(shadow_w), round(shadow_h), JUMP_SHADOW_COLOR
+        )
+        # A half sine peaks mid-jump and returns to 0 on landing.
+        return cell_h * 0.4 * math.sin(math.pi * self._state_progress(piece))
 
-        elif piece.state == PieceVisualState.SHORT_REST and piece.state_duration_millis > 0:
-            remaining_fraction = 1.0 - min(1.0, max(0.0, piece.state_elapsed_millis / piece.state_duration_millis))
-            self._draw_rest_square(img, x, y, cell_w, cell_h, remaining_fraction)
+    def _state_progress(self, piece: PieceSnapshot) -> float:
+        """How far *piece* is through its current visual state, clamped to 0.0-1.0."""
+        if not piece.state_duration_millis:
+            return 0.0
+        return min(1.0, max(0.0, piece.state_elapsed_millis / piece.state_duration_millis))
 
+    def _blit_sprite(self, img: Img, piece: PieceSnapshot, size: int, draw_x: float, draw_y: float) -> None:
+        """Composite *piece*'s current sprite frame onto *img*, if one is available."""
         frame = self.sprites.sized_frame_for(
             piece.piece_type, piece.color, piece.state, piece.state_elapsed_millis, size
         )
         if frame is not None:
-            sprite_img = Img().from_pil(frame)
-            sprite_img.draw_on(img, round(draw_x), round(draw_y))
+            Img().from_pil(frame).draw_on(img, round(draw_x), round(draw_y))
 
     def _movement_for(self, pos: Position, snapshot: GameSnapshot):
         for movement in snapshot.active_movements:

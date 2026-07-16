@@ -30,10 +30,6 @@ from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface, TextPiece
 
 
-# ---------------------------------------------------------------------------
-# MoveValidator interface
-# ---------------------------------------------------------------------------
-
 class MoveValidatorInterface(ABC):
     """Computes the legal destination squares for one piece type."""
 
@@ -53,10 +49,6 @@ class MoveValidatorInterface(ABC):
         *board* or *piece*.
         """
 
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
 
 def _step_destinations(
     board: BoardInterface, piece: PieceInterface, offsets: Iterable[Tuple[int, int]]
@@ -96,10 +88,6 @@ def _sliding_destinations(
             pos = Position(pos.row + dr, pos.col + dc)
     return destinations
 
-
-# ---------------------------------------------------------------------------
-# Concrete piece validators
-# ---------------------------------------------------------------------------
 
 class KingMoveValidator(MoveValidatorInterface):
     """King may move exactly one square in any direction."""
@@ -201,10 +189,6 @@ class PawnMoveValidator(MoveValidatorInterface):
         return destinations
 
 
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
-
 class MoveValidatorFactoryInterface(ABC):
     """Creates (or retrieves) the correct MoveValidatorInterface for a piece."""
 
@@ -225,10 +209,6 @@ class MoveValidatorFactory(MoveValidatorFactoryInterface):
             raise MissingValidatorError(piece_type)
         return validator
 
-
-# ---------------------------------------------------------------------------
-# Promotion
-# ---------------------------------------------------------------------------
 
 class PromotionStrategyInterface(ABC):
     """Abstract interface for piece promotion rules."""

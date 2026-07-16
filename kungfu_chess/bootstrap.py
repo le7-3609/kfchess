@@ -55,61 +55,82 @@ class CoreComponents:
     move_event_publisher: MoveEventPublisher
 
 
-def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> CoreComponents:
-    """Wire the common repo/parser/validator/printer/publisher/validators/engine stack.
-    
-    Shared by build_service() and build_realtime_service(); they differ only in
-    duration_strategy and in build_realtime_service()'s extra replay wiring.
-    Also used directly by callers (e.g. bot_factory) that need a bot wired
-    against the same component instances as the resulting GameService.
-    """
-    board_repo = _InMemoryBoardRepo()
-    state_repo = _InMemoryStateRepo()
-    parser = BoardParser()
-    validator = BoardValidator(require_kings=require_kings)
-    printer = BoardPrinter()
-    publisher = MoveEventPublisher()
-
-    move_validators = {
+def _build_move_validator_factory(config: GameConfig) -> MoveValidatorFactory:
+    """Assemble the per-piece-type move validators into a lookup factory."""
+    return MoveValidatorFactory(validators={
         "K": KingMoveValidator(),
         "Q": QueenMoveValidator(),
         "R": RookMoveValidator(),
         "B": BishopMoveValidator(),
         "N": KnightMoveValidator(),
         "P": PawnMoveValidator(config=config),
-    }
-    move_validator_factory = MoveValidatorFactory(validators=move_validators)
-    path_checker = PathChecker(move_validator_factory, config)
-    promotion_strategy = StandardPawnPromotion()
-    game_play_state_factory = GamePlayStateFactory()
-    board_mapper = BoardMapper(config.cell_size_px)
+    })
 
-    arbiter = RealTimeArbiter(
+
+def _build_arbiter(
+    config: GameConfig,
+    duration_strategy,
+    path_checker: PathChecker,
+    publisher: MoveEventPublisher,
+) -> RealTimeArbiter:
+    """Build the arbiter that moves pieces over time under *duration_strategy*."""
+    return RealTimeArbiter(
         duration_strategy=duration_strategy,
         path_checker=path_checker,
         config=config,
-        promotion_strategy=promotion_strategy,
+        promotion_strategy=StandardPawnPromotion(),
         move_event_publisher=publisher,
     )
 
-    engine = GameEngine(GameEngineDependencies(
+
+def _build_engine(
+    config: GameConfig,
+    board_repo: _InMemoryBoardRepo,
+    state_repo: _InMemoryStateRepo,
+    move_validator_factory: MoveValidatorFactory,
+    path_checker: PathChecker,
+    arbiter: RealTimeArbiter,
+    publisher: MoveEventPublisher,
+) -> GameEngine:
+    """Build the GameEngine over the already-constructed rule collaborators."""
+    return GameEngine(GameEngineDependencies(
         board_repo=board_repo,
         state_repo=state_repo,
-        printer=printer,
+        printer=BoardPrinter(),
         move_validator_factory=move_validator_factory,
         move_event_publisher=publisher,
         path_checker=path_checker,
         config=config,
         arbiter=arbiter,
-        game_play_state_factory=game_play_state_factory,
-        board_mapper=board_mapper,
+        game_play_state_factory=GamePlayStateFactory(),
+        board_mapper=BoardMapper(config.cell_size_px),
     ))
+
+
+def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> CoreComponents:
+    """Wire the repo/parser/validator/publisher/arbiter/engine stack shared by every service.
+
+    Takes the game *config*, whether boards must contain both kings, and the
+    *duration_strategy* deciding how long moves take. Returns the constructed
+    components so callers can build a GameService — or, like bot_factory, wire
+    extra collaborators against these same instances.
+    """
+    board_repo = _InMemoryBoardRepo()
+    state_repo = _InMemoryStateRepo()
+    publisher = MoveEventPublisher()
+
+    move_validator_factory = _build_move_validator_factory(config)
+    path_checker = PathChecker(move_validator_factory, config)
+    arbiter = _build_arbiter(config, duration_strategy, path_checker, publisher)
+    engine = _build_engine(
+        config, board_repo, state_repo, move_validator_factory, path_checker, arbiter, publisher
+    )
 
     return CoreComponents(
         board_repo=board_repo,
         state_repo=state_repo,
-        parser=parser,
-        validator=validator,
+        parser=BoardParser(),
+        validator=BoardValidator(require_kings=require_kings),
         move_validator_factory=move_validator_factory,
         path_checker=path_checker,
         arbiter=arbiter,
@@ -119,6 +140,11 @@ def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> Co
 
 
 def build_service(config: GameConfig = None, require_kings: bool = True) -> GameService:
+    """Construct a GameService whose pieces move instantly, for tests and scripted runs.
+
+    Defaults *config* to a standard GameConfig. See build_realtime_service()
+    for pieces that travel over time.
+    """
     if config is None:
         config = GameConfig()
 
@@ -133,6 +159,20 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
         config=config,
         arbiter=core.arbiter,
     )
+
+
+def _decorate_with_replay(engine: GameEngine, replay_file: str = None) -> GameEngine:
+    """Wrap *engine* so commands are recorded to *replay_file*, or return it unchanged."""
+    if not replay_file:
+        return engine
+    return ReplayEngineDecorator(engine, ReplayWriter(replay_file))
+
+
+def _build_subscribed_moves_log(core: CoreComponents) -> MovesLog:
+    """Build a MovesLog stamped from the live clock and subscribe it to move events."""
+    moves_log = MovesLog(clock_ms=lambda: core.state_repo.get_state().clock_ms)
+    core.move_event_publisher.subscribe(moves_log)
+    return moves_log
 
 
 def build_realtime_service(
@@ -161,14 +201,8 @@ def build_realtime_service(
     config.ms_per_square = ms_per_square
 
     core = build_core(config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square))
-
-    engine = core.engine
-    if replay_file:
-        writer = ReplayWriter(replay_file)
-        engine = ReplayEngineDecorator(engine, writer)
-
-    moves_log = MovesLog(clock_ms=lambda: core.state_repo.get_state().clock_ms)
-    core.move_event_publisher.subscribe(moves_log)
+    engine = _decorate_with_replay(core.engine, replay_file)
+    moves_log = _build_subscribed_moves_log(core)
 
     return GameService(
         board_repo=core.board_repo,
@@ -184,9 +218,12 @@ def build_realtime_service(
 
 
 def bootstrap() -> None:
-    """Entry point: read from stdin and run the game engine with real-time movement."""
-    # To enable replay in a normal run, pass replay_file to build_realtime_service.
-    # To enable a bot, use bot_factory.build_bot_service() instead.
+    """Entry point: read commands from stdin and run them with real-time movement.
+
+    Prints "ERROR <reason>" if the input is rejected. To record a replay, pass
+    replay_file to build_realtime_service(); to play against a bot, use
+    bot_factory.build_bot_service() instead.
+    """
     service = build_realtime_service()
     input_lines = sys.stdin.readlines()
     result = service.execute(input_lines)
