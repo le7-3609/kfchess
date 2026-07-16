@@ -65,8 +65,6 @@ class GameService:
         if arbiter is not None:
             self._snapshot_builder = SnapshotBuilder(engine=engine, arbiter=arbiter, config=self._config)
 
-    # -- combined parse+execute (text-test / stdin entry point) -------------
-
     def execute(self, input_lines: List[str]) -> Result:
         raw_board, commands = self._parser.parse(input_lines)
         if not raw_board:
@@ -81,8 +79,6 @@ class GameService:
             self._trigger_bot_reaction_if_active()
 
         return Result.ok(None)
-
-    # -- commands -----------------------------------------------------------
 
     def init_game(self, board_lines: List[str]) -> Result:
         """Parse *board_lines*, validate them, and install the starting board.
@@ -122,8 +118,6 @@ class GameService:
             self._arbiter.update_preferences(ms_per_square, cooldown_ms)
         return Result.ok(None)
 
-    # -- queries ------------------------------------------------------------
-
     def get_snapshot(self) -> Optional[GameSnapshot]:
         """Build the read-only render DTO for the current board/state.
 
@@ -148,8 +142,6 @@ class GameService:
     @property
     def cell_size_px(self) -> int:
         return self._config.cell_size_px
-
-    # -- history ------------------------------------------------------------
 
     def save_history(
         self,
@@ -182,8 +174,6 @@ class GameService:
     def load_saved_game(self, file_name: str) -> SavedGame:
         self._require_history()
         return self._history_store.load(file_name)
-
-    # -- internals ----------------------------------------------------------
 
     def _build_and_store_board(self, raw_board) -> Result:
         validation = self._validator.validate_and_build(raw_board)

@@ -55,91 +55,97 @@ class TkGameWindow:
         self.black_name = black_name
         self.info_panel = InfoPanel(self.white_name, self.black_name)
         self._game_over_prompted = False
-
         self.assets_dir = assets_dir
         self.settings_store = settings_store or UserSettingsStore()
 
         self.root = tk.Tk()
         self.root.title(title)
 
+        self._build_settings_vars()
+        self._build_menu()
+        self._build_canvas(board_size)
+        self._start_tick_loop()
+
+    def _build_settings_vars(self) -> None:
+        """Load saved user settings into the tk variables the menus bind to."""
         self._settings = self.settings_store.load()
         self._piece_theme_var = tk.StringVar(master=self.root, value=self._settings.piece_theme)
         self._board_theme_var = tk.StringVar(master=self.root, value=self._settings.board_theme)
         self._speed_var = tk.IntVar(master=self.root, value=self._settings.speed_level_ms)
         self._cooldown_var = tk.IntVar(master=self.root, value=self._settings.cooldown_level_ms)
 
-        self._build_menu()
-
+    def _build_canvas(self, board_size: int) -> None:
+        """Create the canvas, its image view, and the click/resize bindings."""
         self.canvas_width = SIDE_PANEL_WIDTH * 2 + board_size
         self.canvas_height = TOP_HEIGHT + board_size
-        self.canvas = tk.Canvas(self.root, width=self.canvas_width, height=self.canvas_height, highlightthickness=0)
+        self.canvas = tk.Canvas(
+            self.root, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
+        )
         self.canvas.pack(fill=tk.BOTH, expand=True)
-
-        self.canvas.bind("<Configure>", self._on_resize)
 
         canvas_image_id = self.canvas.create_image(0, 0, anchor="nw")
         self.view = TkImageView(self.canvas, canvas_image_id)
-
         self.renderer.resize(board_size, board_size)
 
+        self.canvas.bind("<Configure>", self._on_resize)
         self.canvas.bind("<Button-1>", self._on_left_click)
         self.canvas.bind("<Button-3>", self._on_right_click)
 
+    def _start_tick_loop(self) -> None:
+        """Draw the first frame and begin the render loop."""
         self._last_tick = time.monotonic()
         self._refresh()
         self._schedule_tick()
 
     def _build_menu(self) -> None:
+        """Build the Game and Settings menu bar."""
         menu_bar = tk.Menu(self.root)
+
         game_menu = tk.Menu(menu_bar, tearoff=0)
         game_menu.add_command(label="Save History...", command=self._save_history)
         game_menu.add_command(label="Load History...", command=self._load_history)
         menu_bar.add_cascade(label="Game", menu=game_menu)
 
         settings_menu = tk.Menu(menu_bar, tearoff=0)
-        theme_menu = tk.Menu(settings_menu, tearoff=0)
-        for theme in PIECE_THEMES:
-            theme_menu.add_radiobutton(
-                label=theme.display_name,
-                value=theme.theme_id,
-                variable=self._piece_theme_var,
-                command=lambda t=theme.theme_id: self._on_piece_theme_selected(t),
-            )
-        settings_menu.add_cascade(label="Piece Theme", menu=theme_menu)
-
-        board_theme_menu = tk.Menu(settings_menu, tearoff=0)
-        for theme in BOARD_THEMES:
-            board_theme_menu.add_radiobutton(
-                label=theme.display_name,
-                value=theme.theme_id,
-                variable=self._board_theme_var,
-                command=lambda t=theme.theme_id: self._on_board_theme_selected(t),
-            )
-        settings_menu.add_cascade(label="Board Theme", menu=board_theme_menu)
-
-        speed_menu = tk.Menu(settings_menu, tearoff=0)
-        for label, ms_per_square in SPEED_PRESETS_MS.items():
-            speed_menu.add_radiobutton(
-                label=label,
-                value=ms_per_square,
-                variable=self._speed_var,
-                command=lambda ms=ms_per_square: self._on_speed_selected(ms),
-            )
-        settings_menu.add_cascade(label="Movement Speed", menu=speed_menu)
-
-        cooldown_menu = tk.Menu(settings_menu, tearoff=0)
-        for label, cooldown_ms in COOLDOWN_PRESETS_MS.items():
-            cooldown_menu.add_radiobutton(
-                label=label,
-                value=cooldown_ms,
-                variable=self._cooldown_var,
-                command=lambda ms=cooldown_ms: self._on_cooldown_selected(ms),
-            )
-        settings_menu.add_cascade(label="Cooldown Time", menu=cooldown_menu)
-
+        self._add_radio_submenu(
+            settings_menu, "Piece Theme",
+            [(theme.display_name, theme.theme_id) for theme in PIECE_THEMES],
+            self._piece_theme_var, self._on_piece_theme_selected,
+        )
+        self._add_radio_submenu(
+            settings_menu, "Board Theme",
+            [(theme.display_name, theme.theme_id) for theme in BOARD_THEMES],
+            self._board_theme_var, self._on_board_theme_selected,
+        )
+        self._add_radio_submenu(
+            settings_menu, "Movement Speed",
+            list(SPEED_PRESETS_MS.items()), self._speed_var, self._on_speed_selected,
+        )
+        self._add_radio_submenu(
+            settings_menu, "Cooldown Time",
+            list(COOLDOWN_PRESETS_MS.items()), self._cooldown_var, self._on_cooldown_selected,
+        )
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
 
         self.root.config(menu=menu_bar)
+
+    def _add_radio_submenu(self, parent: tk.Menu, label: str, options, variable, on_select) -> None:
+        """Attach a submenu of radio options to *parent*.
+
+        Each entry of *options* is a (display label, value) pair; selecting one
+        sets *variable* and calls *on_select* with that value.
+        """
+        submenu = tk.Menu(parent, tearoff=0)
+        for option_label, value in options:
+            submenu.add_radiobutton(
+                label=option_label,
+                value=value,
+                variable=variable,
+                # Bound as a default so each entry keeps its own value rather
+                # than closing over the loop variable.
+                command=lambda selected=value: on_select(selected),
+            )
+        parent.add_cascade(label=label, menu=submenu)
 
     def _save_history(self) -> None:
         prompt_and_save(self.root, self.service, self.white_name, self.black_name, None)
@@ -186,8 +192,6 @@ class TkGameWindow:
     def run(self) -> None:
         self.root.mainloop()
 
-    # -- input ------------------------------------------------------------
-
     def _canvas_to_cell(self, event_x: int, event_y: int) -> Optional[tuple[int, int]]:
         board_x_offset = SIDE_PANEL_WIDTH + (self.canvas_width - SIDE_PANEL_WIDTH * 2 - self.board_size) // 2
         board_y_offset = TOP_HEIGHT + (self.canvas_height - TOP_HEIGHT - self.board_size) // 2
@@ -225,8 +229,6 @@ class TkGameWindow:
             self.renderer.resize(self.board_size, self.board_size)
             self._refresh()
 
-    # -- tick loop ----------------------------------------------------------
-
     def _schedule_tick(self) -> None:
         self.root.after(TICK_MS, self._tick)
 
@@ -238,8 +240,6 @@ class TkGameWindow:
         self.service.advance_clock(elapsed_ms)
         self._refresh()
         self._schedule_tick()
-
-    # -- rendering ----------------------------------------------------------
 
     def _refresh(self) -> None:
         snapshot = self.service.get_snapshot()

@@ -42,8 +42,6 @@ class Img:
     def __init__(self):
         self._img: Image.Image | None = None
 
-    # -- construction -----------------------------------------------------
-
     def blank(self, width: int, height: int, color: tuple[int, int, int, int] = (0, 0, 0, 0)) -> "Img":
         self._img = Image.new("RGBA", (width, height), color)
         return self
@@ -79,8 +77,6 @@ class Img:
         self._img = img
         return self
 
-    # -- compositing --------------------------------------------------------
-
     def draw_on(self, other: "Img", x: int, y: int) -> None:
         if self._img is None or other._img is None:
             raise ValueError("Both images must be loaded.")
@@ -115,8 +111,6 @@ class Img:
         self._draw_unbounded(
             color, lambda draw: draw.text((x, y), text, fill=color, font=font, anchor=anchor)
         )
-
-    # -- drawing internals --------------------------------------------------
 
     def _draw_shape(self, x: int, y: int, w: int, h: int, color: tuple, paint) -> None:
         """Paint a w-by-h shape at (x, y), blending it if *color* is translucent.
@@ -156,8 +150,6 @@ class Img:
         self._require_loaded()
         self._img = self._img.resize((w, h), Image.BILINEAR)
         return self
-
-    # -- output -------------------------------------------------------------
 
     def show(self) -> None:
         self._require_loaded()

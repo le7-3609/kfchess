@@ -45,6 +45,12 @@ class ClickCommandProcessor:
         self._resolve_pending = resolve_pending
 
     def handle_click(self, state: GameState, board: BoardInterface, target: Position) -> None:
+        """Apply a click on *target* to the selection state machine.
+
+        With nothing selected this selects the clicked piece; with a piece
+        already selected it jumps, castles, reselects, or starts a move
+        depending on what was clicked. Saves the resulting state.
+        """
         target_piece = board.get_piece(target)
 
         if state.selected_pos is None:
@@ -105,29 +111,49 @@ class ClickCommandProcessor:
         target: Position,
         selected_piece: PieceInterface
     ) -> None:
-        if not selected_piece.can_move():
+        """Start *selected_piece* moving to *target*, if the move is available and legal."""
+        if not self._is_ready_to_move(selected_piece):
             return
-        if self._arbiter.has_active_motion(selected_piece):
-            return
-
         origin = state.selected_pos
+        if not self._is_move_legal(state, board, origin, target, selected_piece):
+            return
+        self._start_motion(state, origin, target, selected_piece)
+
+    def _is_ready_to_move(self, piece: PieceInterface) -> bool:
+        """True if *piece* is off cooldown and not already in flight."""
+        return piece.can_move() and not self._arbiter.has_active_motion(piece)
+
+    def _is_move_legal(
+        self,
+        state: GameState,
+        board: BoardInterface,
+        origin: Position,
+        target: Position,
+        selected_piece: PieceInterface,
+    ) -> bool:
+        """True if the move obeys the piece's rules and does not expose its own king.
+
+        Checked against the effective board, so pieces currently in transit are
+        seen where they actually are rather than where they started.
+        """
         eff_board = self._arbiter.get_effective_board(board, state, state.clock_ms)
-        en_passant_targets = self._arbiter.get_valid_en_passant_positions(board, state, selected_piece.color, state.clock_ms)
+        en_passant_targets = self._arbiter.get_valid_en_passant_positions(
+            board, state, selected_piece.color, state.clock_ms
+        )
+        if not self._rule_engine.validate_move(eff_board, origin, target, en_passant_targets).is_valid:
+            return False
+        return self._threat_validator.is_move_safe_from_check(eff_board, origin, target, selected_piece)
 
-        validation = self._rule_engine.validate_move(eff_board, origin, target, en_passant_targets)
-        if not validation.is_valid:
-            return
-
-        if not self._threat_validator.is_move_safe_from_check(eff_board, origin, target, selected_piece):
-            return
-
-        arrival_ms = self._arbiter.calculate_arrival(origin, target, selected_piece, state.clock_ms)
+    def _start_motion(
+        self, state: GameState, origin: Position, target: Position, selected_piece: PieceInterface
+    ) -> None:
+        """Register the motion with the arbiter and clear the selection."""
         mov = Movement(
             frm=origin,
             to=target,
             piece=selected_piece,
             start_ms=state.clock_ms,
-            arrival_ms=arrival_ms,
+            arrival_ms=self._arbiter.calculate_arrival(origin, target, selected_piece, state.clock_ms),
         )
         self._arbiter.register_motion(mov)
         selected_piece.transition_to_moving()

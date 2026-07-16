@@ -34,6 +34,8 @@ class SavedGame:
 
 
 class GameHistoryStore:
+    """Reads and writes saved games as JSON files in a directory."""
+
     def __init__(self, directory: str = _DEFAULT_DIR):
         self._directory = directory
 
@@ -47,14 +49,35 @@ class GameHistoryStore:
         speed_ms: int = consts.DEFAULT_MS_PER_SQUARE,
         cooldown_ms: int = consts.DEFAULT_COOLDOWN_DURATION_MS,
     ) -> str:
+        """Write *moves_log* and its game metadata to a new JSON file.
+
+        The file is named from *save_name* plus a timestamp. Returns the path
+        it was written to.
+        """
         os.makedirs(self._directory, exist_ok=True)
-
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        safe_name = _sanitize(save_name)
-        file_name = f"{safe_name}_{timestamp}.json"
-        file_path = os.path.join(self._directory, file_name)
+        file_path = os.path.join(self._directory, f"{_sanitize(save_name)}_{timestamp}.json")
 
-        payload = {
+        payload = self._build_payload(
+            save_name, white_name, black_name, winner, moves_log, timestamp, speed_ms, cooldown_ms
+        )
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return file_path
+
+    def _build_payload(
+        self,
+        save_name: str,
+        white_name: str,
+        black_name: str,
+        winner: Optional[str],
+        moves_log: MovesLog,
+        timestamp: str,
+        speed_ms: int,
+        cooldown_ms: int,
+    ) -> dict:
+        """Assemble the on-disk JSON shape for a saved game."""
+        return {
             "saveName": save_name,
             "whiteName": white_name,
             "blackName": black_name,
@@ -67,11 +90,6 @@ class GameHistoryStore:
                 for entry in moves_log.entries()
             ],
         }
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-
-        return file_path
 
     def list_saves(self) -> List[str]:
         """Names of every saved game file, newest first."""

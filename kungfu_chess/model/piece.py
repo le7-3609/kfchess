@@ -7,12 +7,7 @@ Must not own: pixels, clicks, rendering, script parsing, movement rules, or timi
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from kungfu_chess.model.position import Position
 
-
-# ---------------------------------------------------------------------------
-# Piece-state interfaces (State Pattern)
-# ---------------------------------------------------------------------------
 
 class PieceStateInterface(ABC):
     """Abstract interface representing the lifecycle state of a chess piece."""
@@ -25,10 +20,6 @@ class PieceStateInterface(ABC):
     def can_move(self) -> bool:
         """Return True if the piece can start a move in this state."""
 
-
-# ---------------------------------------------------------------------------
-# Concrete piece states
-# ---------------------------------------------------------------------------
 
 class IdleState(PieceStateInterface):
     """The piece is static on the board — fully available."""
@@ -69,10 +60,6 @@ class CooldownState(PieceStateInterface):
     def can_move(self) -> bool:
         return False
 
-
-# ---------------------------------------------------------------------------
-# Piece interface
-# ---------------------------------------------------------------------------
 
 class PieceInterface(ABC):
     """Abstract interface for a game piece.
@@ -120,10 +107,6 @@ class PieceInterface(ABC):
     def can_move(self) -> bool:
         """Query if the piece can start a movement in its current state."""
 
-
-# ---------------------------------------------------------------------------
-# Concrete piece implementation — text-based
-# ---------------------------------------------------------------------------
 
 class TextPiece(PieceInterface):
     """Text-based implementation of a chess piece."""
@@ -177,10 +160,6 @@ class TextPiece(PieceInterface):
             return False
         return self.color == other.color and self.piece_type == other.piece_type
 
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 class PieceFactory:
     """Factory to create TextPiece instances from string tokens like 'wK'."""

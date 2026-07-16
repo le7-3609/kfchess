@@ -31,10 +31,6 @@ class ArrivalResolver:
         self._promotion_strategy = promotion_strategy
         self._move_event_publisher = move_event_publisher
 
-    # ------------------------------------------------------------------
-    # Arrival resolution
-    # ------------------------------------------------------------------
-
     def resolve_arrivals(
         self,
         board: BoardInterface,
@@ -74,10 +70,7 @@ class ArrivalResolver:
 
     def _resolve_jump_landing(self, state: GameState, mov: Movement, t: int) -> bool:
         """Successful jump-in-place landing. Returns whether to reset the halfmove clock."""
-        mov.piece.transition_to_cooldown()
-        state.active_cooldowns.append(
-            Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)
-        )
+        self._enter_cooldown(state, mov.piece, t)
         return mov.piece.piece_type == "P"
 
     def _find_airborne_enemy_capturing(self, movements: List[Movement], mov: Movement, t: int) -> Optional[Movement]:
@@ -116,25 +109,8 @@ class ArrivalResolver:
         movements: List[Movement],
         arbiter: RealTimeArbiterInterface,
     ) -> Tuple[bool, bool]:
-        eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
-        path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-        ep_targets = arbiter.get_valid_en_passant_positions(board, state, mov.piece.color, t)
-        can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
-
-        if not (path_clear and can_land):
-            # Aborted: path blocked or landing invalid.
-            if frm_still_mine:
-                stuck_pos = arbiter.get_stuck_position(mov, t)
-                if stuck_pos != mov.frm:
-                    board.set_piece(mov.frm, None)
-                    board.set_piece(stuck_pos, mov.piece)
-                mov.piece.transition_to_cooldown()
-                state.active_cooldowns.append(
-                    Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)
-                )
-            else:
-                # Origin taken — piece is eliminated.
-                mov.piece.transition_to_idle()
+        if not self._can_complete(board, state, mov, t, arbiter):
+            self._abort_movement(board, state, mov, t, frm_still_mine, arbiter)
             return False, False
 
         is_capture = self._apply_capture_at_destination(board, state, mov, t, arriving, movements)
@@ -148,6 +124,66 @@ class ArrivalResolver:
 
         return self._finalize_arrival_cooldown_and_event(board, state, mov, t, is_capture, is_ep)
 
+    def _can_complete(
+        self, board: BoardInterface, state: GameState, mov: Movement, t: int, arbiter: RealTimeArbiterInterface
+    ) -> bool:
+        """True if *mov*'s path is still clear and its destination still landable at *t*.
+
+        Evaluated against the board as it stands excluding *mov* itself, since a
+        piece must not be treated as blocking its own path.
+        """
+        eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
+        if not self._path_checker.is_path_clear(eff_board, mov.frm, mov.to):
+            return False
+        ep_targets = arbiter.get_valid_en_passant_positions(board, state, mov.piece.color, t)
+        return self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
+
+    def _abort_movement(
+        self,
+        board: BoardInterface,
+        state: GameState,
+        mov: Movement,
+        t: int,
+        frm_still_mine: bool,
+        arbiter: RealTimeArbiterInterface,
+    ) -> None:
+        """Abandon *mov*, parking its piece where it had actually reached by *t*.
+
+        When *frm_still_mine* is false the origin square has already been taken
+        by someone else, meaning this piece was captured mid-flight and has no
+        square to return to — it simply leaves play.
+        """
+        if not frm_still_mine:
+            mov.piece.transition_to_idle()
+            return
+
+        stuck_pos = arbiter.get_stuck_position(mov, t)
+        if stuck_pos != mov.frm:
+            board.set_piece(mov.frm, None)
+            board.set_piece(stuck_pos, mov.piece)
+        self._enter_cooldown(state, mov.piece, t)
+
+    def _enter_cooldown(self, state: GameState, piece, t: int) -> None:
+        """Put *piece* into cooldown for the configured duration starting at *t*."""
+        piece.transition_to_cooldown()
+        state.active_cooldowns.append(
+            Cooldown(piece=piece, end_ms=t + self._config.cooldown_duration_ms)
+        )
+
+    def _remove_piece_from_play(
+        self, state: GameState, piece, arriving: List[Movement], movements: List[Movement]
+    ) -> None:
+        """Drop every pending movement and cooldown belonging to a captured *piece*."""
+        piece.transition_to_idle()
+        for mov in list(movements):
+            if mov.piece == piece:
+                if mov in arriving:
+                    arriving.remove(mov)
+                movements.remove(mov)
+        for cooldown in list(state.active_cooldowns):
+            if cooldown.piece == piece:
+                state.active_cooldowns.remove(cooldown)
+
     def _apply_capture_at_destination(
         self,
         board: BoardInterface,
@@ -158,30 +194,23 @@ class ArrivalResolver:
         movements: List[Movement],
     ) -> bool:
         target_piece = board.get_piece(mov.to)
-        is_capture = False
-        if target_piece is not None:
-            is_in_flight_future = any(
-                am.piece == target_piece and am.arrival_ms > t
-                for am in movements
-            )
-            if not is_in_flight_future:
-                is_capture = (target_piece.color != mov.piece.color)
-                if state.selected_pos == mov.to:
-                    state.selected_pos = None
-                if target_piece.piece_type in self._config.king_pieces:
-                    state.game_over = True
-                    state.game_over_reason = "king_captured"
-                    state.winner = mov.piece.color
-                target_piece.transition_to_idle()
-                for am in list(movements):
-                    if am.piece == target_piece:
-                        if am in arriving:
-                            arriving.remove(am)
-                        movements.remove(am)
-                for cd in list(state.active_cooldowns):
-                    if cd.piece == target_piece:
-                        state.active_cooldowns.remove(cd)
-        return is_capture
+        if target_piece is None:
+            return False
+
+        # A piece still in flight has left this square already; it is only
+        # listed here because the board records its origin until it lands.
+        is_leaving = any(am.piece == target_piece and am.arrival_ms > t for am in movements)
+        if is_leaving:
+            return False
+
+        if state.selected_pos == mov.to:
+            state.selected_pos = None
+        if target_piece.piece_type in self._config.king_pieces:
+            state.game_over = True
+            state.game_over_reason = "king_captured"
+            state.winner = mov.piece.color
+        self._remove_piece_from_play(state, target_piece, arriving, movements)
+        return target_piece.color != mov.piece.color
 
     def _apply_en_passant_capture(
         self,
@@ -191,26 +220,19 @@ class ArrivalResolver:
         arriving: List[Movement],
         movements: List[Movement],
     ) -> bool:
-        is_ep = False
-        if mov.piece.piece_type == "P":
-            for ep in list(state.en_passant_targets):
-                if ep.pos == mov.to:
-                    captured_piece = board.get_piece(ep.capture_pos)
-                    if captured_piece:
-                        captured_piece.transition_to_idle()
-                        for am in list(movements):
-                            if am.piece == captured_piece:
-                                if am in arriving:
-                                    arriving.remove(am)
-                                movements.remove(am)
-                        for cd in list(state.active_cooldowns):
-                            if cd.piece == captured_piece:
-                                state.active_cooldowns.remove(cd)
-                    board.set_piece(ep.capture_pos, None)
-                    state.en_passant_targets.remove(ep)
-                    is_ep = True
-                    break
-        return is_ep
+        if mov.piece.piece_type != "P":
+            return False
+
+        for ep in list(state.en_passant_targets):
+            if ep.pos != mov.to:
+                continue
+            captured_piece = board.get_piece(ep.capture_pos)
+            if captured_piece:
+                self._remove_piece_from_play(state, captured_piece, arriving, movements)
+            board.set_piece(ep.capture_pos, None)
+            state.en_passant_targets.remove(ep)
+            return True
+        return False
 
     def _maybe_create_en_passant_target(self, state: GameState, mov: Movement, t: int) -> None:
         if mov.piece.piece_type == "P":
@@ -236,10 +258,7 @@ class ArrivalResolver:
                 mov.piece = promoted
                 board.set_piece(mov.to, promoted)
 
-        mov.piece.transition_to_cooldown()
-        state.active_cooldowns.append(
-            Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)
-        )
+        self._enter_cooldown(state, mov.piece, t)
         if self._move_event_publisher:
             self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
 
@@ -250,10 +269,6 @@ class ArrivalResolver:
         elif mov.frm != mov.to:
             increment_halfmove = True
         return reset_halfmove, increment_halfmove
-
-    # ------------------------------------------------------------------
-    # Ongoing-movement re-validation
-    # ------------------------------------------------------------------
 
     def cancel_blocked_ongoing_movements(
         self,
@@ -268,27 +283,12 @@ class ArrivalResolver:
         for mov in ongoing:
             if self._is_castling_partner_ongoing(mov, ongoing):
                 continue
+            if self._can_complete(board, state, mov, t, arbiter):
+                continue
 
             frm_still_mine = (board.get_piece(mov.frm) is mov.piece)
-            eff_board = arbiter.get_effective_board(board, state, t, exclude_mov=mov)
-            path_clear = self._path_checker.is_path_clear(eff_board, mov.frm, mov.to)
-            ep_targets = arbiter.get_valid_en_passant_positions(board, state, mov.piece.color, t)
-            can_land = self._path_checker.can_land(eff_board, mov.piece, mov.frm, mov.to, ep_targets)
-
-            if not path_clear or not can_land:
-                if frm_still_mine:
-                    stuck_pos = arbiter.get_stuck_position(mov, t)
-                    if stuck_pos != mov.frm:
-                        board.set_piece(mov.frm, None)
-                        board.set_piece(stuck_pos, mov.piece)
-                    mov.piece.transition_to_cooldown()
-                    state.active_cooldowns.append(
-                        Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)
-                    )
-                else:
-                    mov.piece.transition_to_idle()
-
-                movements.remove(mov)
+            self._abort_movement(board, state, mov, t, frm_still_mine, arbiter)
+            movements.remove(mov)
 
     def _is_castling_partner_ongoing(self, mov: Movement, ongoing: List[Movement]) -> bool:
         """True if *mov* is one leg of a King+Rook castle whose other leg is still in flight.

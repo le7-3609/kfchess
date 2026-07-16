@@ -8,7 +8,6 @@ through the full model path.
 Must not own: chess legality, clicks, rendering, or script parsing.
 """
 
-# Re-export for convenience within the realtime layer.
 from kungfu_chess.model.game_state import (  # noqa: F401
     Movement as Motion,
     Movement,
