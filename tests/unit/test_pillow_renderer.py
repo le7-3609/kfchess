@@ -1,10 +1,10 @@
 import unittest
-from kungfu_chess.model.position import Position
-from kungfu_chess.view.pillow_renderer import (
+from kungfu_chess.gui.pillow_renderer import (
     PillowRenderer,
     LEGAL_MOVE_CAPTURE_COLOR,
     LEGAL_MOVE_EMPTY_COLOR,
 )
+from kungfu_chess.model.position import Position
 from kungfu_chess.view.game_snapshot import GameSnapshot, PieceSnapshot
 from kungfu_chess.view.piece_visual_state import PieceVisualState
 
