@@ -78,6 +78,26 @@ class EndgameValidator:
                 moves.extend(self._piece_legal_moves(eff_board, pos, piece, en_passant_targets))
         return moves
 
+    def get_legal_moves_for_position(
+        self, board: BoardInterface, state: GameState, source: Position
+    ) -> List[Position]:
+        """Return every legal destination for the single piece at *source*.
+
+        Unlike get_legal_moves, this does not enumerate every other friendly
+        piece on the board - used by the view layer to highlight one
+        selected piece's moves without paying for the whole side's move list
+        on every render tick.
+        """
+        eff_board = self._movement_manager.get_effective_board(board, state, state.clock_ms)
+        piece = eff_board.get_piece(source)
+        if piece is None or not piece.can_move():
+            return []
+        en_passant_targets = self._movement_manager.get_valid_en_passant_positions(
+            board, state, piece.color, state.clock_ms
+        )
+        pairs = self._piece_legal_moves(eff_board, source, piece, en_passant_targets)
+        return [to for (_frm, to) in pairs]
+
     def _has_any_legal_move(self, board: BoardInterface, state: GameState, color: str) -> bool:
         return bool(self.get_legal_moves(board, state, color))
 

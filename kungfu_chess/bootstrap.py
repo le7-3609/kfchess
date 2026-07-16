@@ -28,6 +28,8 @@ from kungfu_chess.engine.game_engine import (
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_printer import BoardPrinter
 from kungfu_chess.io.board_validator import BoardValidator
+from kungfu_chess.io.game_history_store import GameHistoryStore
+from kungfu_chess.io.moves_log import MovesLog
 from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
 from kungfu_chess.input.board_mapper import BoardMapper
 from kungfu_chess.repos import _InMemoryBoardRepo, _InMemoryStateRepo
@@ -55,7 +57,7 @@ class CoreComponents:
 
 def build_core(config: GameConfig, require_kings: bool, duration_strategy) -> CoreComponents:
     """Wire the common repo/parser/validator/printer/publisher/validators/engine stack.
-
+    
     Shared by build_service() and build_realtime_service(); they differ only in
     duration_strategy and in build_realtime_service()'s extra replay wiring.
     Also used directly by callers (e.g. bot_factory) that need a bot wired
@@ -129,6 +131,7 @@ def build_service(config: GameConfig = None, require_kings: bool = True) -> Game
         validator=core.validator,
         engine=core.engine,
         config=config,
+        arbiter=core.arbiter,
     )
 
 
@@ -153,6 +156,9 @@ def build_realtime_service(
         config = GameConfig()
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
+    # Mirror the caller's override back onto the config so config.ms_per_square
+    # always names the speed the duration strategy is actually running at.
+    config.ms_per_square = ms_per_square
 
     core = build_core(config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square))
 
@@ -161,6 +167,9 @@ def build_realtime_service(
         writer = ReplayWriter(replay_file)
         engine = ReplayEngineDecorator(engine, writer)
 
+    moves_log = MovesLog(clock_ms=lambda: core.state_repo.get_state().clock_ms)
+    core.move_event_publisher.subscribe(moves_log)
+
     return GameService(
         board_repo=core.board_repo,
         state_repo=core.state_repo,
@@ -168,6 +177,9 @@ def build_realtime_service(
         validator=core.validator,
         engine=engine,
         config=config,
+        arbiter=core.arbiter,
+        moves_log=moves_log,
+        history_store=GameHistoryStore(),
     )
 
 

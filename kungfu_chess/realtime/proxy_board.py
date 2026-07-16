@@ -46,6 +46,32 @@ class ProxyBoard(BoardInterface):
 
         self._overrides: dict = {}
 
+        # Reverse lookup (piece identity -> position), maintained incrementally
+        # by every mutator below so find_position is O(1) instead of scanning
+        # all rows*cols squares - callers like ThreatValidator/EndgameValidator
+        # call find_position() once per candidate move per enemy piece per
+        # tick, so an O(board) scan there is the dominant per-tick cost.
+        self._positions_by_piece_id: dict = {}
+        for mov in active_movements:
+            if mov == exclude_mov:
+                continue
+            self._positions_by_piece_id[id(mov.piece)] = self._moving_at_pos_reverse(mov, t, get_position_fn)
+        for r in range(self._rows):
+            for c in range(self._cols):
+                pos = Position(r, c)
+                piece = board.get_piece(pos)
+                if piece is None:
+                    continue
+                if self._exclude_piece is not None and piece is self._exclude_piece:
+                    continue
+                if id(piece) in self._moving_piece_ids:
+                    continue
+                self._positions_by_piece_id[id(piece)] = pos
+
+    @staticmethod
+    def _moving_at_pos_reverse(mov, t, get_position_fn) -> Position:
+        return get_position_fn(mov, t)
+
     @property
     def rows(self) -> int:
         return self._rows
@@ -74,30 +100,33 @@ class ProxyBoard(BoardInterface):
         return None
 
     def find_position(self, piece: PieceInterface) -> Optional[Position]:
-        for r in range(self._rows):
-            for c in range(self._cols):
-                pos = Position(r, c)
-                if self.get_piece(pos) is piece:
-                    return pos
-        return None
+        return self._positions_by_piece_id.get(id(piece))
+
+    def _set_override(self, pos: Position, piece: Optional[PieceInterface]) -> None:
+        previous = self.get_piece(pos)
+        if previous is not None and self._positions_by_piece_id.get(id(previous)) == pos:
+            del self._positions_by_piece_id[id(previous)]
+        self._overrides[pos] = piece
+        if piece is not None:
+            self._positions_by_piece_id[id(piece)] = pos
 
     def set_piece(self, pos: Position, piece: Optional[PieceInterface]) -> None:
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)
-        self._overrides[pos] = piece
+        self._set_override(pos, piece)
 
     def add_piece(self, pos: Position, piece: PieceInterface) -> None:
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)
         if self.get_piece(pos) is not None:
             raise OccupiedCellError(pos)
-        self._overrides[pos] = piece
+        self._set_override(pos, piece)
 
     def remove_piece(self, pos: Position) -> Optional[PieceInterface]:
         if not self.is_valid_position(pos):
             raise InvalidPositionError(pos)
         piece = self.get_piece(pos)
-        self._overrides[pos] = None
+        self._set_override(pos, None)
         return piece
 
     def move_piece(self, frm: Position, to: Position) -> Optional[PieceInterface]:
@@ -107,6 +136,6 @@ class ProxyBoard(BoardInterface):
         if piece is None:
             raise EmptyCellError(frm)
         captured = self.get_piece(to)
-        self._overrides[to] = piece
-        self._overrides[frm] = None
+        self._set_override(to, piece)
+        self._set_override(frm, None)
         return captured

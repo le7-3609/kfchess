@@ -188,6 +188,7 @@ class GameEngine:
             resolve_pending=self._resolve_pending,
         )
         self._jump_commands = JumpCommandProcessor(config=config, state_repo=state_repo, arbiter=self._arbiter)
+        self._last_checked_signature = None
         self._click_commands = ClickCommandProcessor(
             rule_engine=self._rule_engine,
             threat_validator=self._threat_validator,
@@ -197,6 +198,10 @@ class GameEngine:
             state_repo=state_repo,
             resolve_pending=self._resolve_pending,
         )
+
+    # ------------------------------------------------------------------
+    # Public command dispatcher
+    # ------------------------------------------------------------------
 
     def request_move(self, source: Position, destination: Position) -> None:
         """Attempt a move from *source* to *destination*.
@@ -220,20 +225,17 @@ class GameEngine:
     def legal_moves_from(self, source: Position) -> List[Position]:
         """Return every legal destination for the piece at *source* right now.
 
-        Read-only view-layer query: reuses EndgameValidator.get_legal_moves
-        (the same self-check-safe legality gate ClickCommandProcessor uses)
-        so a Renderer can highlight legal squares without duplicating any
-        rule logic itself.
+        Read-only view-layer query: reuses EndgameValidator's self-check-safe
+        legality gate (the same one ClickCommandProcessor uses) so a Renderer
+        can highlight legal squares without duplicating any rule logic
+        itself. Queries only the selected piece rather than every friendly
+        piece on the board, since this runs on every render tick.
         """
         board = self._board_repo.get_board()
         if board is None:
             return []
         state = self._state_repo.get_state()
-        piece = board.get_piece(source)
-        if piece is None:
-            return []
-        pairs = self._endgame_validator.get_legal_moves(board, state, piece.color)
-        return [to for (frm, to) in pairs if frm == source]
+        return self._endgame_validator.get_legal_moves_for_position(board, state, source)
 
     def castle_rook_targets_from(self, king_pos: Position) -> List[Position]:
         """Return friendly rook squares *king_pos* may legally castle with right now."""
@@ -282,14 +284,30 @@ class GameEngine:
 
         if parts[0] == "click" and len(parts) == 3:
             self._handle_click(int(parts[1]), int(parts[2]))
+        elif parts[0] == "right_click" and len(parts) == 3:
+            self._handle_right_click(int(parts[1]), int(parts[2]))
         elif parts[0] == "wait" and len(parts) == 2:
             self._handle_wait(int(parts[1]))
         elif command == "print board":
             self._handle_print_board()
         # Unknown commands are silently ignored.
 
+    # ------------------------------------------------------------------
+    # Internal command handlers
+    # ------------------------------------------------------------------
+
     def _resolve_pending(self) -> None:
-        """Resolve all pending motions at the current clock time."""
+        """Resolve all pending motions at the current clock time.
+
+        _check_game_end_conditions re-scans the whole board (checkmate/
+        stalemate call get_legal_moves for every piece of a color, each
+        candidate re-checking king safety) - expensive enough that running
+        it unconditionally on every 16ms render tick, including idle ticks
+        where nothing moved, dominates the tick budget. It only needs to
+        re-run when something that could change its answer actually changed:
+        piece positions (current_serialized) or active-cooldown membership
+        (which piece.can_move()/is_checkmate's cooldown gate depend on).
+        """
         board = self._board_repo.get_board()
         if board is None:
             return
@@ -298,13 +316,20 @@ class GameEngine:
         if not state.position_history:
             state.position_history.append(serialize_board_state(board, state))
 
+        cooldown_ids_before = frozenset(id(c.piece) for c in state.active_cooldowns)
         self._arbiter.resolve_movements(board, state, state.clock_ms)
+        cooldown_ids_after = frozenset(id(c.piece) for c in state.active_cooldowns)
 
         current_serialized = serialize_board_state(board, state)
-        if state.position_history[-1] != current_serialized:
+        board_changed = state.position_history[-1] != current_serialized
+        if board_changed:
             state.position_history.append(current_serialized)
 
-        self._check_game_end_conditions(board, state)
+        signature = (current_serialized, cooldown_ids_after)
+        if board_changed or cooldown_ids_after != cooldown_ids_before or signature != self._last_checked_signature:
+            self._check_game_end_conditions(board, state)
+            self._last_checked_signature = signature
+
         self._board_repo.save_board(board)
         self._state_repo.save_state(state)
 
@@ -351,6 +376,22 @@ class GameEngine:
         state = self._state_repo.get_state()
         play_state = self._game_play_state_factory.get_state(state.game_over)
         play_state.handle_click(self, target)
+
+    def _handle_right_click(self, x: int, y: int) -> None:
+        """Jump the piece under (x, y) in place, regardless of current selection.
+
+        Mirrors request_move(target, target): a same-cell move is the arbiter's
+        jump-in-place. Unlike _handle_click this ignores selection state, so it
+        works as a direct "make this piece hop" command.
+        """
+        self._resolve_pending()
+        board = self._board_repo.get_board()
+        if board is None:
+            return
+        target = self._board_mapper.pixel_to_position(x, y, board)
+        if target is None:
+            return
+        self.request_move(target, target)
 
     def _execute_active_click(self, target: Position) -> None:
         board = self._board_repo.get_board()

@@ -30,6 +30,9 @@ class ChebyshevDistanceDuration(MovementDurationInterface):
     def __init__(self, ms_per_square: int = 1000) -> None:
         self._ms_per_square = ms_per_square
 
+    def set_ms_per_square(self, ms_per_square: int) -> None:
+        self._ms_per_square = ms_per_square
+
     def calculate_duration(self, frm: Position, to: Position, piece: PieceInterface) -> int:
         dist = max(abs(to.row - frm.row), abs(to.col - frm.col))
         return dist * self._ms_per_square

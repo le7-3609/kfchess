@@ -105,6 +105,13 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         duration = self._duration_strategy.calculate_duration(frm, to, piece)
         return start_ms + duration
 
+    def update_preferences(self, ms_per_square: int, cooldown_ms: int) -> None:
+        """Apply new movement-speed / cooldown preferences at runtime."""
+        self._config.cooldown_duration_ms = cooldown_ms
+        self._config.ms_per_square = ms_per_square
+        if hasattr(self._duration_strategy, "set_ms_per_square"):
+            self._duration_strategy.set_ms_per_square(ms_per_square)
+
     def get_position_at(self, mov: Movement, t: int) -> Position:
         """Interpolate the board square occupied by *mov* at time *t*."""
         if t <= mov.start_ms:
