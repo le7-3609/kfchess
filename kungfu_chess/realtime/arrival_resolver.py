@@ -124,6 +124,10 @@ class ArrivalResolver:
         if not (path_clear and can_land):
             # Aborted: path blocked or landing invalid.
             if frm_still_mine:
+                stuck_pos = arbiter.get_stuck_position(mov, t)
+                if stuck_pos != mov.frm:
+                    board.set_piece(mov.frm, None)
+                    board.set_piece(stuck_pos, mov.piece)
                 mov.piece.transition_to_cooldown()
                 state.active_cooldowns.append(
                     Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)
@@ -273,6 +277,10 @@ class ArrivalResolver:
 
             if not path_clear or not can_land:
                 if frm_still_mine:
+                    stuck_pos = arbiter.get_stuck_position(mov, t)
+                    if stuck_pos != mov.frm:
+                        board.set_piece(mov.frm, None)
+                        board.set_piece(stuck_pos, mov.piece)
                     mov.piece.transition_to_cooldown()
                     state.active_cooldowns.append(
                         Cooldown(piece=mov.piece, end_ms=t + self._config.cooldown_duration_ms)

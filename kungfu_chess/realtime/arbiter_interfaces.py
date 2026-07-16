@@ -57,6 +57,10 @@ class RealTimeArbiterInterface(ABC):
         """Return the interpolated board position of *mov* at time *t*."""
 
     @abstractmethod
+    def get_stuck_position(self, mov: Movement, t: int) -> Position:
+        """Return the square *mov* should be parked at if aborted at time *t*."""
+
+    @abstractmethod
     def resolve_movements(self, board: BoardInterface, state: GameState, current_ms: int) -> None:
         """Update *board* with any pieces that have finished transit by *current_ms*."""
 
