@@ -1,11 +1,13 @@
 """Piece model — piece identity and lifecycle state.
 
-Owns: piece identity (color, type), piece lifecycle state (idle/moving/jumping/cooldown).
+Owns: piece identity (unique id, color, type), piece lifecycle state
+(idle/moving/jumping/cooldown).
 Must not own: pixels, clicks, rendering, script parsing, movement rules, or timing.
 """
 
 from abc import ABC, abstractmethod
 from typing import Optional
+from uuid import UUID, uuid4
 
 
 
@@ -66,7 +68,16 @@ class PieceInterface(ABC):
 
     Decouples the data representation from game logic, allowing future
     support for alternative representations (e.g. bitboard pieces).
+
+    Pieces are identified by *piece_id*, never by (color, type): the board
+    holds many interchangeable-looking pieces, but the arbiter, collision
+    resolver and cooldown lists all track one specific piece in flight.
     """
+
+    @property
+    @abstractmethod
+    def piece_id(self) -> UUID:
+        """Returns the identity that distinguishes this piece from its twins."""
 
     @property
     @abstractmethod
@@ -112,10 +123,15 @@ class TextPiece(PieceInterface):
     """Text-based implementation of a chess piece."""
 
     def __init__(self, color: str, piece_type: str, has_moved: bool = False) -> None:
+        self._piece_id = uuid4()
         self._color = color
         self._piece_type = piece_type
         self._state: PieceStateInterface = IdleState()
         self._has_moved = has_moved
+
+    @property
+    def piece_id(self) -> UUID:
+        return self._piece_id
 
     @property
     def color(self) -> str:
@@ -153,12 +169,22 @@ class TextPiece(PieceInterface):
         return f"{self._color}{self._piece_type}"
 
     def __repr__(self) -> str:
-        return f"TextPiece({self._color}, {self._piece_type})"
+        return f"TextPiece({self._color}, {self._piece_type}, {str(self._piece_id)[:8]})"
 
     def __eq__(self, other: object) -> bool:
+        """Compare identity, not appearance.
+
+        Two separately created white rooks are distinct pieces even though
+        they look identical. Value equality here used to make the arbiter
+        report a piece as in-flight because its twin was moving, and made
+        list.remove() drop whichever twin's Movement/Cooldown came first.
+        """
         if not isinstance(other, PieceInterface):
-            return False
-        return self.color == other.color and self.piece_type == other.piece_type
+            return NotImplemented
+        return self.piece_id == other.piece_id
+
+    def __hash__(self) -> int:
+        return hash(self._piece_id)
 
 
 class PieceFactory:
