@@ -10,7 +10,7 @@ advancement (elapsed_millis is handed in, never measured here).
 import os
 import re
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from kungfu_chess.view.piece_visual_state import PieceVisualState
 
@@ -25,8 +25,6 @@ _STATE_NAMES = {
     PieceVisualState.LONG_REST: "long_rest",
 }
 
-# kungfu_chess pieces are plain ("w"/"b", "K"/"Q"/"R"/"B"/"N"/"P") strings;
-# the sprite sheets are organised as <PIECE_LETTER><COLOR_LETTER>, e.g. "KW".
 _PIECE_TYPES = ("K", "Q", "R", "B", "N", "P")
 _COLORS = ("w", "b")
 
@@ -49,7 +47,13 @@ def _folder_name_candidates(piece_type: str, color: str) -> list[str]:
 def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
     """Remap every pixel's luminance into a narrow band so pieces render as strict
     black/white silhouettes regardless of the source sprite sheet's actual palette,
-    preserving the original alpha channel."""
+    preserving the original alpha channel.
+
+    Also composites a thin contrasting outline behind each piece so it is
+    visible against any board-square color:
+    - white pieces  → black/dark shadow
+    - black pieces  → white glow
+    """
     src = src.convert("RGBA")
     range_low = 12 if dark else 205
     range_span = 55
@@ -60,8 +64,21 @@ def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
     remapped = luminance.point(lut)
     alpha = src.getchannel("A")
 
-    out = Image.merge("RGBA", (remapped, remapped, remapped, alpha))
-    return out
+    piece = Image.merge("RGBA", (remapped, remapped, remapped, alpha))
+
+    # --- contrasting outline ------------------------------------------------
+    # Blur the alpha channel to create a soft halo slightly larger than the piece.
+    halo_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=2))
+    # The outline color is the opposite of the piece color.
+    outline_value = 255 if dark else 0          # white halo for dark pieces, black for light
+    outline_layer = Image.new("RGBA", piece.size, (outline_value, outline_value, outline_value, 0))
+    outline_layer.putalpha(halo_alpha)
+    # Composite: halo behind, piece on top.
+    result = Image.new("RGBA", piece.size, (0, 0, 0, 0))
+    result = Image.alpha_composite(result, outline_layer)
+    result = Image.alpha_composite(result, piece)
+    return result
+
 
 
 class SpriteLibrary:
