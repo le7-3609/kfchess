@@ -8,9 +8,17 @@ cooldown. Castling's simultaneous King+Rook arrival is exempted.
 
 from typing import Callable, List, Optional, Tuple
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState, Movement, Cooldown
+from kungfu_chess.events import (
+    ABORT_REASON_FRIENDLY_COLLISION,
+    EventBus,
+    GameEndedEvent,
+    MoveAbortedEvent,
+    PieceCapturedEvent,
+)
 
 
 class CollisionResolver:
@@ -20,9 +28,12 @@ class CollisionResolver:
         self,
         config: 'GameConfig',  # type: ignore[name-defined]
         position_at: Callable[[Movement, int], Position],
+        event_bus: Optional[EventBus] = None,
     ) -> None:
         self._config = config
         self._position_at = position_at
+        # An unsubscribed bus rather than None, so publish sites stay unguarded.
+        self._event_bus = event_bus or EventBus()
 
     def resolve(
         self,
@@ -56,7 +67,7 @@ class CollisionResolver:
             losers.add(id(loser))
 
             if winner.piece.color != loser.piece.color:
-                self._apply_capture(board, state, loser)
+                self._apply_capture(board, state, loser, winner, positions[id(loser)], t)
                 reset_halfmove = True
             else:
                 self._abort_into_cooldown(board, state, loser, positions[id(loser)], t)
@@ -109,7 +120,7 @@ class CollisionResolver:
         return (
             mov1.piece.color == mov2.piece.color
             and mov1.arrival_ms == mov2.arrival_ms
-            and {mov1.piece.piece_type, mov2.piece.piece_type} == {"K", "R"}
+            and {mov1.piece.piece_type, mov2.piece.piece_type} == consts.CASTLING_PIECE_PAIR
         )
 
     def _pick_winner_and_loser(
@@ -152,14 +163,39 @@ class CollisionResolver:
         idx2 = movements.index(mov2)
         return (mov1, mov2) if idx1 < idx2 else (mov2, mov1)
 
-    def _apply_capture(self, board: BoardInterface, state: GameState, loser: Movement) -> None:
-        """Remove the captured piece from the board and end the game if it was a king."""
+    def _apply_capture(
+        self,
+        board: BoardInterface,
+        state: GameState,
+        loser: Movement,
+        winner: Movement,
+        collision_pos: Position,
+        t: int,
+    ) -> None:
+        """Remove the captured piece from the board and end the game if it was a king.
+
+        *collision_pos* is the square the two pieces met on, which is where the
+        capture is visible — not loser.frm, which is only where the board still
+        recorded the loser while it was in transit.
+        """
         board.set_piece(loser.frm, None)
         loser.piece.transition_to_idle()
         self._clear_selection_at(state, loser.frm)
+        self._event_bus.publish(PieceCapturedEvent(
+            at_ms=t,
+            color=loser.piece.color,
+            piece_type=loser.piece.piece_type,
+            pos=collision_pos,
+            captor_color=winner.piece.color,
+            captor_piece_type=winner.piece.piece_type,
+        ))
         if loser.piece.piece_type in self._config.king_pieces:
-            state.game_over = True
-            state.game_over_reason = "king_captured"
+            if state.end_game(consts.GAME_OVER_KING_CAPTURED, winner.piece.color):
+                self._event_bus.publish(GameEndedEvent(
+                    at_ms=t,
+                    reason=consts.GAME_OVER_KING_CAPTURED,
+                    winner=winner.piece.color,
+                ))
 
     def _abort_into_cooldown(
         self, board: BoardInterface, state: GameState, loser: Movement, stuck_pos: Position, t: int
@@ -177,6 +213,14 @@ class CollisionResolver:
             Cooldown(piece=loser.piece, end_ms=t + self._config.cooldown_duration_ms)
         )
         self._clear_selection_at(state, loser.frm)
+        self._event_bus.publish(MoveAbortedEvent(
+            at_ms=t,
+            color=loser.piece.color,
+            piece_type=loser.piece.piece_type,
+            frm=loser.frm,
+            stopped_at=stuck_pos,
+            reason=ABORT_REASON_FRIENDLY_COLLISION,
+        ))
 
     def _clear_selection_at(self, state: GameState, pos: Position) -> None:
         if state.selected_pos == pos:

@@ -8,6 +8,7 @@ violating the rules or board layers.
 import random
 from typing import List
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.rules.rule_engine import EndgameValidator
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface
@@ -52,6 +53,6 @@ class RandomBotInputSource(InputSourceInterface):
         dst_x, dst_y = dst.col * cell_size, dst.row * cell_size
 
         return [
-            f"click {src_x} {src_y}",
-            f"click {dst_x} {dst_y}"
+            f"{consts.COMMAND_CLICK} {src_x} {src_y}",
+            f"{consts.COMMAND_CLICK} {dst_x} {dst_y}",
         ]

@@ -11,6 +11,7 @@ Must not own: board mutation, animation, click interpretation, game-over state.
 
 from typing import List, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
@@ -86,7 +87,7 @@ class PathChecker(PathCheckerInterface):
         occupant = board.get_piece(to)
         if occupant is not None and occupant.color == moving_piece.color:
             return False
-        if moving_piece.piece_type == "P":
+        if moving_piece.piece_type == consts.PIECE_PAWN:
             return self._pawn_can_land(moving_piece, frm, to, occupant, en_passant_targets)
         return True
 
@@ -104,9 +105,9 @@ class PathChecker(PathCheckerInterface):
         which is the reverse of how every other piece moves.
         """
         col_diff = abs(to.col - frm.col)
-        if col_diff == 0:
+        if col_diff == consts.PAWN_FORWARD_COL_DIFF:
             return occupant is None
-        if col_diff != 1:
+        if col_diff != consts.PAWN_DIAGONAL_COL_DIFF:
             return False
         if occupant is not None:
             return True

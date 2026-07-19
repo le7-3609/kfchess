@@ -10,10 +10,12 @@ clicks, rendering, or script parsing.
 
 from typing import List, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
 from kungfu_chess.model.game_state import GameState, Movement, Cooldown
+from kungfu_chess.events import EventBus, MoveStartedEvent
 from kungfu_chess.rules.rule_engine import PathCheckerInterface
 from kungfu_chess.rules.piece_rules import PromotionStrategyInterface
 from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
@@ -51,7 +53,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         path_checker: PathCheckerInterface,
         config: 'GameConfig',  # type: ignore[name-defined]
         promotion_strategy: Optional[PromotionStrategyInterface] = None,
-        move_event_publisher: Optional['MoveEventPublisher'] = None,  # type: ignore[name-defined]
+        event_bus: Optional[EventBus] = None,
         collision_resolver: Optional[CollisionResolver] = None,
         arrival_resolver: Optional[ArrivalResolver] = None,
     ) -> None:
@@ -59,11 +61,13 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         self._path_checker = path_checker
         self._config = config
         self._promotion_strategy = promotion_strategy
-        self._move_event_publisher = move_event_publisher
+        self._event_bus = event_bus or EventBus()
         self._active_movements: List[Movement] = []
 
         if collision_resolver is None:
-            collision_resolver = CollisionResolver(config=config, position_at=self.get_position_at)
+            collision_resolver = CollisionResolver(
+                config=config, position_at=self.get_position_at, event_bus=self._event_bus
+            )
         self._collision_resolver = collision_resolver
 
         if arrival_resolver is None:
@@ -71,12 +75,20 @@ class RealTimeArbiter(RealTimeArbiterInterface):
                 path_checker=path_checker,
                 config=config,
                 promotion_strategy=promotion_strategy,
-                move_event_publisher=move_event_publisher,
+                event_bus=self._event_bus,
             )
         self._arrival_resolver = arrival_resolver
 
     def register_motion(self, mov: Movement) -> None:
         self._active_movements.append(mov)
+        self._event_bus.publish(MoveStartedEvent(
+            at_ms=mov.start_ms,
+            color=mov.piece.color,
+            piece_type=mov.piece.piece_type,
+            frm=mov.frm,
+            to=mov.to,
+            arrival_ms=mov.arrival_ms,
+        ))
 
     def remove_motion(self, mov: Movement) -> None:
         if mov in self._active_movements:
@@ -118,7 +130,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
             return mov.frm
         # Floors to 0 for motions faster than 1ms per square, which would make
         # the step division below divide by zero.
-        ms_per_square = max(1, (mov.arrival_ms - mov.start_ms) // dist)
+        ms_per_square = max(consts.MIN_MS_PER_SQUARE, (mov.arrival_ms - mov.start_ms) // dist)
         step = (t - mov.start_ms) // ms_per_square
         if step >= dist:
             return mov.to
@@ -166,7 +178,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         valid = []
         for ep in state.en_passant_targets:
             p = eff_board.get_piece(ep.capture_pos)
-            if p is not None and p.piece_type == "P" and p.color != color:
+            if p is not None and p.piece_type == consts.PIECE_PAWN and p.color != color:
                 valid.append(ep.pos)
         return valid
 
@@ -235,8 +247,9 @@ class RealTimeArbiter(RealTimeArbiterInterface):
             dist = max(abs(mov.to.row - mov.frm.row), abs(mov.to.col - mov.frm.col))
             event_times.add(mov.start_ms)
             event_times.add(mov.arrival_ms)
-            if dist > 1 and mov.piece.piece_type not in self._config.jumper_pieces:
-                ms_per_sq = max(1, (mov.arrival_ms - mov.start_ms) // dist)
+            has_intermediate_steps = dist > consts.MIN_DISTANCE_WITH_INTERMEDIATE_STEPS
+            if has_intermediate_steps and mov.piece.piece_type not in self._config.jumper_pieces:
+                ms_per_sq = max(consts.MIN_MS_PER_SQUARE, (mov.arrival_ms - mov.start_ms) // dist)
                 for k in range(1, dist):
                     event_times.add(mov.start_ms + k * ms_per_sq)
 

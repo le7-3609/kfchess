@@ -1,11 +1,15 @@
 """Piece model — piece identity and lifecycle state.
 
-Owns: piece identity (color, type), piece lifecycle state (idle/moving/jumping/cooldown).
+Owns: piece identity (unique id, color, type), piece lifecycle state
+(idle/moving/jumping/cooldown).
 Must not own: pixels, clicks, rendering, script parsing, movement rules, or timing.
 """
 
 from abc import ABC, abstractmethod
 from typing import Optional
+from uuid import UUID, uuid4
+
+from kungfu_chess.config import consts
 
 
 
@@ -66,7 +70,16 @@ class PieceInterface(ABC):
 
     Decouples the data representation from game logic, allowing future
     support for alternative representations (e.g. bitboard pieces).
+
+    Pieces are identified by *piece_id*, never by (color, type): the board
+    holds many interchangeable-looking pieces, but the arbiter, collision
+    resolver and cooldown lists all track one specific piece in flight.
     """
+
+    @property
+    @abstractmethod
+    def piece_id(self) -> UUID:
+        """Returns the identity that distinguishes this piece from its twins."""
 
     @property
     @abstractmethod
@@ -112,10 +125,15 @@ class TextPiece(PieceInterface):
     """Text-based implementation of a chess piece."""
 
     def __init__(self, color: str, piece_type: str, has_moved: bool = False) -> None:
+        self._piece_id = uuid4()
         self._color = color
         self._piece_type = piece_type
         self._state: PieceStateInterface = IdleState()
         self._has_moved = has_moved
+
+    @property
+    def piece_id(self) -> UUID:
+        return self._piece_id
 
     @property
     def color(self) -> str:
@@ -153,26 +171,37 @@ class TextPiece(PieceInterface):
         return f"{self._color}{self._piece_type}"
 
     def __repr__(self) -> str:
-        return f"TextPiece({self._color}, {self._piece_type})"
+        return f"TextPiece({self._color}, {self._piece_type}, {str(self._piece_id)[:8]})"
 
     def __eq__(self, other: object) -> bool:
+        """Compare identity, not appearance.
+
+        Two separately created white rooks are distinct pieces even though
+        they look identical. Value equality here used to make the arbiter
+        report a piece as in-flight because its twin was moving, and made
+        list.remove() drop whichever twin's Movement/Cooldown came first.
+        """
         if not isinstance(other, PieceInterface):
-            return False
-        return self.color == other.color and self.piece_type == other.piece_type
+            return NotImplemented
+        return self.piece_id == other.piece_id
+
+    def __hash__(self) -> int:
+        return hash(self._piece_id)
 
 
 class PieceFactory:
     """Factory to create TextPiece instances from string tokens like 'wK'."""
 
-    VALID_COLORS = frozenset(('w', 'b'))
-    VALID_TYPES = frozenset(('K', 'Q', 'R', 'B', 'N', 'P'))
+    VALID_COLORS = frozenset(consts.ALL_COLORS)
+    VALID_TYPES = frozenset(consts.ALL_PIECE_TYPES)
 
     @staticmethod
     def from_string(token: str) -> Optional[PieceInterface]:
         """Return a TextPiece for *token*, or None if the token is invalid."""
-        if len(token) != 2:
+        if len(token) != consts.PIECE_TOKEN_LENGTH:
             return None
-        color_char, piece_char = token[0], token[1]
+        color_char = token[consts.TOKEN_COLOR_INDEX]
+        piece_char = token[consts.TOKEN_PIECE_TYPE_INDEX]
         if color_char not in PieceFactory.VALID_COLORS:
             return None
         if piece_char not in PieceFactory.VALID_TYPES:

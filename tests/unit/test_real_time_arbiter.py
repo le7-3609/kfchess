@@ -1,11 +1,13 @@
 """Unit tests for kungfu_chess.realtime.real_time_arbiter."""
 
 import unittest
+from typing import List
 
+from kungfu_chess.events import Event, EventBus, Observer, PieceCapturedEvent
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import ArrayBoard
 from kungfu_chess.model.piece import TextPiece as Piece
-from kungfu_chess.model.game_state import GameState, Movement
+from kungfu_chess.model.game_state import Cooldown, GameState, Movement
 from kungfu_chess.realtime.real_time_arbiter import (
     RealTimeArbiter,
     ChebyshevDistanceDuration,
@@ -37,13 +39,14 @@ def _make_factory(config: GameConfig) -> MoveValidatorFactory:
     })
 
 
-def _make_arbiter(ms_per_square: int = 1000) -> RealTimeArbiter:
+def _make_arbiter(ms_per_square: int = 1000, event_bus=None) -> RealTimeArbiter:
     config = GameConfig()
     return RealTimeArbiter(
         duration_strategy=ChebyshevDistanceDuration(ms_per_square=ms_per_square),
         path_checker=PathChecker(_make_factory(config), config),
         config=config,
         promotion_strategy=StandardPawnPromotion(),
+        event_bus=event_bus,
     )
 
 
@@ -395,6 +398,125 @@ class TestArbiterCollisions(unittest.TestCase):
 
         self.assertEqual(len(self.state.active_cooldowns), 0)
         self.assertTrue(p.can_move())
+
+
+class _CaptureRecorder(Observer):
+    """Records captures so tests can assert one really was announced."""
+
+    def __init__(self) -> None:
+        self.captures: List[PieceCapturedEvent] = []
+
+    def on_event(self, event: Event) -> None:
+        self.captures.append(event)
+
+
+class TestTwinPieceIdentity(unittest.TestCase):
+    """Twin pieces — same color and type — must never be mistaken for each other.
+
+    Piece equality used to compare only (color, type), so one white rook was
+    indistinguishable from the other. That made the arbiter report a piece as
+    already in flight because its twin was moving, and made list.remove() drop
+    whichever twin's Movement/Cooldown happened to be found first.
+    """
+
+    def setUp(self) -> None:
+        self.recorder = _CaptureRecorder()
+        event_bus = EventBus()
+        event_bus.subscribe(self.recorder, PieceCapturedEvent)
+        self.arbiter = _make_arbiter(ms_per_square=1000, event_bus=event_bus)
+        self.board = ArrayBoard(8, 8)
+        self.state = GameState()
+
+    def _add_movement(self, piece, frm, to, start, arrival):
+        self.board.set_piece(frm, piece)
+        mov = Movement(frm=frm, to=to, piece=piece, start_ms=start, arrival_ms=arrival)
+        self.arbiter.register_motion(mov)
+        piece.transition_to_moving()
+        return mov
+
+    def test_identical_looking_pieces_are_distinct(self) -> None:
+        rook_a = Piece("w", "R")
+        rook_b = Piece("w", "R")
+
+        self.assertNotEqual(rook_a, rook_b)
+        self.assertEqual(rook_a, rook_a)
+
+    def test_twin_of_moving_piece_is_not_reported_as_moving(self) -> None:
+        rook_a = Piece("w", "R")
+        rook_b = Piece("w", "R")
+        self.board.set_piece(Position(7, 0), rook_b)
+        self._add_movement(rook_a, Position(0, 0), Position(0, 3), 0, 3000)
+
+        self.assertTrue(self.arbiter.has_active_motion(rook_a))
+        self.assertFalse(self.arbiter.has_active_motion(rook_b))
+
+    def test_twins_travel_simultaneously(self) -> None:
+        rook_a = Piece("w", "R")
+        rook_b = Piece("w", "R")
+        self._add_movement(rook_a, Position(0, 0), Position(0, 3), 0, 3000)
+        self._add_movement(rook_b, Position(7, 0), Position(7, 3), 0, 3000)
+
+        self.state.clock_ms = 3000
+        self.arbiter.resolve_movements(self.board, self.state, 3000)
+
+        self.assertIs(self.board.get_piece(Position(0, 3)), rook_a)
+        self.assertIs(self.board.get_piece(Position(7, 3)), rook_b)
+        self.assertIsNone(self.board.get_piece(Position(0, 0)))
+        self.assertIsNone(self.board.get_piece(Position(7, 0)))
+        self.assertEqual(len(self.arbiter.movements()), 0)
+
+    def test_capturing_one_twin_keeps_the_other_in_cooldown(self) -> None:
+        """Retiring a captured piece must not retire its twin's cooldown.
+
+        Both cooldowns end at the same instant, so as plain values the two
+        Cooldown records were indistinguishable and both got removed.
+        """
+        rook_a = Piece("w", "R")
+        rook_b = Piece("w", "R")
+        self.board.set_piece(Position(4, 4), rook_a)
+        self.board.set_piece(Position(6, 6), rook_b)
+        for rook in (rook_a, rook_b):
+            rook.transition_to_cooldown()
+            self.state.active_cooldowns.append(Cooldown(piece=rook, end_ms=5000))
+
+        attacker = Piece("b", "R")
+        self._add_movement(attacker, Position(4, 0), Position(4, 4), 0, 2000)
+
+        self.state.clock_ms = 2000
+        self.arbiter.resolve_movements(self.board, self.state, 2000)
+
+        cooldown_pieces = [cooldown.piece for cooldown in self.state.active_cooldowns]
+        self.assertIn(rook_b, cooldown_pieces)
+        self.assertNotIn(rook_a, cooldown_pieces)
+        self.assertFalse(rook_b.can_move())
+
+    def test_capture_is_announced_while_the_victims_twin_is_in_flight(self) -> None:
+        """A stationary piece is properly captured while its twin travels.
+
+        The arrival resolver skips a capture when the victim is itself leaving
+        the square. Judged by (color, type), the victim looked like it was
+        leaving whenever its twin was in flight anywhere on the board, so the
+        captor merely overwrote it on the board — no capture was announced and
+        none of the victim's bookkeeping was retired.
+        """
+        rook_a = Piece("w", "R")
+        rook_b = Piece("w", "R")
+        self.board.set_piece(Position(4, 4), rook_a)
+        twin_motion = self._add_movement(rook_b, Position(7, 0), Position(7, 3), 0, 3000)
+
+        attacker = Piece("b", "R")
+        self._add_movement(attacker, Position(4, 0), Position(4, 4), 0, 2000)
+
+        self.state.clock_ms = 2000
+        self.arbiter.resolve_movements(self.board, self.state, 2000)
+
+        self.assertEqual(len(self.recorder.captures), 1)
+        capture = self.recorder.captures[0]
+        self.assertEqual((capture.color, capture.piece_type), ("w", "R"))
+        self.assertEqual(capture.pos, Position(4, 4))
+        self.assertIs(self.board.get_piece(Position(4, 4)), attacker)
+        self.assertIn(twin_motion, self.arbiter.movements())
+
 
 if __name__ == "__main__":
     unittest.main()

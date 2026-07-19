@@ -34,6 +34,7 @@ Clean Architecture with a strict numbered layering. **Every module's docstring n
 
 | Layer | Package | Role |
 |---|---|---|
+| 1 | [events.py](kungfu_chess/events.py) | `Event` value types, `Observer`, `EventBus` — the pub/sub spine every layer may import |
 | 1–2 | [model/](kungfu_chess/model/), [config/](kungfu_chess/config/) | `Position`, `ArrayBoard`, `TextPiece`, `GameState`, `Movement`, `Cooldown`, `Result`; `GameConfig` timing constants |
 | 2–3 | [rules/](kungfu_chess/rules/) | pure legality/math: per-piece validators, `PathChecker`, `ThreatValidator`, `EndgameValidator`, `CastlingValidator` |
 | 4 | [realtime/](kungfu_chess/realtime/) | `RealTimeArbiter` tick loop + `CollisionResolver`, `ArrivalResolver`, `ProxyBoard`, duration strategies |
@@ -46,7 +47,7 @@ The core is a pure simulation engine with no UI or network dependency. Keep it t
 
 ### The two boundaries that matter
 
-**[service.py](kungfu_chess/service.py) — `GameService` is the only public entry point.** The Tk window, script runner, and bots all talk exclusively to it: commands (`init_game`, `execute_command`, `click`, `right_click`, `advance_clock`, history save/load) and queries (`get_snapshot`, `get_moves`, `list_saves`). Nothing outside reaches through to `GameEngine`, the repositories, or the arbiter. Optional collaborators (`arbiter`, `moves_log`, `history_store`) gate only the query/history methods — the pure `execute()` path used by text tests works without them.
+**[service.py](kungfu_chess/service.py) — `GameService` is the only public entry point.** The Tk window, script runner, and bots all talk exclusively to it: commands (`init_game`, `execute_command`, `click`, `right_click`, `advance_clock`, history save/load), queries (`get_snapshot`, `get_moves`, `list_saves`), and event subscription (`subscribe`, `unsubscribe`). Nothing outside reaches through to `GameEngine`, the repositories, the arbiter, or the bus itself. Optional collaborators (`arbiter`, `moves_log`, `history_store`, `event_bus`) gate only the query/history/subscription methods — the pure `execute()` path used by text tests works without them.
 
 **[bootstrap.py](kungfu_chess/bootstrap.py) — the composition root.** All wiring happens here; nothing else constructs the object graph.
 - `build_core(...)` returns `CoreComponents`, the shared stack.
@@ -61,6 +62,7 @@ The core is a pure simulation engine with no UI or network dependency. Keep it t
 - **`ProxyBoard` overlays in-flight motions on demand** (O(active_motions) per lookup) instead of copying the board each simulation step. Use `arbiter.get_effective_board(...)` for "where is everything right now".
 - **`GameEngine._resolve_pending` deliberately skips the game-end scan** unless piece positions or cooldown membership changed — the checkmate/stalemate scan is expensive enough to blow the 16ms render budget if run on every idle tick. Don't make it unconditional.
 - **The rendering path is one-way**: `advance_clock` → `SnapshotBuilder` builds an immutable `GameSnapshot` → `PillowRenderer` composes an `Img` → tkinter only displays the finished frame. Legal-move highlighting reuses `GameEngine.legal_moves_from` rather than reimplementing rules in the view.
+- **Events notify; they never draw.** The engine and resolvers publish `PieceMovedEvent` / `PieceCapturedEvent` / `GameEndedEvent` etc. onto the `EventBus`; `TkGameWindow.on_event` only records view state (capture flashes, scores, a pending game-over prompt) because it runs *mid-tick*, and the next `_refresh()` paints it through `Img`. Events carry plain values, never live `Piece`/`Board` objects. `EventBus.publish` contains subscriber exceptions on purpose — a UI failure must not abandon a half-resolved tick — and dispatch is depth-first, so a derived event (`ScoreUpdatedEvent`) can reach a later subscriber before its cause.
 - **`GameService._adjust_pawn_rules_for_board_height`** rewrites pawn start rows/promotion ranks per installed board, since text-test boards are often smaller than 8×8.
 
 ### Text scripts (`.kfc`)

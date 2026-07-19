@@ -10,11 +10,17 @@ build/execute wiring, and exposes two kinds of operations:
 
 Callers (the tk UI, the script runner, bots) never reach past this facade to
 the GameEngine, the board/state repositories, or the arbiter directly.
+
+It is also the subscription point for the domain EventBus: observers register
+through subscribe() here rather than being handed the engine's bus, so "who
+may listen" stays a property of the facade like everything else.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Type
 
+from kungfu_chess.config import consts
 from kungfu_chess.config.game_config import GameConfig
+from kungfu_chess.events import Event, EventBus, GameStartedEvent, Observer
 from kungfu_chess.model.game_state import GameState, Result
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface, GameEngine
@@ -49,6 +55,7 @@ class GameService:
         arbiter: RealTimeArbiterInterface = None,
         moves_log: MovesLog = None,
         history_store: GameHistoryStore = None,
+        event_bus: EventBus = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -60,6 +67,7 @@ class GameService:
         self._arbiter = arbiter
         self._moves_log = moves_log
         self._history_store = history_store
+        self._event_bus = event_bus
 
         self._snapshot_builder: Optional[SnapshotBuilder] = None
         if arbiter is not None:
@@ -89,7 +97,7 @@ class GameService:
         """
         raw_board, _ = self._parser.parse(board_lines)
         if not raw_board:
-            return Result.fail("No board found in input")
+            return Result.fail(consts.ERROR_NO_BOARD_FOUND)
         return self._build_and_store_board(raw_board)
 
     def execute_command(self, command: str) -> Result:
@@ -101,11 +109,15 @@ class GameService:
     def click(self, row: int, col: int) -> Result:
         """Click board cell (row, col). Same endpoint as ``click x y``, but in
         cell coordinates so callers need not know the pixel cell size."""
-        return self.execute_command(f"click {self._cell_to_px(col)} {self._cell_to_px(row)}")
+        return self.execute_command(
+            f"{consts.COMMAND_CLICK} {self._cell_to_px(col)} {self._cell_to_px(row)}"
+        )
 
     def right_click(self, row: int, col: int) -> Result:
         """Right-click (jump-in-place) board cell (row, col), in cell coordinates."""
-        return self.execute_command(f"right_click {self._cell_to_px(col)} {self._cell_to_px(row)}")
+        return self.execute_command(
+            f"{consts.COMMAND_RIGHT_CLICK} {self._cell_to_px(col)} {self._cell_to_px(row)}"
+        )
 
     def advance_clock(self, ms: int) -> Result:
         """Advance the simulation clock and resolve pending motions."""
@@ -132,6 +144,20 @@ class GameService:
             return None
         state = self._state_repo.get_state()
         return self._snapshot_builder.build(board, state)
+
+    def subscribe(self, observer: Observer, *event_types: Type[Event]) -> None:
+        """Register *observer* for domain events, optionally narrowed to *event_types*.
+
+        With no event types the observer receives everything published. This is
+        how the UI attaches itself to the simulation: the engine publishes into
+        a bus that knows nothing about who is listening.
+        """
+        self._require_event_bus()
+        self._event_bus.subscribe(observer, *event_types)
+
+    def unsubscribe(self, observer: Observer) -> None:
+        self._require_event_bus()
+        self._event_bus.unsubscribe(observer)
 
     def get_moves(self) -> List[MoveLogEntry]:
         """Every resolved move so far, oldest first."""
@@ -184,7 +210,19 @@ class GameService:
         self._board_repo.save_board(board)
         self._state_repo.save_state(GameState())
         self._adjust_pawn_rules_for_board_height(board)
+        self._announce_game_started(board)
         return Result.ok(None)
+
+    def _announce_game_started(self, board: BoardInterface) -> None:
+        """Tell subscribers a fresh board is in play so they can clear derived state.
+
+        Installing a board resets the clock and the game state, which would
+        otherwise leave observers (score totals, capture animations) holding
+        totals from the previous game.
+        """
+        if self._event_bus is None:
+            return
+        self._event_bus.publish(GameStartedEvent(at_ms=0, rows=board.rows, cols=board.cols))
 
     def _cell_to_px(self, cell: int) -> int:
         """Center-of-cell pixel coordinate for the engine's pixel mapper."""
@@ -195,27 +233,39 @@ class GameService:
         if self._history_store is None:
             raise RuntimeError("This service was built without a history_store")
 
+    def _require_event_bus(self) -> None:
+        if self._event_bus is None:
+            raise RuntimeError("This service was built without an event_bus")
+
     def _adjust_pawn_rules_for_board_height(self, board: BoardInterface) -> None:
+        """Re-base each player's pawn start rows and promotion rank on *board*'s height.
+
+        Text-test boards are routinely shorter than 8x8, where the standard
+        rows would put pawns off the board or make promotion unreachable.
+        """
         if not self._config:
             return
         self._config.board_rows = board.rows
         self._config.board_cols = board.cols
-        w_player = self._config.get_player("w")
-        b_player = self._config.get_player("b")
-        if board.rows == 8:
-            if w_player:
-                w_player.pawn_start_rows = [6]
-                w_player.promotion_rank = 0
-            if b_player:
-                b_player.pawn_start_rows = [1]
-                b_player.promotion_rank = 7
-        else:
-            if w_player:
-                w_player.pawn_start_rows = [board.rows - 1]
-                w_player.promotion_rank = 0
-            if b_player:
-                b_player.pawn_start_rows = [0]
-                b_player.promotion_rank = board.rows - 1
+
+        if board.rows == consts.DEFAULT_BOARD_ROWS:
+            self._apply_pawn_rules(consts.PLAYER_W_COLOR, consts.PLAYER_W_PAWN_START_ROWS,
+                                   consts.PLAYER_W_PAWN_PROMOTION_RANK)
+            self._apply_pawn_rules(consts.PLAYER_B_COLOR, consts.PLAYER_B_PAWN_START_ROWS,
+                                   consts.PLAYER_B_PAWN_PROMOTION_RANK)
+            return
+
+        back_rank = board.rows - consts.SHORT_BOARD_W_PAWN_START_ROW_OFFSET
+        self._apply_pawn_rules(consts.PLAYER_W_COLOR, [back_rank], consts.FIRST_ROW_INDEX)
+        self._apply_pawn_rules(consts.PLAYER_B_COLOR, consts.SHORT_BOARD_B_PAWN_START_ROWS,
+                               board.rows - consts.SHORT_BOARD_B_PROMOTION_RANK_OFFSET)
+
+    def _apply_pawn_rules(self, color: str, start_rows: List[int], promotion_rank: int) -> None:
+        player = self._config.get_player(color)
+        if player is None:
+            return
+        player.pawn_start_rows = list(start_rows)
+        player.promotion_rank = promotion_rank
 
     def _trigger_bot_reaction_if_active(self) -> None:
         if self._bot and not self._state_repo.get_state().game_over:

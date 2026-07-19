@@ -11,7 +11,8 @@ import unittest
 
 from kungfu_chess.io.moves_log import MoveLogEntry
 from kungfu_chess.ui.rendering.img import Img
-from kungfu_chess.ui.rendering.info_panel import MAX_ROWS, SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
+from kungfu_chess.ui.rendering.info_panel import InfoPanel
+from kungfu_chess.ui.consts import PANEL_MAX_ROWS as MAX_ROWS, SIDE_PANEL_WIDTH, PANEL_TOP_HEIGHT as TOP_HEIGHT
 
 BOARD_SIZE = 64
 CANVAS_W = SIDE_PANEL_WIDTH * 2 + BOARD_SIZE
@@ -93,6 +94,36 @@ class TestChromeCacheIsInvisible(unittest.TestCase):
         many = [_entry("w", f"a{i}", i * 100) for i in range(MAX_ROWS * 2)]
         _render(self.panel, many)
         self.assertTrue(_same_pixels(_render(self.panel, many), _fresh_render(many)))
+
+
+class TestScores(unittest.TestCase):
+    """Scores arrive from ScoreUpdatedEvent and must repaint the chrome."""
+
+    def setUp(self):
+        self.panel = InfoPanel("White", "Black")
+        self.moves = [_entry("w", "Nf3", 1000)]
+
+    def _render_scored(self, white, black, panel=None):
+        return (panel or self.panel).render(
+            _board(), BOARD_SIZE, CANVAS_W, CANVAS_H, self.moves,
+            white_score=white, black_score=black,
+        )
+
+    def test_a_score_change_invalidates_the_cache(self):
+        self._render_scored(0, 0)
+        self.assertTrue(_same_pixels(
+            self._render_scored(3, 0), self._render_scored(3, 0, InfoPanel("White", "Black"))
+        ))
+
+    def test_different_scores_paint_differently(self):
+        self.assertFalse(_same_pixels(self._render_scored(0, 0), self._render_scored(9, 0)))
+
+    def test_each_side_gets_its_own_score(self):
+        self.assertFalse(_same_pixels(self._render_scored(5, 0), self._render_scored(0, 5)))
+
+    def test_omitting_scores_paints_no_score_line(self):
+        """The replay window has no captures to total, so it passes none."""
+        self.assertFalse(_same_pixels(_render(self.panel, self.moves), self._render_scored(0, 0)))
 
 
 class TestChromeCacheDoesNotLeakBetweenFrames(unittest.TestCase):

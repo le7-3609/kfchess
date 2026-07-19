@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from kungfu_chess.bootstrap import build_realtime_service
 from kungfu_chess.config import consts
+from kungfu_chess.ui import consts as ui_consts
 from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.ui.preferences.board_themes import get_theme as get_board_theme
 from kungfu_chess.ui.preferences.piece_themes import get_theme
@@ -19,14 +20,20 @@ from kungfu_chess.ui.preferences.user_settings_store import UserSettingsStore
 from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
 from kungfu_chess.ui.window.tk_window import TkGameWindow
 
-_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "kungfu_chess", "ui", "assets")
+_ASSETS_DIR = os.path.join(
+    os.path.dirname(__file__), "kungfu_chess", "ui", ui_consts.ASSETS_DIR_NAME
+)
 
 
 def main() -> None:
     prompt_root = tk.Tk()
     prompt_root.withdraw()
-    white_name = simpledialog.askstring("Player name", "White player name:", parent=prompt_root) or "White"
-    black_name = simpledialog.askstring("Player name", "Black player name:", parent=prompt_root) or "Black"
+    white_name = simpledialog.askstring(
+        "Player name", "White player name:", parent=prompt_root
+    ) or ui_consts.DEFAULT_WHITE_NAME
+    black_name = simpledialog.askstring(
+        "Player name", "Black player name:", parent=prompt_root
+    ) or ui_consts.DEFAULT_BLACK_NAME
     prompt_root.destroy()
 
     settings_store = UserSettingsStore()

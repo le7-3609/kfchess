@@ -4,7 +4,7 @@ import sys
 import unittest
 from io import StringIO
 
-from kungfu_chess.bootstrap import build_service, GameService
+from kungfu_chess.bootstrap import build_realtime_service, build_service, GameService
 
 
 def _run(service: GameService, input_lines: list) -> tuple:
@@ -61,6 +61,37 @@ class TestGameEngineClickCommand(unittest.TestCase):
         ])
         self.assertTrue(success)
         self.assertEqual(output, "wK . . .\n. . . wR\n")
+
+
+class TestTwinPiecesMoveIndependently(unittest.TestCase):
+    """Two identical pieces must be individually commandable in real time.
+
+    Runs against the real-time service so the first rook is genuinely still
+    in flight when the second is commanded. While pieces compared by
+    (color, type) alone, the engine's "already in flight?" guard rejected the
+    second rook because its twin was moving, and it silently never left.
+    """
+
+    BOARD = [
+        "Board:",
+        "wR . . .",
+        ". . . .",
+        "wR . . .",
+    ]
+
+    def test_second_rook_moves_while_its_twin_is_in_flight(self) -> None:
+        service = build_realtime_service(ms_per_square=1000, require_kings=False)
+        success, output = _run(service, self.BOARD + [
+            "Commands:",
+            "click 50 50",     # select the rook at (0, 0)
+            "click 350 50",    # send it to (0, 3) — 3 squares, arrives at 3000ms
+            "click 50 250",    # select its twin at (2, 0), still at clock 0
+            "click 350 250",   # send it to (2, 3)
+            "wait 3000",
+            "print board",
+        ])
+        self.assertTrue(success)
+        self.assertEqual(output, ". . . wR\n. . . .\n. . . wR\n")
 
 
 class TestGameEngineWaitCommand(unittest.TestCase):

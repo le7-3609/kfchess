@@ -36,18 +36,12 @@ from kungfu_chess.io.game_history_store import SavedGame
 from kungfu_chess.io.moves_log import MoveLogEntry, parse_notation
 from kungfu_chess.model.piece import PieceFactory
 from kungfu_chess.model.position import Position
-from kungfu_chess.ui.rendering.info_panel import SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
+from kungfu_chess.ui import consts as ui_consts
+from kungfu_chess.ui.rendering.info_panel import InfoPanel
 from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
 from kungfu_chess.ui.window.image_view import TkImageView
-from kungfu_chess.ui.window.window_consts import BOARD_SIZE, TICK_MS
 from kungfu_chess.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
 from kungfu_chess.view.piece_visual_state import PieceVisualState
-
-# Held after the final arrival so the last move can be seen landing and resting
-# rather than the window freezing the instant it touches down.
-END_PAD_MS = 1500
-
-_COLOR_NAMES = {"w": "White", "b": "Black"}
 
 
 @dataclass(frozen=True)
@@ -136,7 +130,7 @@ class ReplayDirector:
         self._moves = reconstruct_moves(saved, self._config)
         self._cooldown_ms = saved.cooldown_ms
         last_arrival = max((move.arrival_ms for move in self._moves), default=0)
-        self.duration_ms = last_arrival + END_PAD_MS
+        self.duration_ms = last_arrival + ui_consts.REPLAY_END_PAD_MS
 
     @property
     def moves(self) -> List[ReplayMove]:
@@ -251,11 +245,13 @@ class ReplayDirector:
         never named by the log — but a pawn stepping diagonally onto an empty
         square can only be en passant, which identifies it.
         """
-        if mover.piece_type != "P" or move.frm.col == move.to.col or move.to in pieces:
+        is_diagonal_step = move.frm.col != move.to.col
+        if mover.piece_type != consts.PIECE_PAWN or not is_diagonal_step or move.to in pieces:
             return
         victim_pos = Position(move.frm.row, move.to.col)
         victim = pieces.get(victim_pos)
-        if victim is not None and victim.color != mover.color and victim.piece_type == "P":
+        is_enemy_pawn = victim is not None and victim.color != mover.color and victim.piece_type == consts.PIECE_PAWN
+        if is_enemy_pawn:
             pieces.pop(victim_pos, None)
             landed.pop(victim_pos, None)
 
@@ -293,8 +289,10 @@ class ReplayDirector:
 
 
 def _format_clock(millis: int) -> str:
-    total_seconds = millis // 1000
-    return f"{total_seconds // 60:02d}:{total_seconds % 60:02d}.{millis % 1000:03d}"
+    total_seconds = millis // consts.MS_PER_SECOND
+    minutes = total_seconds // consts.SECONDS_PER_MINUTE
+    seconds = total_seconds % consts.SECONDS_PER_MINUTE
+    return f"{minutes:02d}:{seconds:02d}.{millis % consts.MS_PER_SECOND:03d}"
 
 
 class TkReplayWindow:
@@ -310,12 +308,15 @@ class TkReplayWindow:
         saved: SavedGame,
         renderer: PillowRenderer,
         config: Optional[GameConfig] = None,
-        board_size: int = BOARD_SIZE,
+        board_size: int = ui_consts.BOARD_SIZE,
     ) -> None:
         self.director = ReplayDirector(saved, config)
         self.renderer = renderer
         self.board_size = board_size
-        self.info_panel = InfoPanel(saved.white_name or "White", saved.black_name or "Black")
+        self.info_panel = InfoPanel(
+            saved.white_name or ui_consts.DEFAULT_WHITE_NAME,
+            saved.black_name or ui_consts.DEFAULT_BLACK_NAME,
+        )
 
         self.clock_ms = 0
         self._playing = True
@@ -336,8 +337,8 @@ class TkReplayWindow:
 
     def _build_canvas(self, board_size: int) -> None:
         """Create the canvas, its image view, and the resize binding."""
-        self.canvas_width = SIDE_PANEL_WIDTH * 2 + board_size
-        self.canvas_height = TOP_HEIGHT + board_size
+        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * 2 + board_size
+        self.canvas_height = ui_consts.PANEL_TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
             self.window, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
         )
@@ -370,7 +371,7 @@ class TkReplayWindow:
         self._scrubber = tk.Scale(
             controls,
             from_=0,
-            to=max(1, self.director.duration_ms),
+            to=max(ui_consts.REPLAY_MIN_SCRUBBER_MS, self.director.duration_ms),
             orient=tk.HORIZONTAL,
             showvalue=False,
             variable=self._scrubber_var,
@@ -383,7 +384,8 @@ class TkReplayWindow:
 
         header = f"{saved.white_name} vs {saved.black_name}    Saved: {saved.saved_at}"
         if saved.winner:
-            header += f"    Winner: {_COLOR_NAMES.get(saved.winner, saved.winner)}"
+            winner_name = ui_consts.COLOR_DISPLAY_NAMES.get(saved.winner, saved.winner)
+            header += f"    Winner: {winner_name}"
         tk.Label(self.window, text=header).pack(pady=(0, 8))
 
     def run(self) -> None:
@@ -419,15 +421,16 @@ class TkReplayWindow:
             return
         self.canvas_width = event.width
         self.canvas_height = event.height
-        available_width = max(100, self.canvas_width - SIDE_PANEL_WIDTH * 2)
-        available_height = max(100, self.canvas_height - TOP_HEIGHT)
+        minimum = ui_consts.MIN_BOARD_DIMENSION_PX
+        available_width = max(minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * 2)
+        available_height = max(minimum, self.canvas_height - ui_consts.PANEL_TOP_HEIGHT)
         self.board_size = min(available_width, available_height)
         self.renderer.resize(self.board_size, self.board_size)
         self._refresh()
 
     def _schedule_tick(self) -> None:
         if not self._closed:
-            self.window.after(TICK_MS, self._tick)
+            self.window.after(ui_consts.TICK_MS, self._tick)
 
     def _tick(self) -> None:
         if self._closed:
@@ -437,7 +440,7 @@ class TkReplayWindow:
         # a flat TICK_MS per frame would play the recording back slower than it
         # was recorded, by however long the renderer happens to take.
         now = time.monotonic()
-        elapsed_ms = (now - self._last_tick) * 1000 + self._clock_remainder_ms
+        elapsed_ms = (now - self._last_tick) * consts.MS_PER_SECOND + self._clock_remainder_ms
         self._last_tick = now
         if self._playing:
             step = int(elapsed_ms)

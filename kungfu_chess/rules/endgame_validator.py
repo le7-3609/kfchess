@@ -6,6 +6,7 @@ interpretation, or game-over state transitions.
 
 from typing import List, Tuple
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
@@ -22,21 +23,27 @@ def serialize_board_state(board: BoardInterface, state: GameState) -> str:
         row_str = []
         for c in range(board.cols):
             p = board.get_piece(Position(r, c))
-            row_str.append(str(p) if p is not None else ".")
-        lines.append(" ".join(row_str))
-    board_part = "\n".join(lines)
+            row_str.append(str(p) if p is not None else consts.EMPTY_SQUARE_TOKEN)
+        lines.append(consts.BOARD_TOKEN_SEPARATOR.join(row_str))
+    board_part = consts.BOARD_ROW_SEPARATOR.join(lines)
 
-    ep_part = ",".join(sorted(f"{ep.pos.row},{ep.pos.col}" for ep in state.en_passant_targets))
+    separator = consts.SERIALIZED_ENTRY_SEPARATOR
+    ep_part = separator.join(
+        sorted(f"{ep.pos.row}{separator}{ep.pos.col}" for ep in state.en_passant_targets)
+    )
 
     castling_list = []
     for r in range(board.rows):
         for c in range(board.cols):
             p = board.get_piece(Position(r, c))
-            if p is not None and p.piece_type in ("K", "R"):
-                castling_list.append(f"{r},{c},{p.color},{p.piece_type},{p.has_moved}")
-    castling_part = ";".join(sorted(castling_list))
+            if p is not None and p.piece_type in consts.CASTLING_PIECE_PAIR:
+                castling_list.append(
+                    separator.join((str(r), str(c), p.color, p.piece_type, str(p.has_moved)))
+                )
+    castling_part = consts.SERIALIZED_CASTLING_SEPARATOR.join(sorted(castling_list))
 
-    return f"{board_part}|{ep_part}|{castling_part}"
+    field_separator = consts.SERIALIZED_FIELD_SEPARATOR
+    return field_separator.join((board_part, ep_part, castling_part))
 
 
 class EndgameValidator:
@@ -154,7 +161,7 @@ class EndgameValidator:
                 pos = Position(r, c)
                 p = board.get_piece(pos)
                 if p is not None:
-                    if p.color == "w":
+                    if p.color == consts.COLOR_WHITE:
                         white_pieces.append((pos, p.piece_type))
                     else:
                         black_pieces.append((pos, p.piece_type))
@@ -163,42 +170,61 @@ class EndgameValidator:
     def _is_draw_by_material(self, white_non_king: list, black_non_king: list) -> bool:
         total_non_king = len(white_non_king) + len(black_non_king)
 
-        if total_non_king == 0:
+        if total_non_king in (consts.NO_NON_KING_PIECES, consts.LONE_MINOR_PIECE_COUNT):
             return True
-        if total_non_king == 1:
-            return True
-        if total_non_king == 2 and len(white_non_king) == 1 and len(black_non_king) == 1:
-            w_pos, w_type = white_non_king[0]
-            b_pos, b_type = black_non_king[0]
-            if w_type == "B" and b_type == "B":
-                if (w_pos.row + w_pos.col) % 2 == (b_pos.row + b_pos.col) % 2:
-                    return True
-        return False
+        if not self._is_one_minor_piece_each(white_non_king, black_non_king, total_non_king):
+            return False
+        return self._are_same_colored_bishops(white_non_king[0], black_non_king[0])
+
+    @staticmethod
+    def _is_one_minor_piece_each(white_non_king: list, black_non_king: list, total_non_king: int) -> bool:
+        return (
+            total_non_king == consts.ONE_MINOR_PIECE_EACH_COUNT
+            and len(white_non_king) == consts.LONE_MINOR_PIECE_COUNT
+            and len(black_non_king) == consts.LONE_MINOR_PIECE_COUNT
+        )
+
+    @staticmethod
+    def _are_same_colored_bishops(white_entry: tuple, black_entry: tuple) -> bool:
+        """True if both remaining pieces are bishops standing on the same square color.
+
+        Opposite-colored bishops can never attack the same square, so neither
+        side can force mate.
+        """
+        w_pos, w_type = white_entry
+        b_pos, b_type = black_entry
+        if w_type != consts.PIECE_BISHOP or b_type != consts.PIECE_BISHOP:
+            return False
+        modulus = consts.SQUARE_COLOR_MODULUS
+        return (w_pos.row + w_pos.col) % modulus == (b_pos.row + b_pos.col) % modulus
+
+    def _both_kings_present(self, board: BoardInterface) -> bool:
+        return all(self._has_king(board, color) for color in consts.ALL_COLORS)
 
     def is_insufficient_material(self, board: BoardInterface) -> bool:
         """Return True if neither player has sufficient material to force checkmate."""
-        if not self._has_king(board, "w") or not self._has_king(board, "b"):
+        if not self._both_kings_present(board):
             return False
 
         white_pieces, black_pieces = self._collect_pieces_by_color(board)
 
         all_types = [pt for _, pt in white_pieces + black_pieces]
-        if any(pt in ("P", "R", "Q") for pt in all_types):
+        if any(pt in consts.MATING_MATERIAL_TYPES for pt in all_types):
             return False
 
-        white_non_king = [(pos, pt) for pos, pt in white_pieces if pt != "K"]
-        black_non_king = [(pos, pt) for pos, pt in black_pieces if pt != "K"]
+        white_non_king = [(pos, pt) for pos, pt in white_pieces if pt != consts.PIECE_KING]
+        black_non_king = [(pos, pt) for pos, pt in black_pieces if pt != consts.PIECE_KING]
         return self._is_draw_by_material(white_non_king, black_non_king)
 
     def is_threefold_repetition(self, board: BoardInterface, state: GameState) -> bool:
         """Return True if the current position has occurred at least a configured number of times."""
-        if not self._has_king(board, "w") or not self._has_king(board, "b"):
+        if not self._both_kings_present(board):
             return False
         current_serialized = serialize_board_state(board, state)
         return state.position_history.count(current_serialized) >= self._config.repetitions_for_draw
 
     def is_fifty_move_rule(self, board: BoardInterface, state: GameState) -> bool:
         """Return True if the 50-move rule applies (halfmove clock >= threshold)."""
-        if not self._has_king(board, "w") or not self._has_king(board, "b"):
+        if not self._both_kings_present(board):
             return False
         return state.halfmove_clock >= self._config.halfmoves_for_draw

@@ -89,3 +89,19 @@ class GameState:
     winner: Optional[str] = None
     position_history: List[str] = field(default_factory=list)
     halfmove_clock: int = 0
+
+    def end_game(self, reason: str, winner: Optional[str] = None) -> bool:
+        """Record the game's end, keeping only the first ending. *winner* is None for a draw.
+
+        Returns whether this call is the one that ended the game, so callers
+        can announce it exactly once. Several endings can land inside a single
+        resolution pass — two kings falling in one collision cascade, or a
+        capture that also completes a checkmate — and the game ended at the
+        first of them, so a later one must not overwrite the recorded result.
+        """
+        if self.game_over:
+            return False
+        self.game_over = True
+        self.game_over_reason = reason
+        self.winner = winner
+        return True
