@@ -13,10 +13,11 @@ import re
 from PIL import Image
 
 from kungfu_chess.config import consts
+from kungfu_chess.ui import consts as ui_consts
 from kungfu_chess.view.piece_visual_state import PieceVisualState
 
-_FPS_PATTERN = re.compile(consts.SPRITE_FPS_PATTERN)
-_LOOP_PATTERN = re.compile(consts.SPRITE_LOOP_PATTERN)
+_FPS_PATTERN = re.compile(ui_consts.SPRITE_FPS_PATTERN)
+_LOOP_PATTERN = re.compile(ui_consts.SPRITE_LOOP_PATTERN)
 
 # Keyed by the view-layer enum, so this mapping stays here rather than in the
 # constant registry, which must not import from an outer layer.
@@ -47,27 +48,27 @@ def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
     """Remap every pixel's luminance into a narrow band so pieces render as strict
     black/white silhouettes regardless of the source sprite sheet's actual palette,
     preserving the original alpha channel."""
-    src = src.convert(consts.IMAGE_MODE_RGBA)
+    src = src.convert(ui_consts.IMAGE_MODE_RGBA)
     range_low = (
-        consts.SPRITE_DARK_LUMINANCE_FLOOR if dark else consts.SPRITE_LIGHT_LUMINANCE_FLOOR
+        ui_consts.SPRITE_DARK_LUMINANCE_FLOOR if dark else ui_consts.SPRITE_LIGHT_LUMINANCE_FLOOR
     )
-    channel_max = consts.COLOR_CHANNEL_MAX
+    channel_max = ui_consts.COLOR_CHANNEL_MAX
 
     lut = [
         max(
-            consts.COLOR_CHANNEL_MIN,
-            min(channel_max, range_low + round((lum / channel_max) * consts.SPRITE_LUMINANCE_SPAN)),
+            ui_consts.COLOR_CHANNEL_MIN,
+            min(channel_max, range_low + round((lum / channel_max) * ui_consts.SPRITE_LUMINANCE_SPAN)),
         )
-        for lum in range(consts.COLOR_CHANNEL_LEVELS)
+        for lum in range(ui_consts.COLOR_CHANNEL_LEVELS)
     ]
 
-    luminance = src.convert(consts.IMAGE_MODE_RGB).convert(
-        consts.IMAGE_MODE_LUMINANCE, matrix=consts.LUMINANCE_MATRIX
+    luminance = src.convert(ui_consts.IMAGE_MODE_RGB).convert(
+        ui_consts.IMAGE_MODE_LUMINANCE, matrix=ui_consts.LUMINANCE_MATRIX
     )
     remapped = luminance.point(lut)
-    alpha = src.getchannel(consts.IMAGE_CHANNEL_ALPHA)
+    alpha = src.getchannel(ui_consts.IMAGE_CHANNEL_ALPHA)
 
-    return Image.merge(consts.IMAGE_MODE_RGBA, (remapped, remapped, remapped, alpha))
+    return Image.merge(ui_consts.IMAGE_MODE_RGBA, (remapped, remapped, remapped, alpha))
 
 
 class SpriteLibrary:
@@ -86,14 +87,14 @@ class SpriteLibrary:
         state_dir = None
         for folder in candidates:
             candidate = os.path.join(
-                self._base_path, folder, consts.SPRITE_STATES_DIR, _STATE_NAMES[state]
+                self._base_path, folder, ui_consts.SPRITE_STATES_DIR, _STATE_NAMES[state]
             )
             if os.path.isdir(candidate):
                 state_dir = candidate
                 break
         if state_dir is None:
             state_dir = os.path.join(
-                self._base_path, candidates[0], consts.SPRITE_STATES_DIR, _STATE_NAMES[state]
+                self._base_path, candidates[0], ui_consts.SPRITE_STATES_DIR, _STATE_NAMES[state]
             )
 
         frames_per_sec, is_loop = self._read_config(state_dir)
@@ -103,33 +104,33 @@ class SpriteLibrary:
 
     @staticmethod
     def _read_config(state_dir: str) -> tuple[int, bool]:
-        config_path = os.path.join(state_dir, consts.SPRITE_CONFIG_FILE)
+        config_path = os.path.join(state_dir, ui_consts.SPRITE_CONFIG_FILE)
         try:
             with open(config_path, consts.FILE_MODE_READ, encoding=consts.FILE_ENCODING) as f:
                 text = f.read()
         except OSError:
-            return consts.SPRITE_DEFAULT_FPS, consts.SPRITE_DEFAULT_IS_LOOP
+            return ui_consts.SPRITE_DEFAULT_FPS, ui_consts.SPRITE_DEFAULT_IS_LOOP
 
         fps_match = _FPS_PATTERN.search(text)
         loop_match = _LOOP_PATTERN.search(text)
-        fps = int(fps_match.group(1)) if fps_match else consts.SPRITE_DEFAULT_FPS
+        fps = int(fps_match.group(1)) if fps_match else ui_consts.SPRITE_DEFAULT_FPS
         is_loop = (
-            (loop_match.group(1) == consts.SPRITE_JSON_TRUE)
-            if loop_match else consts.SPRITE_DEFAULT_IS_LOOP
+            (loop_match.group(1) == ui_consts.SPRITE_JSON_TRUE)
+            if loop_match else ui_consts.SPRITE_DEFAULT_IS_LOOP
         )
         return fps, is_loop
 
     @staticmethod
     def _read_frames(state_dir: str, dark: bool) -> list[Image.Image]:
-        sprites_dir = os.path.join(state_dir, consts.SPRITE_FRAMES_DIR)
+        sprites_dir = os.path.join(state_dir, ui_consts.SPRITE_FRAMES_DIR)
         frames = []
-        index = consts.SPRITE_FIRST_FRAME_INDEX
+        index = ui_consts.SPRITE_FIRST_FRAME_INDEX
         while True:
-            path = os.path.join(sprites_dir, f"{index}{consts.SPRITE_FRAME_EXTENSION}")
+            path = os.path.join(sprites_dir, f"{index}{ui_consts.SPRITE_FRAME_EXTENSION}")
             if not os.path.isfile(path):
                 break
             try:
-                img = Image.open(path).convert(consts.IMAGE_MODE_RGBA)
+                img = Image.open(path).convert(ui_consts.IMAGE_MODE_RGBA)
             except OSError:
                 break
             frames.append(_to_black_and_white(img, dark))

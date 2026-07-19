@@ -35,6 +35,7 @@ from kungfu_chess.events import (
 )
 from kungfu_chess.model.position import Position
 from kungfu_chess.service import GameService
+from kungfu_chess.ui import consts as ui_consts
 from kungfu_chess.ui.preferences.board_themes import BOARD_THEMES, get_theme as get_board_theme
 from kungfu_chess.ui.preferences.piece_themes import PIECE_THEMES, get_theme
 from kungfu_chess.ui.preferences.user_settings_store import UserSettings, UserSettingsStore
@@ -55,10 +56,10 @@ class _CaptureFlash:
     def alpha_at(self, clock_ms: int) -> int:
         """Flash opacity at *clock_ms*, fading linearly to nothing over its lifetime."""
         elapsed = clock_ms - self.started_ms
-        if elapsed < 0 or elapsed >= consts.CAPTURE_FLASH_MS:
+        if elapsed < 0 or elapsed >= ui_consts.CAPTURE_FLASH_MS:
             return 0
         return round(
-            consts.CAPTURE_FLASH_MAX_ALPHA * (1 - elapsed / consts.CAPTURE_FLASH_MS)
+            ui_consts.CAPTURE_FLASH_MAX_ALPHA * (1 - elapsed / ui_consts.CAPTURE_FLASH_MS)
         )
 
 
@@ -69,10 +70,10 @@ class TkGameWindow(Observer):
         self,
         service: GameService,
         renderer: PillowRenderer,
-        title: str = consts.WINDOW_TITLE,
-        board_size: int = consts.BOARD_SIZE,
-        white_name: str = consts.DEFAULT_WHITE_NAME,
-        black_name: str = consts.DEFAULT_BLACK_NAME,
+        title: str = ui_consts.WINDOW_TITLE,
+        board_size: int = ui_consts.BOARD_SIZE,
+        white_name: str = ui_consts.DEFAULT_WHITE_NAME,
+        black_name: str = ui_consts.DEFAULT_BLACK_NAME,
         assets_dir: Optional[str] = None,
         settings_store: Optional[UserSettingsStore] = None,
     ):
@@ -157,8 +158,8 @@ class TkGameWindow(Observer):
 
     def _build_canvas(self, board_size: int) -> None:
         """Create the canvas, its image view, and the click/resize bindings."""
-        self.canvas_width = consts.SIDE_PANEL_WIDTH * 2 + board_size
-        self.canvas_height = consts.PANEL_TOP_HEIGHT + board_size
+        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * 2 + board_size
+        self.canvas_height = ui_consts.PANEL_TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
             self.root, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
         )
@@ -200,11 +201,11 @@ class TkGameWindow(Observer):
         )
         self._add_radio_submenu(
             settings_menu, "Movement Speed",
-            list(consts.SPEED_PRESETS_MS.items()), self._speed_var, self._on_speed_selected,
+            list(ui_consts.SPEED_PRESETS_MS.items()), self._speed_var, self._on_speed_selected,
         )
         self._add_radio_submenu(
             settings_menu, "Cooldown Time",
-            list(consts.COOLDOWN_PRESETS_MS.items()), self._cooldown_var,
+            list(ui_consts.COOLDOWN_PRESETS_MS.items()), self._cooldown_var,
             self._on_cooldown_selected,
         )
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
@@ -275,8 +276,8 @@ class TkGameWindow(Observer):
         self.root.mainloop()
 
     def _canvas_to_cell(self, event_x: int, event_y: int) -> Optional[tuple[int, int]]:
-        panel_width = consts.SIDE_PANEL_WIDTH
-        top_height = consts.PANEL_TOP_HEIGHT
+        panel_width = ui_consts.SIDE_PANEL_WIDTH
+        top_height = ui_consts.PANEL_TOP_HEIGHT
         board_x_offset = panel_width + (self.canvas_width - panel_width * 2 - self.board_size) // 2
         board_y_offset = top_height + (self.canvas_height - top_height - self.board_size) // 2
 
@@ -306,9 +307,9 @@ class TkGameWindow(Observer):
             self.canvas_width = event.width
             self.canvas_height = event.height
             
-            minimum = consts.MIN_BOARD_DIMENSION_PX
-            available_board_w = max(minimum, self.canvas_width - consts.SIDE_PANEL_WIDTH * 2)
-            available_board_h = max(minimum, self.canvas_height - consts.PANEL_TOP_HEIGHT)
+            minimum = ui_consts.MIN_BOARD_DIMENSION_PX
+            available_board_w = max(minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * 2)
+            available_board_h = max(minimum, self.canvas_height - ui_consts.PANEL_TOP_HEIGHT)
             self.board_size = min(available_board_w, available_board_h)
 
 
@@ -316,7 +317,7 @@ class TkGameWindow(Observer):
             self._refresh()
 
     def _schedule_tick(self) -> None:
-        self.root.after(consts.TICK_MS, self._tick)
+        self.root.after(ui_consts.TICK_MS, self._tick)
 
     def _tick(self) -> None:
         now = time.monotonic()
@@ -363,7 +364,7 @@ class TkGameWindow(Observer):
             rect = geometry.cell_to_pixel(flash.pos.row, flash.pos.col)
             board_img.fill_rect(
                 rect.x, rect.y, rect.width, rect.height,
-                (*consts.CAPTURE_FLASH_COLOR, flash.alpha_at(clock_ms)),
+                (*ui_consts.CAPTURE_FLASH_COLOR, flash.alpha_at(clock_ms)),
             )
 
     def _prompt_save_if_game_ended(self) -> None:

@@ -18,6 +18,7 @@ same inputs always paint the same pixels.
 from typing import Optional, Sequence, Tuple
 
 from kungfu_chess.config import consts
+from kungfu_chess.ui import consts as ui_consts
 from kungfu_chess.ui.rendering.img import Img
 from kungfu_chess.io.moves_log import MoveLogEntry
 
@@ -57,8 +58,8 @@ class InfoPanel:
         """
         img = self._chrome_for(canvas_width, canvas_height, moves, white_score, black_score).copy()
 
-        panel_width = consts.SIDE_PANEL_WIDTH
-        top_height = consts.PANEL_TOP_HEIGHT
+        panel_width = ui_consts.SIDE_PANEL_WIDTH
+        top_height = ui_consts.PANEL_TOP_HEIGHT
         board_x = panel_width + (canvas_width - panel_width * 2 - board_size) // 2
         board_y = top_height + (canvas_height - top_height - board_size) // 2
 
@@ -84,10 +85,10 @@ class InfoPanel:
         black_rows = self._rows_for(consts.COLOR_BLACK, moves)
         key = (canvas_width, canvas_height, white_rows, black_rows, white_score, black_score)
         if self._chrome is None or self._chrome_key != key:
-            chrome = Img().blank(canvas_width, canvas_height, consts.PANEL_BACKGROUND_COLOR)
+            chrome = Img().blank(canvas_width, canvas_height, ui_consts.PANEL_BACKGROUND_COLOR)
             self._draw_moves_column(chrome, 0, self.white_name, white_score, white_rows)
             self._draw_moves_column(
-                chrome, canvas_width - consts.SIDE_PANEL_WIDTH,
+                chrome, canvas_width - ui_consts.SIDE_PANEL_WIDTH,
                 self.black_name, black_score, black_rows,
             )
             self._chrome = chrome
@@ -99,22 +100,22 @@ class InfoPanel:
             f"{_format_time(entry.time_ms)}  {entry.notation}"
             for entry in moves
             if entry.color == color
-        )[-consts.PANEL_MAX_ROWS:]
+        )[-ui_consts.PANEL_MAX_ROWS:]
 
     def _draw_moves_column(
         self, img: Img, x: int, name: str, score: Optional[int], rows: Tuple[str, ...]
     ) -> None:
-        self._draw_column_header(img, x + consts.SIDE_PANEL_WIDTH // 2, name, score)
+        self._draw_column_header(img, x + ui_consts.SIDE_PANEL_WIDTH // 2, name, score)
 
-        y = consts.PANEL_TOP_HEIGHT
+        y = ui_consts.PANEL_TOP_HEIGHT
         for row_text in rows:
             img.put_text(
                 row_text,
-                x + consts.PANEL_ROW_TEXT_X_OFFSET, y,
-                consts.PANEL_ROW_FONT_SIZE, consts.PANEL_TEXT_COLOR,
-                anchor=consts.TEXT_ANCHOR_LEFT_TOP,
+                x + ui_consts.PANEL_ROW_TEXT_X_OFFSET, y,
+                ui_consts.PANEL_ROW_FONT_SIZE, ui_consts.PANEL_TEXT_COLOR,
+                anchor=ui_consts.TEXT_ANCHOR_LEFT_TOP,
             )
-            y += consts.PANEL_ROW_HEIGHT
+            y += ui_consts.PANEL_ROW_HEIGHT
 
     def _draw_column_header(self, img: Img, center_x: int, name: str, score: Optional[int]) -> None:
         """Draw the player's name, with their score beneath it when there is one.
@@ -124,18 +125,18 @@ class InfoPanel:
         """
         if score is None:
             img.put_text(
-                name, center_x, consts.PANEL_NAME_ONLY_Y,
-                consts.PANEL_NAME_FONT_SIZE, consts.PANEL_TEXT_COLOR,
-                anchor=consts.TEXT_ANCHOR_MIDDLE_TOP,
+                name, center_x, ui_consts.PANEL_NAME_ONLY_Y,
+                ui_consts.PANEL_NAME_FONT_SIZE, ui_consts.PANEL_TEXT_COLOR,
+                anchor=ui_consts.TEXT_ANCHOR_MIDDLE_TOP,
             )
             return
         img.put_text(
-            name, center_x, consts.PANEL_NAME_WITH_SCORE_Y,
-            consts.PANEL_NAME_FONT_SIZE, consts.PANEL_TEXT_COLOR,
-            anchor=consts.TEXT_ANCHOR_MIDDLE_TOP,
+            name, center_x, ui_consts.PANEL_NAME_WITH_SCORE_Y,
+            ui_consts.PANEL_NAME_FONT_SIZE, ui_consts.PANEL_TEXT_COLOR,
+            anchor=ui_consts.TEXT_ANCHOR_MIDDLE_TOP,
         )
         img.put_text(
-            f"+{score}", center_x, consts.PANEL_SCORE_Y,
-            consts.PANEL_SCORE_FONT_SIZE, consts.PANEL_SCORE_COLOR,
-            anchor=consts.TEXT_ANCHOR_MIDDLE_TOP,
+            f"+{score}", center_x, ui_consts.PANEL_SCORE_Y,
+            ui_consts.PANEL_SCORE_FONT_SIZE, ui_consts.PANEL_SCORE_COLOR,
+            anchor=ui_consts.TEXT_ANCHOR_MIDDLE_TOP,
         )

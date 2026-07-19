@@ -36,6 +36,7 @@ from kungfu_chess.io.game_history_store import SavedGame
 from kungfu_chess.io.moves_log import MoveLogEntry, parse_notation
 from kungfu_chess.model.piece import PieceFactory
 from kungfu_chess.model.position import Position
+from kungfu_chess.ui import consts as ui_consts
 from kungfu_chess.ui.rendering.info_panel import InfoPanel
 from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
 from kungfu_chess.ui.window.image_view import TkImageView
@@ -129,7 +130,7 @@ class ReplayDirector:
         self._moves = reconstruct_moves(saved, self._config)
         self._cooldown_ms = saved.cooldown_ms
         last_arrival = max((move.arrival_ms for move in self._moves), default=0)
-        self.duration_ms = last_arrival + consts.REPLAY_END_PAD_MS
+        self.duration_ms = last_arrival + ui_consts.REPLAY_END_PAD_MS
 
     @property
     def moves(self) -> List[ReplayMove]:
@@ -307,14 +308,14 @@ class TkReplayWindow:
         saved: SavedGame,
         renderer: PillowRenderer,
         config: Optional[GameConfig] = None,
-        board_size: int = consts.BOARD_SIZE,
+        board_size: int = ui_consts.BOARD_SIZE,
     ) -> None:
         self.director = ReplayDirector(saved, config)
         self.renderer = renderer
         self.board_size = board_size
         self.info_panel = InfoPanel(
-            saved.white_name or consts.DEFAULT_WHITE_NAME,
-            saved.black_name or consts.DEFAULT_BLACK_NAME,
+            saved.white_name or ui_consts.DEFAULT_WHITE_NAME,
+            saved.black_name or ui_consts.DEFAULT_BLACK_NAME,
         )
 
         self.clock_ms = 0
@@ -336,8 +337,8 @@ class TkReplayWindow:
 
     def _build_canvas(self, board_size: int) -> None:
         """Create the canvas, its image view, and the resize binding."""
-        self.canvas_width = consts.SIDE_PANEL_WIDTH * 2 + board_size
-        self.canvas_height = consts.PANEL_TOP_HEIGHT + board_size
+        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * 2 + board_size
+        self.canvas_height = ui_consts.PANEL_TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
             self.window, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
         )
@@ -370,7 +371,7 @@ class TkReplayWindow:
         self._scrubber = tk.Scale(
             controls,
             from_=0,
-            to=max(consts.REPLAY_MIN_SCRUBBER_MS, self.director.duration_ms),
+            to=max(ui_consts.REPLAY_MIN_SCRUBBER_MS, self.director.duration_ms),
             orient=tk.HORIZONTAL,
             showvalue=False,
             variable=self._scrubber_var,
@@ -383,7 +384,7 @@ class TkReplayWindow:
 
         header = f"{saved.white_name} vs {saved.black_name}    Saved: {saved.saved_at}"
         if saved.winner:
-            winner_name = consts.COLOR_DISPLAY_NAMES.get(saved.winner, saved.winner)
+            winner_name = ui_consts.COLOR_DISPLAY_NAMES.get(saved.winner, saved.winner)
             header += f"    Winner: {winner_name}"
         tk.Label(self.window, text=header).pack(pady=(0, 8))
 
@@ -420,16 +421,16 @@ class TkReplayWindow:
             return
         self.canvas_width = event.width
         self.canvas_height = event.height
-        minimum = consts.MIN_BOARD_DIMENSION_PX
-        available_width = max(minimum, self.canvas_width - consts.SIDE_PANEL_WIDTH * 2)
-        available_height = max(minimum, self.canvas_height - consts.PANEL_TOP_HEIGHT)
+        minimum = ui_consts.MIN_BOARD_DIMENSION_PX
+        available_width = max(minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * 2)
+        available_height = max(minimum, self.canvas_height - ui_consts.PANEL_TOP_HEIGHT)
         self.board_size = min(available_width, available_height)
         self.renderer.resize(self.board_size, self.board_size)
         self._refresh()
 
     def _schedule_tick(self) -> None:
         if not self._closed:
-            self.window.after(consts.TICK_MS, self._tick)
+            self.window.after(ui_consts.TICK_MS, self._tick)
 
     def _tick(self) -> None:
         if self._closed:
