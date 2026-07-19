@@ -6,6 +6,8 @@ Must not own: piece-specific movement logic, rendering, input parsing,
               DSL parsing, or pixel mapping.
 
 Concrete collaborators live in:
+  - engine/input_commands.py (ClickCommand, RightClickCommand, WaitCommand,
+    PrintBoardCommand — the typed command vocabulary dispatched below)
   - engine/engine_interfaces.py (PixelMapperInterface, BoardRepositoryInterface,
     GameStateRepositoryInterface, BoardPrinterInterface, MoveEventListenerInterface,
     MoveEventPublisher)
@@ -49,6 +51,13 @@ from kungfu_chess.engine.play_state import (
 from kungfu_chess.engine.click_commands import ClickCommandProcessor
 from kungfu_chess.engine.jump_commands import JumpCommandProcessor
 from kungfu_chess.engine.castling_commands import CastlingCommands
+from kungfu_chess.engine.input_commands import (
+    ClickCommand,
+    GameCommand,
+    PrintBoardCommand,
+    RightClickCommand,
+    WaitCommand,
+)
 
 __all__ = [
     "PixelMapperInterface",
@@ -215,8 +224,8 @@ class GameEngine:
 
         This is the Controller-facing entry point: the caller (Controller)
         already resolved pixels to cells and owns selection state itself, so
-        unlike ``execute_command("click ...")`` no selection bookkeeping is
-        read from or written back to GameState here beyond what the legality
+        unlike ``execute_command(ClickCommand(...))`` no selection bookkeeping
+        is read from or written back to GameState here beyond what the legality
         gate (RuleEngine/PathChecker/ThreatValidator) needs to run.
         """
         self._resolve_pending()
@@ -270,11 +279,10 @@ class GameEngine:
     def advance_clock(self, ms: int) -> None:
         """Advance the simulation clock by *ms* and resolve pending motions.
 
-        Public equivalent of the "wait N" text command, for callers that
-        drive the clock from a real event loop (see runtime/async_runner.py)
-        rather than from a scripted command stream. Unlike execute_command,
-        this never parses a command string — it only performs the time
-        advancement + resolve step.
+        Public equivalent of WaitCommand, for callers that drive the clock
+        from a real event loop (see runtime/async_runner.py) rather than from
+        a scripted command stream. Unlike execute_command, this takes no
+        command object — it only performs the time advancement + resolve step.
         """
         if ms <= 0:
             return
@@ -283,25 +291,25 @@ class GameEngine:
         self._state_repo.save_state(state)
         self._resolve_pending()
 
-    def execute_command(self, command: str) -> None:
-        """Execute a single text command against the current game state.
+    def execute_command(self, command: GameCommand) -> None:
+        """Execute a single typed command against the current game state.
 
-        Accepts "click X Y", "right_click X Y", "wait MS", and "print board".
-        Anything else is ignored: command streams come from scripted text tests
-        and stdin, where an unrecognised line must not abort the run.
+        Commands arrive already parsed — text scripts and stdin are translated
+        by io/command_parser.py before they reach this layer, so the engine
+        never inspects a string. An unsupported object is a wiring bug in the
+        caller rather than bad user input, so it fails loudly here.
         """
-        parts = command.split()
-        if not parts:
-            return
-
-        if parts[0] == "click" and len(parts) == 3:
-            self._handle_click(int(parts[1]), int(parts[2]))
-        elif parts[0] == "right_click" and len(parts) == 3:
-            self._handle_right_click(int(parts[1]), int(parts[2]))
-        elif parts[0] == "wait" and len(parts) == 2:
-            self._handle_wait(int(parts[1]))
-        elif command == "print board":
-            self._handle_print_board()
+        match command:
+            case ClickCommand(x, y):
+                self._handle_click(x, y)
+            case RightClickCommand(x, y):
+                self._handle_right_click(x, y)
+            case WaitCommand(ms):
+                self._handle_wait(ms)
+            case PrintBoardCommand():
+                self._handle_print_board()
+            case _:
+                raise TypeError(f"Unsupported command: {type(command).__name__}")
 
     def _resolve_pending(self) -> None:
         """Resolve all pending motions at the current clock time.

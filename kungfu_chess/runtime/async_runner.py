@@ -1,6 +1,6 @@
 """AsyncGameRunner — real-time asyncio tick loop for GameEngine (Layer 9).
 
-The synchronous path (`GameEngine.execute_command("wait N")`, used by
+The synchronous path (`GameEngine.execute_command(WaitCommand(n))`, used by
 ScriptRunner/text tests) advances `state.clock_ms` by a fixed amount and
 immediately resolves in-line — good for deterministic tests, wrong for a
 live server where wall-clock time passes between client messages.
@@ -20,15 +20,16 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, List, Optional
 
 from kungfu_chess.engine.game_engine import GameEngine
+from kungfu_chess.engine.input_commands import GameCommand, WaitCommand
 
 DEFAULT_TICK_RATE_HZ = 20.0
 
 
 @dataclass
 class QueuedCommand:
-    """A single text command awaiting application on the next tick."""
+    """A single command awaiting application on the next tick."""
 
-    text: str
+    command: GameCommand
     future: Optional["asyncio.Future"] = field(default=None, repr=False)
 
 
@@ -40,13 +41,13 @@ class AsyncGameRunner:
         runner = AsyncGameRunner(engine, tick_rate_hz=20)
         await runner.start()
         ...
-        runner.submit_command("click 1 2")   # thread/coroutine-safe enqueue
+        runner.submit_command(ClickCommand(1, 2))  # thread/coroutine-safe enqueue
         ...
         await runner.stop()
 
-    Time advancement is fully decoupled from the synchronous `wait N`
-    command path: this runner never calls `execute_command("wait ...")`,
-    and rejects queued "wait" commands (see `submit_command`), since
+    Time advancement is fully decoupled from the synchronous WaitCommand
+    path: this runner never calls `execute_command(WaitCommand(...))`,
+    and rejects queued WaitCommands (see `submit_command`), since
     the tick loop already advances `state.clock_ms` from measured
     wall-clock deltas via `GameEngine.advance_clock`. Both mechanisms
     can coexist across runners without double-advancing the same clock.
@@ -79,25 +80,25 @@ class AsyncGameRunner:
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
-    def submit_command(self, text: str) -> "asyncio.Future":
-        """Queue *text* (e.g. "click 1 2") for application on the next tick.
+    def submit_command(self, command: GameCommand) -> "asyncio.Future":
+        """Queue *command* (e.g. ``ClickCommand(1, 2)``) for the next tick.
 
         Safe to call from any coroutine running on the same event loop
         (e.g. a websocket message handler). Returns a Future that resolves
         (with no value) once the command has actually been applied.
 
-        "wait ..." commands are rejected: time advancement here is owned
-        exclusively by the tick loop's wall-clock measurement, so a queued
-        wait would advance the same clock twice.
+        WaitCommand is rejected: time advancement here is owned exclusively by
+        the tick loop's wall-clock measurement, so a queued wait would advance
+        the same clock twice.
         """
-        if text.split()[:1] == ["wait"]:
+        if isinstance(command, WaitCommand):
             raise ValueError(
                 "AsyncGameRunner owns time advancement; submit clicks only, "
-                "not 'wait' commands"
+                "not WaitCommand"
             )
         loop = asyncio.get_event_loop()
         fut: "asyncio.Future" = loop.create_future()
-        self._queue.put_nowait(QueuedCommand(text=text, future=fut))
+        self._queue.put_nowait(QueuedCommand(command=command, future=fut))
         return fut
 
     async def start(self) -> None:
@@ -158,7 +159,7 @@ class AsyncGameRunner:
 
         for cmd in pending:
             try:
-                self._engine.execute_command(cmd.text)
+                self._engine.execute_command(cmd.command)
             finally:
                 if cmd.future is not None and not cmd.future.done():
                     cmd.future.set_result(None)

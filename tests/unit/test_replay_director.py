@@ -3,10 +3,12 @@ replay window. No tkinter here; ReplayDirector is a function of the save alone.
 """
 
 import unittest
+from unittest.mock import Mock
 
 from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.io.game_history_store import SavedGame
 from kungfu_chess.io.moves_log import MoveLogEntry, parse_notation
+from kungfu_chess.io.replay import ReplayEngineDecorator
 from kungfu_chess.model.position import Position
 from kungfu_chess.ui.window.replay_window import ReplayDirector, reconstruct_moves
 from kungfu_chess.view.piece_visual_state import PieceVisualState
@@ -202,6 +204,28 @@ class TestGameOverBanner(unittest.TestCase):
     def test_mid_game_save_never_shows_a_banner(self):
         director = ReplayDirector(_saved([_entry("Pe2-e4", 2000)], winner=None))
         self.assertFalse(director.snapshot_at(director.duration_ms).game_over)
+
+
+class TestReplayEngineDecoratorAdvanceClock(unittest.TestCase):
+    """ReplayEngineDecorator only overrides execute_command; every other
+    GameEngine call — advance_clock included — must reach the wrapped
+    engine, since GameService.advance_clock calls it directly."""
+
+    def test_advance_clock_forwards_to_the_wrapped_engine(self):
+        engine = Mock()
+        decorator = ReplayEngineDecorator(engine, writer=Mock())
+
+        decorator.advance_clock(500)
+
+        engine.advance_clock.assert_called_once_with(500)
+
+    def test_other_missing_attributes_also_forward_via_getattr(self):
+        engine = Mock()
+        decorator = ReplayEngineDecorator(engine, writer=Mock())
+
+        decorator.legal_moves_from(Position(6, 4))
+
+        engine.legal_moves_from.assert_called_once_with(Position(6, 4))
 
 
 if __name__ == "__main__":

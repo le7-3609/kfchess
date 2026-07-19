@@ -2,6 +2,7 @@
 
 import unittest
 from kungfu_chess.bootstrap import build_service
+from kungfu_chess.engine.input_commands import ClickCommand, WaitCommand
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.piece import TextPiece
 from kungfu_chess.model.board import ArrayBoard
@@ -34,8 +35,8 @@ class TestSpecialMoves(unittest.TestCase):
         self.board.set_piece(r_pos, TextPiece("w", "R"))
         self.service._board_repo.save_board(self.board)
 
-        self.service._engine.execute_command("click 450 750")  # select King at (7,4)
-        self.service._engine.execute_command("click 750 650")  # click Rook at (6,7)
+        self.service._engine.execute_command(ClickCommand(450, 750))  # select King at (7,4)
+        self.service._engine.execute_command(ClickCommand(750, 650))  # click Rook at (6,7)
 
         self.assertEqual(self.board.get_piece(k_pos).piece_type, "K")
         self.assertEqual(self.board.get_piece(r_pos).piece_type, "R")
@@ -57,8 +58,8 @@ class TestSpecialMoves(unittest.TestCase):
         self.service._board_repo.save_board(self.board)
         self.service._state_repo.save_state(self.state)
 
-        self.service._engine.execute_command("click 450 750")
-        self.service._engine.execute_command("click 750 750")
+        self.service._engine.execute_command(ClickCommand(450, 750))
+        self.service._engine.execute_command(ClickCommand(750, 750))
 
         self.assertEqual(self.board.get_piece(k_pos).piece_type, "K")
         self.assertEqual(self.board.get_piece(r_pos).piece_type, "R")
@@ -85,10 +86,10 @@ class TestSpecialMoves(unittest.TestCase):
         self.service._board_repo.save_board(self.board)
         self.service._state_repo.save_state(self.state)
 
-        self.service._engine.execute_command("click 450 350")  # select white pawn
-        self.service._engine.execute_command("click 350 250")  # click (2,3)
+        self.service._engine.execute_command(ClickCommand(450, 350))  # select white pawn
+        self.service._engine.execute_command(ClickCommand(350, 250))  # click (2,3)
 
-        self.service._engine.execute_command("wait 500")
+        self.service._engine.execute_command(WaitCommand(500))
 
         self.assertEqual(self.board.get_piece(Position(2, 3)), w_pawn)
         self.assertIsNone(self.board.get_piece(Position(3, 3)))
@@ -115,16 +116,16 @@ class TestSpecialMoves(unittest.TestCase):
         self.service._board_repo.save_board(self.board)
         self.service._state_repo.save_state(self.state)
 
-        self.service._engine.execute_command("click 350 350")  # select black pawn
-        self.service._engine.execute_command("click 350 450")  # move to (4,3)
-        self.service._engine.execute_command("wait 1000")
+        self.service._engine.execute_command(ClickCommand(350, 350))  # select black pawn
+        self.service._engine.execute_command(ClickCommand(350, 450))  # move to (4,3)
+        self.service._engine.execute_command(WaitCommand(1000))
 
         self.assertEqual(self.board.get_piece(Position(4, 3)), b_pawn)
         self.assertIsNone(self.board.get_piece(Position(3, 3)))
 
-        self.service._engine.execute_command("click 450 350")  # select white pawn
-        self.service._engine.execute_command("click 350 250")  # click (2,3)
-        self.service._engine.execute_command("wait 1000")
+        self.service._engine.execute_command(ClickCommand(450, 350))  # select white pawn
+        self.service._engine.execute_command(ClickCommand(350, 250))  # click (2,3)
+        self.service._engine.execute_command(WaitCommand(1000))
 
         # En-passant must be invalid because the capturable pawn moved away.
         self.assertEqual(self.board.get_piece(Position(3, 4)), w_pawn)
@@ -140,9 +141,9 @@ class TestSpecialMoves(unittest.TestCase):
         self.board.set_piece(Position(1, 0), w_pawn)
         self.service._board_repo.save_board(self.board)
 
-        self.service._engine.execute_command("click 50 150")  # select white pawn at (1,0)
-        self.service._engine.execute_command("click 50 50")   # click (0,0)
-        self.service._engine.execute_command("wait 1000")
+        self.service._engine.execute_command(ClickCommand(50, 150))  # select white pawn at (1,0)
+        self.service._engine.execute_command(ClickCommand(50, 50))   # click (0,0)
+        self.service._engine.execute_command(WaitCommand(1000))
 
         promoted = self.board.get_piece(Position(0, 0))
         self.assertIsNotNone(promoted)

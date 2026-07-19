@@ -12,6 +12,7 @@ from kungfu_chess.model.position import Position
 from kungfu_chess.rules.rule_engine import EndgameValidator
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface
 from kungfu_chess.engine.engine_interfaces import InputSourceInterface
+from kungfu_chess.engine.input_commands import ClickCommand, GameCommand
 
 
 class RandomBotInputSource(InputSourceInterface):
@@ -31,7 +32,7 @@ class RandomBotInputSource(InputSourceInterface):
         self._endgame_validator = endgame_validator
         self._config = config
 
-    def get_next_commands(self) -> List[str]:
+    def get_next_commands(self) -> List[GameCommand]:
         board = self._board_repo.get_board()
         if board is None:
             return []
@@ -46,12 +47,10 @@ class RandomBotInputSource(InputSourceInterface):
         src, dst = random.choice(valid_moves)
         return self._move_to_click_commands(src, dst)
 
-    def _move_to_click_commands(self, src: Position, dst: Position) -> List[str]:
+    def _move_to_click_commands(self, src: Position, dst: Position) -> List[GameCommand]:
+        """Express *src* -> *dst* as the select-then-move click pair a human would make."""
         cell_size = self._config.cell_size_px
-        src_x, src_y = src.col * cell_size, src.row * cell_size
-        dst_x, dst_y = dst.col * cell_size, dst.row * cell_size
-
         return [
-            f"click {src_x} {src_y}",
-            f"click {dst_x} {dst_y}"
+            ClickCommand(x=src.col * cell_size, y=src.row * cell_size),
+            ClickCommand(x=dst.col * cell_size, y=dst.row * cell_size),
         ]
