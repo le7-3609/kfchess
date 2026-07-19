@@ -2,6 +2,7 @@
 
 import unittest
 
+from kungfu_chess.engine.input_commands import ClickCommand, PrintBoardCommand
 from kungfu_chess.io.board_parser import BoardParser
 
 
@@ -21,7 +22,7 @@ class TestBoardParser(unittest.TestCase):
         ]
         board, cmds = self.parser.parse(lines)
         self.assertEqual(board, [["wK", ".", ".", "."], [".", "wR", ".", "bK"]])
-        self.assertEqual(cmds, ["click 50 50", "print board"])
+        self.assertEqual(cmds, [ClickCommand(50, 50), PrintBoardCommand()])
 
     def test_blank_lines_ignored(self) -> None:
         lines = [
@@ -36,12 +37,12 @@ class TestBoardParser(unittest.TestCase):
         ]
         board, cmds = self.parser.parse(lines)
         self.assertEqual(board, [["wK", "bK"]])
-        self.assertEqual(cmds, ["print board"])
+        self.assertEqual(cmds, [PrintBoardCommand()])
 
     def test_no_board_returns_empty(self) -> None:
         board, cmds = self.parser.parse(["Commands:", "print board"])
         self.assertEqual(board, [])
-        self.assertEqual(cmds, ["print board"])
+        self.assertEqual(cmds, [PrintBoardCommand()])
 
     def test_no_commands_returns_empty(self) -> None:
         board, cmds = self.parser.parse(["Board:", "wK bK"])

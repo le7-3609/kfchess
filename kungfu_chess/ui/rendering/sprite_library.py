@@ -10,7 +10,7 @@ advancement (elapsed_millis is handed in, never measured here).
 import os
 import re
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from kungfu_chess.config import consts
 from kungfu_chess.ui import consts as ui_consts
@@ -29,7 +29,6 @@ _STATE_NAMES = {
     PieceVisualState.LONG_REST: "long_rest",
 }
 
-
 class _Animation:
     def __init__(self, frames: list[Image.Image], frames_per_sec: int, is_loop: bool):
         self.frames = frames
@@ -47,7 +46,13 @@ def _folder_name_candidates(piece_type: str, color: str) -> list[str]:
 def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
     """Remap every pixel's luminance into a narrow band so pieces render as strict
     black/white silhouettes regardless of the source sprite sheet's actual palette,
-    preserving the original alpha channel."""
+    preserving the original alpha channel.
+
+    Also composites a thin contrasting outline behind each piece so it is
+    visible against any board-square color:
+    - white pieces  → black/dark shadow
+    - black pieces  → white glow
+    """
     src = src.convert(ui_consts.IMAGE_MODE_RGBA)
     range_low = (
         ui_consts.SPRITE_DARK_LUMINANCE_FLOOR if dark else ui_consts.SPRITE_LIGHT_LUMINANCE_FLOOR
@@ -68,7 +73,21 @@ def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
     remapped = luminance.point(lut)
     alpha = src.getchannel(ui_consts.IMAGE_CHANNEL_ALPHA)
 
-    return Image.merge(ui_consts.IMAGE_MODE_RGBA, (remapped, remapped, remapped, alpha))
+    piece = Image.merge(ui_consts.IMAGE_MODE_RGBA, (remapped, remapped, remapped, alpha))
+
+    # Blur the alpha channel into a soft halo slightly larger than the piece,
+    # colored opposite the piece so it reads against any board-square color.
+    halo_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=ui_consts.SPRITE_OUTLINE_BLUR_RADIUS))
+    outline_value = ui_consts.COLOR_CHANNEL_MAX if dark else ui_consts.COLOR_CHANNEL_MIN
+    outline_layer = Image.new(
+        ui_consts.IMAGE_MODE_RGBA, piece.size, (outline_value, outline_value, outline_value, 0)
+    )
+    outline_layer.putalpha(halo_alpha)
+
+    result = Image.new(ui_consts.IMAGE_MODE_RGBA, piece.size, ui_consts.SPRITE_TRANSPARENT_RGBA)
+    result = Image.alpha_composite(result, outline_layer)
+    result = Image.alpha_composite(result, piece)
+    return result
 
 
 class SpriteLibrary:

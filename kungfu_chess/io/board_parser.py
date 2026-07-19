@@ -1,12 +1,15 @@
 """Board parser — textual board setup (Layer 7 Text I/O).
 
-Owns: parsing the DSL board-description section into raw token rows and commands.
+Owns: splitting the DSL into its board section and its command section.
 Must not own: movement rules, command execution, rendering, or test assertions.
+Command line syntax belongs to io/command_parser.py, which this delegates to.
 """
 
 from typing import List, Tuple
 
 from kungfu_chess.config import consts
+from kungfu_chess.engine.input_commands import GameCommand
+from kungfu_chess.io.command_parser import CommandParseException, TextCommandParser
 
 
 class BoardParser:
@@ -23,16 +26,16 @@ class BoardParser:
         print board
     """
 
-    def parse(self, input_lines: List[str]) -> Tuple[List[List[str]], List[str]]:
-        """Split *input_lines* into raw board token rows and command strings.
+    def parse(self, input_lines: List[str]) -> Tuple[List[List[str]], List[GameCommand]]:
+        """Split *input_lines* into raw board token rows and parsed commands.
 
         Returns:
             A tuple (board_lines, commands) where:
             - board_lines is a list-of-lists of token strings (one list per row).
-            - commands is a list of stripped command strings.
+            - commands is a list of GameCommand objects.
         """
         board_lines: List[List[str]] = []
-        commands: List[str] = []
+        commands: List[GameCommand] = []
         in_board = False
         in_commands = False
 
@@ -52,6 +55,20 @@ class BoardParser:
                 if tokens:
                     board_lines.append(tokens)
             elif in_commands:
-                commands.append(stripped)
+                self._append_parsed_command(commands, stripped)
 
         return board_lines, commands
+
+    @staticmethod
+    def _append_parsed_command(commands: List[GameCommand], line: str) -> None:
+        """Translate *line* and keep it, dropping anything the DSL rejects.
+
+        Unrecognised lines are ignored by design: .kfc scripts and piped stdin
+        carry comments and stray headings alongside commands, and one bad line
+        must not abort a whole run. TextCommandParser stays strict — this is
+        the single boundary that chooses to tolerate its failure.
+        """
+        try:
+            commands.append(TextCommandParser.parse_line(line))
+        except CommandParseException:
+            return

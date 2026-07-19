@@ -3,8 +3,8 @@
 This is the one boundary the outside world talks to. It owns parse/validate/
 build/execute wiring, and exposes two kinds of operations:
 
-  - Commands (mutate): init_game(), execute_command(), click(), right_click(),
-    advance_clock(), plus history save/load.
+  - Commands (mutate): init_game(), execute_command(), execute_commands(),
+    click(), right_click(), advance_clock(), plus history save/load.
   - Queries (read-only): get_snapshot(), get_moves(), list_saves(),
     load_saved_game(), game_over state.
 
@@ -25,6 +25,7 @@ from kungfu_chess.model.game_state import GameState, Result
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface, GameEngine
 from kungfu_chess.engine.engine_interfaces import InputSourceInterface
+from kungfu_chess.engine.input_commands import ClickCommand, GameCommand, RightClickCommand
 from kungfu_chess.io.board_parser import BoardParser
 from kungfu_chess.io.board_validator import BoardValidator
 from kungfu_chess.io.game_history_store import GameHistoryStore, SavedGame
@@ -82,11 +83,7 @@ class GameService:
         if not init_result.is_ok:
             return init_result
 
-        for cmd in commands:
-            self._engine.execute_command(cmd)
-            self._trigger_bot_reaction_if_active()
-
-        return Result.ok(None)
+        return self.execute_commands(commands)
 
     def init_game(self, board_lines: List[str]) -> Result:
         """Parse *board_lines*, validate them, and install the starting board.
@@ -100,23 +97,31 @@ class GameService:
             return Result.fail(consts.ERROR_NO_BOARD_FOUND)
         return self._build_and_store_board(raw_board)
 
-    def execute_command(self, command: str) -> Result:
-        """Forward a single DSL command (click/right_click/wait/print board)."""
+    def execute_command(self, command: GameCommand) -> Result:
+        """Forward a single typed command to the engine, then let the bot react."""
         self._engine.execute_command(command)
         self._trigger_bot_reaction_if_active()
         return Result.ok(None)
 
+    def execute_commands(self, commands: List[GameCommand]) -> Result:
+        """Execute *commands* in order, stopping at the first failure."""
+        for command in commands:
+            result = self.execute_command(command)
+            if not result.is_ok:
+                return result
+        return Result.ok(None)
+
     def click(self, row: int, col: int) -> Result:
-        """Click board cell (row, col). Same endpoint as ``click x y``, but in
+        """Click board cell (row, col). Same endpoint as ClickCommand, but in
         cell coordinates so callers need not know the pixel cell size."""
         return self.execute_command(
-            f"{consts.COMMAND_CLICK} {self._cell_to_px(col)} {self._cell_to_px(row)}"
+            ClickCommand(x=self._cell_to_px(col), y=self._cell_to_px(row))
         )
 
     def right_click(self, row: int, col: int) -> Result:
         """Right-click (jump-in-place) board cell (row, col), in cell coordinates."""
         return self.execute_command(
-            f"{consts.COMMAND_RIGHT_CLICK} {self._cell_to_px(col)} {self._cell_to_px(row)}"
+            RightClickCommand(x=self._cell_to_px(col), y=self._cell_to_px(row))
         )
 
     def advance_clock(self, ms: int) -> Result:

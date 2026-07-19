@@ -150,6 +150,10 @@ COLOR_CHANNEL_MAX = 255
 COLOR_CHANNEL_LEVELS = 256
 RGB_CHANNEL_COUNT = 3
 
+# Contrasting outline halo composited behind each piece sprite.
+SPRITE_OUTLINE_BLUR_RADIUS = 2
+SPRITE_TRANSPARENT_RGBA = (0, 0, 0, 0)
+
 # --------------------------------------------------------------------------
 # Replay window
 # --------------------------------------------------------------------------

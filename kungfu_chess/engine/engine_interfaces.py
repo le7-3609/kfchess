@@ -11,6 +11,7 @@ from typing import List, Optional
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState
+from kungfu_chess.engine.input_commands import GameCommand
 
 
 class InputSourceInterface(ABC):
@@ -22,8 +23,8 @@ class InputSourceInterface(ABC):
     """
 
     @abstractmethod
-    def get_next_commands(self) -> List[str]:
-        """Return the next batch of command strings to execute, if any."""
+    def get_next_commands(self) -> List[GameCommand]:
+        """Return the next batch of commands to execute, if any."""
 
 
 class PixelMapperInterface(ABC):
