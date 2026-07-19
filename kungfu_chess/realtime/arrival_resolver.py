@@ -11,6 +11,16 @@ from typing import List, Optional, Tuple
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState, Movement, Cooldown, EnPassantTarget
 from kungfu_chess.model.position import Position
+from kungfu_chess.events import (
+    ABORT_REASON_CAPTURED_IN_FLIGHT,
+    ABORT_REASON_PATH_BLOCKED,
+    EventBus,
+    GameEndedEvent,
+    MoveAbortedEvent,
+    PieceCapturedEvent,
+    PieceMovedEvent,
+    PiecePromotedEvent,
+)
 from kungfu_chess.rules.rule_engine import PathCheckerInterface
 from kungfu_chess.rules.piece_rules import PromotionStrategyInterface
 from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
@@ -24,12 +34,12 @@ class ArrivalResolver:
         path_checker: PathCheckerInterface,
         config: 'GameConfig',  # type: ignore[name-defined]
         promotion_strategy: Optional[PromotionStrategyInterface] = None,
-        move_event_publisher: Optional['MoveEventPublisher'] = None,  # type: ignore[name-defined]
+        event_bus: Optional[EventBus] = None,
     ) -> None:
         self._path_checker = path_checker
         self._config = config
         self._promotion_strategy = promotion_strategy
-        self._move_event_publisher = move_event_publisher
+        self._event_bus = event_bus or EventBus()
 
     def resolve_arrivals(
         self,
@@ -92,10 +102,9 @@ class ArrivalResolver:
         mov.piece.transition_to_idle()
         if state.selected_pos == mov.frm:
             state.selected_pos = None
-        if mov.piece.piece_type in self._config.king_pieces:
-            state.game_over = True
-            state.game_over_reason = "king_captured"
-            state.winner = airborne_mov.piece.color
+        # Reported at mov.to, the square the arriving piece was struck on —
+        # it never got to occupy it, but that is where the clash is visible.
+        self._announce_capture(state, mov.piece, mov.to, airborne_mov.piece, t)
         return True
 
     def _resolve_normal_arrival(
@@ -119,7 +128,7 @@ class ArrivalResolver:
             board.set_piece(mov.frm, None)
         board.set_piece(mov.to, mov.piece)
 
-        is_ep = self._apply_en_passant_capture(board, state, mov, arriving, movements)
+        is_ep = self._apply_en_passant_capture(board, state, mov, t, arriving, movements)
         self._maybe_create_en_passant_target(state, mov, t)
 
         return self._finalize_arrival_cooldown_and_event(board, state, mov, t, is_capture, is_ep)
@@ -155,6 +164,7 @@ class ArrivalResolver:
         """
         if not frm_still_mine:
             mov.piece.transition_to_idle()
+            self._announce_abort(mov, mov.frm, ABORT_REASON_CAPTURED_IN_FLIGHT, t)
             return
 
         stuck_pos = arbiter.get_stuck_position(mov, t)
@@ -162,6 +172,35 @@ class ArrivalResolver:
             board.set_piece(mov.frm, None)
             board.set_piece(stuck_pos, mov.piece)
         self._enter_cooldown(state, mov.piece, t)
+        self._announce_abort(mov, stuck_pos, ABORT_REASON_PATH_BLOCKED, t)
+
+    def _announce_capture(self, state: GameState, victim, pos: Position, captor, t: int) -> None:
+        """Publish *victim*'s capture by *captor*, ending the game if it was a king."""
+        self._event_bus.publish(PieceCapturedEvent(
+            at_ms=t,
+            color=victim.color,
+            piece_type=victim.piece_type,
+            pos=pos,
+            captor_color=captor.color,
+            captor_piece_type=captor.piece_type,
+        ))
+        if victim.piece_type in self._config.king_pieces:
+            self._announce_game_end(state, "king_captured", captor.color, t)
+
+    def _announce_abort(self, mov: Movement, stopped_at: Position, reason: str, t: int) -> None:
+        self._event_bus.publish(MoveAbortedEvent(
+            at_ms=t,
+            color=mov.piece.color,
+            piece_type=mov.piece.piece_type,
+            frm=mov.frm,
+            stopped_at=stopped_at,
+            reason=reason,
+        ))
+
+    def _announce_game_end(self, state: GameState, reason: str, winner: Optional[str], t: int) -> None:
+        """End the game and publish it, only for the ending that actually took effect."""
+        if state.end_game(reason, winner):
+            self._event_bus.publish(GameEndedEvent(at_ms=t, reason=reason, winner=winner))
 
     def _enter_cooldown(self, state: GameState, piece, t: int) -> None:
         """Put *piece* into cooldown for the configured duration starting at *t*."""
@@ -196,19 +235,13 @@ class ArrivalResolver:
         target_piece = board.get_piece(mov.to)
         if target_piece is None:
             return False
-
-        # A piece still in flight has left this square already; it is only
-        # listed here because the board records its origin until it lands.
         is_leaving = any(am.piece == target_piece and am.arrival_ms > t for am in movements)
         if is_leaving:
             return False
 
         if state.selected_pos == mov.to:
             state.selected_pos = None
-        if target_piece.piece_type in self._config.king_pieces:
-            state.game_over = True
-            state.game_over_reason = "king_captured"
-            state.winner = mov.piece.color
+        self._announce_capture(state, target_piece, mov.to, mov.piece, t)
         self._remove_piece_from_play(state, target_piece, arriving, movements)
         return target_piece.color != mov.piece.color
 
@@ -217,6 +250,7 @@ class ArrivalResolver:
         board: BoardInterface,
         state: GameState,
         mov: Movement,
+        t: int,
         arriving: List[Movement],
         movements: List[Movement],
     ) -> bool:
@@ -228,6 +262,7 @@ class ArrivalResolver:
                 continue
             captured_piece = board.get_piece(ep.capture_pos)
             if captured_piece:
+                self._announce_capture(state, captured_piece, ep.capture_pos, mov.piece, t)
                 self._remove_piece_from_play(state, captured_piece, arriving, movements)
             board.set_piece(ep.capture_pos, None)
             state.en_passant_targets.remove(ep)
@@ -255,12 +290,25 @@ class ArrivalResolver:
         if self._promotion_strategy:
             promoted = self._promotion_strategy.evaluate_promotion(mov.piece, mov.to, self._config)
             if promoted is not None:
+                self._event_bus.publish(PiecePromotedEvent(
+                    at_ms=t,
+                    color=mov.piece.color,
+                    from_piece_type=mov.piece.piece_type,
+                    to_piece_type=promoted.piece_type,
+                    pos=mov.to,
+                ))
                 mov.piece = promoted
                 board.set_piece(mov.to, promoted)
 
         self._enter_cooldown(state, mov.piece, t)
-        if self._move_event_publisher:
-            self._move_event_publisher.publish(mov.piece, mov.frm, mov.to)
+        self._event_bus.publish(PieceMovedEvent(
+            at_ms=t,
+            color=mov.piece.color,
+            piece_type=mov.piece.piece_type,
+            frm=mov.frm,
+            to=mov.to,
+            was_capture=is_capture or is_ep,
+        ))
 
         reset_halfmove = False
         increment_halfmove = False

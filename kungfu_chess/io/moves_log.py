@@ -1,5 +1,4 @@
-"""Move history recording (Layer 6/IO) — the "moves log" counterpart to the
-python_port GameSession listener, adapted to kfchess's MoveEventPublisher.
+"""Move history recording (Layer 6/IO) — an EventBus subscriber.
 
 Owns: an in-memory, ordered record of every resolved move, as algebraic-ish
 notation strings, for display and for GameHistoryStore to persist.
@@ -9,9 +8,9 @@ game_history_store.py's job).
 
 import re
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import List, Optional
 
-from kungfu_chess.engine.engine_interfaces import MoveEventListenerInterface
+from kungfu_chess.events import Event, Observer, PieceMovedEvent
 from kungfu_chess.model.position import Position
 
 _FILES = "abcdefgh"
@@ -70,21 +69,24 @@ def parse_notation(notation: str) -> Optional[ParsedNotation]:
     )
 
 
-class MovesLog(MoveEventListenerInterface):
-    """Subscribes to MoveEventPublisher and records every resolved move.
+class MovesLog(Observer):
+    """Records every resolved move announced on the EventBus.
 
-    *clock_ms* lets the caller supply the current game clock (e.g.
-    ``lambda: state_repo.get_state().clock_ms``) since MoveEventPublisher
-    itself does not pass a timestamp.
+    Each entry is stamped with the event's own arrival instant rather than
+    whatever the clock reads when the log is asked, so a move keeps the time it
+    actually landed even though several can resolve within one tick.
     """
 
-    def __init__(self, clock_ms: Optional[Callable[[], int]] = None) -> None:
+    def __init__(self) -> None:
         self._entries: List[MoveLogEntry] = []
-        self._clock_ms = clock_ms or (lambda: 0)
 
-    def on_move(self, piece, frm: Position, to: Position) -> None:
-        notation = f"{piece.piece_type}{_algebraic(frm)}-{_algebraic(to)}"
-        self._entries.append(MoveLogEntry(color=piece.color, notation=notation, time_ms=self._clock_ms()))
+    def on_event(self, event: Event) -> None:
+        if not isinstance(event, PieceMovedEvent):
+            return
+        notation = f"{event.piece_type}{_algebraic(event.frm)}-{_algebraic(event.to)}"
+        self._entries.append(
+            MoveLogEntry(color=event.color, notation=notation, time_ms=event.at_ms)
+        )
 
     def entries(self) -> List[MoveLogEntry]:
         return list(self._entries)

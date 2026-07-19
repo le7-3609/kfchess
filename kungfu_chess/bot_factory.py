@@ -62,4 +62,6 @@ def build_bot_service(
         engine=engine,
         bot=bot,
         config=config,
+        arbiter=core.arbiter,
+        event_bus=core.event_bus,
     )

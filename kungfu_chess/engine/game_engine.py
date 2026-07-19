@@ -7,8 +7,8 @@ Must not own: piece-specific movement logic, rendering, input parsing,
 
 Concrete collaborators live in:
   - engine/engine_interfaces.py (PixelMapperInterface, BoardRepositoryInterface,
-    GameStateRepositoryInterface, BoardPrinterInterface, MoveEventListenerInterface,
-    MoveEventPublisher)
+    GameStateRepositoryInterface, BoardPrinterInterface)
+  - events.py                (EventBus — announces game-over to subscribers)
   - engine/play_state.py     (GamePlayState, ActivePlayState, GameOverPlayState,
     GamePlayStateFactory)
   - engine/click_commands.py (ClickCommandProcessor — selection state machine)
@@ -31,14 +31,13 @@ from kungfu_chess.rules.rule_engine import (
     CastlingValidator,
     serialize_board_state,
 )
+from kungfu_chess.events import EventBus, GameEndedEvent
 from kungfu_chess.realtime.arbiter_interfaces import RealTimeArbiterInterface
 from kungfu_chess.engine.engine_interfaces import (
     PixelMapperInterface,
     BoardRepositoryInterface,
     GameStateRepositoryInterface,
     BoardPrinterInterface,
-    MoveEventListenerInterface,
-    MoveEventPublisher,
 )
 from kungfu_chess.engine.play_state import (
     GamePlayState,
@@ -55,8 +54,6 @@ __all__ = [
     "BoardRepositoryInterface",
     "GameStateRepositoryInterface",
     "BoardPrinterInterface",
-    "MoveEventListenerInterface",
-    "MoveEventPublisher",
     "GamePlayState",
     "ActivePlayState",
     "GameOverPlayState",
@@ -79,7 +76,7 @@ class GameEngineDependencies:
     state_repo: GameStateRepositoryInterface
     printer: BoardPrinterInterface
     move_validator_factory: MoveValidatorFactoryInterface
-    move_event_publisher: MoveEventPublisher
+    event_bus: EventBus
     path_checker: PathCheckerInterface
     config: 'GameConfig'  # type: ignore[name-defined]
     board_mapper: PixelMapperInterface
@@ -119,7 +116,7 @@ class GameEngine:
         self._state_repo = deps.state_repo
         self._printer = deps.printer
         self._move_validator_factory = deps.move_validator_factory
-        self._move_event_publisher = deps.move_event_publisher
+        self._event_bus = deps.event_bus
         self._path_checker = deps.path_checker
         self._config = deps.config
         self._board_mapper = deps.board_mapper
@@ -167,7 +164,7 @@ class GameEngine:
             path_checker=self._path_checker,
             config=self._config,
             promotion_strategy=StandardPawnPromotion(),
-            move_event_publisher=self._move_event_publisher,
+            event_bus=self._event_bus,
         )
 
     def _create_default_threat_validator(self) -> ThreatValidator:
@@ -385,10 +382,10 @@ class GameEngine:
 
     def _end_game(self, state: GameState, reason: str, winner: Optional[str] = None) -> None:
         """Mark the game over with *reason*, leaving the winner unset for a draw."""
-        state.game_over = True
-        state.game_over_reason = reason
-        if winner is not None:
-            state.winner = winner
+        if state.end_game(reason, winner):
+            self._event_bus.publish(
+                GameEndedEvent(at_ms=state.clock_ms, reason=reason, winner=winner)
+            )
 
     @staticmethod
     def _opponent(color: str) -> str:

@@ -59,28 +59,6 @@ class GameStateRepositoryInterface(ABC):
         """Persist the given game state."""
 
 
-class MoveEventListenerInterface(ABC):
-    """Observer notified when a piece is successfully moved."""
-
-    @abstractmethod
-    def on_move(self, piece, frm: Position, to: Position) -> None:
-        """Called after a legal move has been committed to the board."""
-
-
-class MoveEventPublisher:
-    """Subject in the Observer pattern; notifies registered listeners."""
-
-    def __init__(self) -> None:
-        self._listeners: List[MoveEventListenerInterface] = []
-
-    def subscribe(self, listener: MoveEventListenerInterface) -> None:
-        self._listeners.append(listener)
-
-    def publish(self, piece, frm: Position, to: Position) -> None:
-        for listener in self._listeners:
-            listener.on_move(piece, frm, to)
-
-
 class BoardPrinterInterface(ABC):
     @abstractmethod
     def print_board(self, board: BoardInterface) -> None:

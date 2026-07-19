@@ -95,6 +95,36 @@ class TestChromeCacheIsInvisible(unittest.TestCase):
         self.assertTrue(_same_pixels(_render(self.panel, many), _fresh_render(many)))
 
 
+class TestScores(unittest.TestCase):
+    """Scores arrive from ScoreUpdatedEvent and must repaint the chrome."""
+
+    def setUp(self):
+        self.panel = InfoPanel("White", "Black")
+        self.moves = [_entry("w", "Nf3", 1000)]
+
+    def _render_scored(self, white, black, panel=None):
+        return (panel or self.panel).render(
+            _board(), BOARD_SIZE, CANVAS_W, CANVAS_H, self.moves,
+            white_score=white, black_score=black,
+        )
+
+    def test_a_score_change_invalidates_the_cache(self):
+        self._render_scored(0, 0)
+        self.assertTrue(_same_pixels(
+            self._render_scored(3, 0), self._render_scored(3, 0, InfoPanel("White", "Black"))
+        ))
+
+    def test_different_scores_paint_differently(self):
+        self.assertFalse(_same_pixels(self._render_scored(0, 0), self._render_scored(9, 0)))
+
+    def test_each_side_gets_its_own_score(self):
+        self.assertFalse(_same_pixels(self._render_scored(5, 0), self._render_scored(0, 5)))
+
+    def test_omitting_scores_paints_no_score_line(self):
+        """The replay window has no captures to total, so it passes none."""
+        self.assertFalse(_same_pixels(_render(self.panel, self.moves), self._render_scored(0, 0)))
+
+
 class TestChromeCacheDoesNotLeakBetweenFrames(unittest.TestCase):
     def test_the_returned_image_is_not_the_cached_chrome(self):
         """render must hand back a copy: the caller gets a board drawn over the

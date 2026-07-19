@@ -97,5 +97,30 @@ class TestEngineMisc(unittest.TestCase):
         self.service._engine.execute_command("click 50 50")
         self.assertEqual(self.service._state_repo.get_state().selected_pos, None)
 
+
+class TestGameStateEndGame(unittest.TestCase):
+    """end_game is the single gate for 'the game is over', and it keeps the first ending."""
+
+    def test_ending_a_live_game_records_the_result(self):
+        state = GameState()
+        self.assertTrue(state.end_game("checkmate", "w"))
+        self.assertTrue(state.game_over)
+        self.assertEqual(state.game_over_reason, "checkmate")
+        self.assertEqual(state.winner, "w")
+
+    def test_a_draw_leaves_no_winner(self):
+        state = GameState()
+        state.end_game("stalemate")
+        self.assertIsNone(state.winner)
+
+    def test_a_second_ending_is_refused_and_changes_nothing(self):
+        """Two kings can fall in one resolution pass; the first ending is the real one."""
+        state = GameState()
+        state.end_game("king_captured", "w")
+        self.assertFalse(state.end_game("king_captured", "b"))
+        self.assertEqual(state.winner, "w")
+        self.assertEqual(state.game_over_reason, "king_captured")
+
+
 if __name__ == "__main__":
     unittest.main()

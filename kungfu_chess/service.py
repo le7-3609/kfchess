@@ -10,11 +10,16 @@ build/execute wiring, and exposes two kinds of operations:
 
 Callers (the tk UI, the script runner, bots) never reach past this facade to
 the GameEngine, the board/state repositories, or the arbiter directly.
+
+It is also the subscription point for the domain EventBus: observers register
+through subscribe() here rather than being handed the engine's bus, so "who
+may listen" stays a property of the facade like everything else.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Type
 
 from kungfu_chess.config.game_config import GameConfig
+from kungfu_chess.events import Event, EventBus, GameStartedEvent, Observer
 from kungfu_chess.model.game_state import GameState, Result
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface, GameEngine
@@ -49,6 +54,7 @@ class GameService:
         arbiter: RealTimeArbiterInterface = None,
         moves_log: MovesLog = None,
         history_store: GameHistoryStore = None,
+        event_bus: EventBus = None,
     ) -> None:
         self._board_repo = board_repo
         self._state_repo = state_repo
@@ -60,6 +66,7 @@ class GameService:
         self._arbiter = arbiter
         self._moves_log = moves_log
         self._history_store = history_store
+        self._event_bus = event_bus
 
         self._snapshot_builder: Optional[SnapshotBuilder] = None
         if arbiter is not None:
@@ -133,6 +140,20 @@ class GameService:
         state = self._state_repo.get_state()
         return self._snapshot_builder.build(board, state)
 
+    def subscribe(self, observer: Observer, *event_types: Type[Event]) -> None:
+        """Register *observer* for domain events, optionally narrowed to *event_types*.
+
+        With no event types the observer receives everything published. This is
+        how the UI attaches itself to the simulation: the engine publishes into
+        a bus that knows nothing about who is listening.
+        """
+        self._require_event_bus()
+        self._event_bus.subscribe(observer, *event_types)
+
+    def unsubscribe(self, observer: Observer) -> None:
+        self._require_event_bus()
+        self._event_bus.unsubscribe(observer)
+
     def get_moves(self) -> List[MoveLogEntry]:
         """Every resolved move so far, oldest first."""
         if self._moves_log is None:
@@ -184,7 +205,19 @@ class GameService:
         self._board_repo.save_board(board)
         self._state_repo.save_state(GameState())
         self._adjust_pawn_rules_for_board_height(board)
+        self._announce_game_started(board)
         return Result.ok(None)
+
+    def _announce_game_started(self, board: BoardInterface) -> None:
+        """Tell subscribers a fresh board is in play so they can clear derived state.
+
+        Installing a board resets the clock and the game state, which would
+        otherwise leave observers (score totals, capture animations) holding
+        totals from the previous game.
+        """
+        if self._event_bus is None:
+            return
+        self._event_bus.publish(GameStartedEvent(at_ms=0, rows=board.rows, cols=board.cols))
 
     def _cell_to_px(self, cell: int) -> int:
         """Center-of-cell pixel coordinate for the engine's pixel mapper."""
@@ -194,6 +227,10 @@ class GameService:
     def _require_history(self) -> None:
         if self._history_store is None:
             raise RuntimeError("This service was built without a history_store")
+
+    def _require_event_bus(self) -> None:
+        if self._event_bus is None:
+            raise RuntimeError("This service was built without an event_bus")
 
     def _adjust_pawn_rules_for_board_height(self, board: BoardInterface) -> None:
         if not self._config:

@@ -6,9 +6,9 @@ import tempfile
 import unittest
 
 from kungfu_chess.config import consts
+from kungfu_chess.events import PieceMovedEvent
 from kungfu_chess.io.game_history_store import GameHistoryStore
 from kungfu_chess.io.moves_log import MovesLog
-from kungfu_chess.model.piece import TextPiece
 from kungfu_chess.model.position import Position
 
 
@@ -19,8 +19,15 @@ class _StoreTestCase(unittest.TestCase):
         self.store = GameHistoryStore(self._dir.name)
 
     def _log_with_one_move(self) -> MovesLog:
-        log = MovesLog(clock_ms=lambda: 2000)
-        log.on_move(TextPiece("w", "P"), Position(6, 4), Position(4, 4))
+        log = MovesLog()
+        log.on_event(PieceMovedEvent(
+            at_ms=2000,
+            color="w",
+            piece_type="P",
+            frm=Position(6, 4),
+            to=Position(4, 4),
+            was_capture=False,
+        ))
         return log
 
     def _write_raw(self, file_name: str, payload: dict) -> None:
