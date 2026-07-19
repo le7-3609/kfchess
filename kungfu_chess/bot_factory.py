@@ -29,7 +29,6 @@ def build_random_bot(color: str, core: CoreComponents, config: GameConfig) -> Ra
         board_repo=core.board_repo,
         state_repo=core.state_repo,
         endgame_validator=endgame_validator,
-        config=config,
     )
 
 

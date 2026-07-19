@@ -8,7 +8,6 @@ points the other way.
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState
 from kungfu_chess.engine.input_commands import GameCommand
@@ -25,19 +24,6 @@ class InputSourceInterface(ABC):
     @abstractmethod
     def get_next_commands(self) -> List[GameCommand]:
         """Return the next batch of commands to execute, if any."""
-
-
-class PixelMapperInterface(ABC):
-    """Translates raw pixel coordinates into board positions.
-
-    Defined here (Layer 4) rather than imported from input/ (Layer 6) so the
-    dependency points inward: input.BoardMapper implements this interface,
-    it is never the other way around.
-    """
-
-    @abstractmethod
-    def pixel_to_position(self, x: int, y: int, board: BoardInterface) -> Optional[Position]:
-        """Convert pixel coordinates (x, y) to a board Position, or None if off-board."""
 
 
 class BoardRepositoryInterface(ABC):

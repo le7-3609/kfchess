@@ -29,8 +29,8 @@ class TestEngineCastlingEndgame(unittest.TestCase):
         self.board.set_piece(r_pos, TextPiece("w", "R"))
         self.service._board_repo.save_board(self.board)
         
-        self.service._engine.execute_command(ClickCommand(450, 750))  # select King at (7,4)
-        self.service._engine.execute_command(ClickCommand(750, 750))  # click Rook at (7,7)
+        self.service._engine.execute_command(ClickCommand(Position(7, 4)))  # select King at (7,4)
+        self.service._engine.execute_command(ClickCommand(Position(7, 7)))  # click Rook at (7,7)
         
         # With instant movement: King goes to 7,6 and Rook goes to 7,5.
         self.assertEqual(self.board.get_piece(Position(7, 6)).piece_type, "K")
@@ -50,8 +50,8 @@ class TestEngineCastlingEndgame(unittest.TestCase):
         self.board.set_piece(r_pos, TextPiece("w", "R"))
         self.service._board_repo.save_board(self.board)
         
-        self.service._engine.execute_command(ClickCommand(450, 750))  # select King at (7,4)
-        self.service._engine.execute_command(ClickCommand(750, 750))  # click Rook at (7,7)
+        self.service._engine.execute_command(ClickCommand(Position(7, 4)))  # select King at (7,4)
+        self.service._engine.execute_command(ClickCommand(Position(7, 7)))  # click Rook at (7,7)
         
         self.assertEqual(self.board.get_piece(Position(7, 4)).piece_type, "K")
         self.assertEqual(self.board.get_piece(Position(7, 7)).piece_type, "R")
@@ -70,8 +70,8 @@ class TestEngineCastlingEndgame(unittest.TestCase):
         self.board.set_piece(threat_pos, TextPiece("b", "R"))
         self.service._board_repo.save_board(self.board)
         
-        self.service._engine.execute_command(ClickCommand(450, 750))  # select King at (7,4)
-        self.service._engine.execute_command(ClickCommand(750, 750))  # click Rook at (7,7)
+        self.service._engine.execute_command(ClickCommand(Position(7, 4)))  # select King at (7,4)
+        self.service._engine.execute_command(ClickCommand(Position(7, 7)))  # click Rook at (7,7)
         
         self.assertEqual(self.board.get_piece(Position(7, 4)).piece_type, "K")
 

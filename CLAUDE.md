@@ -30,7 +30,7 @@ Kung Fu Chess is real-time chess with **no turns**: both colors move concurrentl
 
 ## Architecture
 
-Clean Architecture with a strict numbered layering. **Every module's docstring names its layer and states what it must *not* own** — read it before editing; those constraints are the design, not decoration. Dependencies point inward only, and interfaces are declared in the inner layer that needs them (e.g. `PixelMapperInterface` lives in `engine/engine_interfaces.py`, not in `input/`, so engine never imports input).
+Clean Architecture with a strict numbered layering. **Every module's docstring names its layer and states what it must *not* own** — read it before editing; those constraints are the design, not decoration. Dependencies point inward only, and interfaces are declared in the inner layer that needs them (e.g. `InputSourceInterface` lives in `engine/engine_interfaces.py`, not in `input/`, so engine never imports input). Positions are grid `Position(row, col)` throughout every layer from `engine/` inward; pixels exist only at the UI's own boundary (`input/board_mapper.py`), which converts to `Position` before anything reaches `GameService`/`GameEngine`.
 
 | Layer | Package | Role |
 |---|---|---|
@@ -67,7 +67,7 @@ The core is a pure simulation engine with no UI or network dependency. Keep it t
 
 ### Text scripts (`.kfc`)
 
-Integration tests in [tests/integration/scripts/](tests/integration/scripts/) are the executable spec for the rules. Format: a `Board:` block of tokens (`wK`, `bR`, `.`), a `Commands:` block (`click X Y`, `right_click X Y`, `wait MS`, `print board` — pixel coordinates, unrecognized lines are ignored by design), and an `Expected:` board block. They run through `build_service()` (instant movement) with `require_kings=False`. Adding a rule case here is usually better than a unit test
+Integration tests in [tests/integration/scripts/](tests/integration/scripts/) are the executable spec for the rules. Format: a `Board:` block of tokens (`wK`, `bR`, `.`), a `Commands:` block (`click ROW COL`, `right_click ROW COL`, `wait MS`, `print board` — grid cell coordinates, unrecognized lines are ignored by design), and an `Expected:` board block. They run through `build_service()` (instant movement) with `require_kings=False`. Adding a rule case here is usually better than a unit test
 
 ## Conventions & Clean Code
 
