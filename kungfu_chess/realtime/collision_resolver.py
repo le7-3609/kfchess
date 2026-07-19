@@ -8,6 +8,7 @@ cooldown. Castling's simultaneous King+Rook arrival is exempted.
 
 from typing import Callable, List, Optional, Tuple
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState, Movement, Cooldown
@@ -119,7 +120,7 @@ class CollisionResolver:
         return (
             mov1.piece.color == mov2.piece.color
             and mov1.arrival_ms == mov2.arrival_ms
-            and {mov1.piece.piece_type, mov2.piece.piece_type} == {"K", "R"}
+            and {mov1.piece.piece_type, mov2.piece.piece_type} == consts.CASTLING_PIECE_PAIR
         )
 
     def _pick_winner_and_loser(
@@ -189,10 +190,12 @@ class CollisionResolver:
             captor_piece_type=winner.piece.piece_type,
         ))
         if loser.piece.piece_type in self._config.king_pieces:
-            if state.end_game("king_captured", winner.piece.color):
-                self._event_bus.publish(
-                    GameEndedEvent(at_ms=t, reason="king_captured", winner=winner.piece.color)
-                )
+            if state.end_game(consts.GAME_OVER_KING_CAPTURED, winner.piece.color):
+                self._event_bus.publish(GameEndedEvent(
+                    at_ms=t,
+                    reason=consts.GAME_OVER_KING_CAPTURED,
+                    winner=winner.piece.color,
+                ))
 
     def _abort_into_cooldown(
         self, board: BoardInterface, state: GameState, loser: Movement, stuck_pos: Position, t: int

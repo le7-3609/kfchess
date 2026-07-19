@@ -13,8 +13,10 @@ from typing import List, Optional
 from kungfu_chess.config import consts
 from kungfu_chess.io.moves_log import MoveLogEntry, MovesLog
 
-_DEFAULT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "saved_games")
-_SAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]+")
+_DEFAULT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "..", consts.SAVED_GAMES_DIR_NAME
+)
+_SAFE_NAME = re.compile(consts.SAVE_NAME_SAFE_PATTERN)
 
 
 @dataclass(frozen=True)
@@ -55,14 +57,15 @@ class GameHistoryStore:
         it was written to.
         """
         os.makedirs(self._directory, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        file_path = os.path.join(self._directory, f"{_sanitize(save_name)}_{timestamp}.json")
+        timestamp = datetime.now().strftime(consts.SAVE_TIMESTAMP_FORMAT)
+        file_name = f"{_sanitize(save_name)}_{timestamp}{consts.SAVE_FILE_EXTENSION}"
+        file_path = os.path.join(self._directory, file_name)
 
         payload = self._build_payload(
             save_name, white_name, black_name, winner, moves_log, timestamp, speed_ms, cooldown_ms
         )
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        with open(file_path, consts.FILE_MODE_WRITE, encoding=consts.FILE_ENCODING) as f:
+            json.dump(payload, f, indent=consts.JSON_INDENT)
         return file_path
 
     def _build_payload(
@@ -78,15 +81,19 @@ class GameHistoryStore:
     ) -> dict:
         """Assemble the on-disk JSON shape for a saved game."""
         return {
-            "saveName": save_name,
-            "whiteName": white_name,
-            "blackName": black_name,
-            "winner": winner or "",
-            "savedAt": timestamp,
-            "speedMs": speed_ms,
-            "cooldownMs": cooldown_ms,
-            "moves": [
-                {"color": entry.color, "notation": entry.notation, "time": entry.time_ms}
+            consts.SAVE_KEY_NAME: save_name,
+            consts.SAVE_KEY_WHITE_NAME: white_name,
+            consts.SAVE_KEY_BLACK_NAME: black_name,
+            consts.SAVE_KEY_WINNER: winner or "",
+            consts.SAVE_KEY_SAVED_AT: timestamp,
+            consts.SAVE_KEY_SPEED_MS: speed_ms,
+            consts.SAVE_KEY_COOLDOWN_MS: cooldown_ms,
+            consts.SAVE_KEY_MOVES: [
+                {
+                    consts.SAVE_KEY_MOVE_COLOR: entry.color,
+                    consts.SAVE_KEY_MOVE_NOTATION: entry.notation,
+                    consts.SAVE_KEY_MOVE_TIME: entry.time_ms,
+                }
                 for entry in moves_log.entries()
             ],
         }
@@ -95,33 +102,40 @@ class GameHistoryStore:
         """Names of every saved game file, newest first."""
         if not os.path.isdir(self._directory):
             return []
-        names = [name for name in os.listdir(self._directory) if name.endswith(".json")]
+        names = [
+            name for name in os.listdir(self._directory)
+            if name.endswith(consts.SAVE_FILE_EXTENSION)
+        ]
         names.sort(reverse=True)
         return names
 
     def load(self, file_name: str) -> SavedGame:
         file_path = os.path.join(self._directory, file_name)
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, consts.FILE_MODE_READ, encoding=consts.FILE_ENCODING) as f:
             data = json.load(f)
 
         moves = [
-            MoveLogEntry(color=m["color"], notation=m["notation"], time_ms=m["time"])
-            for m in data.get("moves", [])
+            MoveLogEntry(
+                color=m[consts.SAVE_KEY_MOVE_COLOR],
+                notation=m[consts.SAVE_KEY_MOVE_NOTATION],
+                time_ms=m[consts.SAVE_KEY_MOVE_TIME],
+            )
+            for m in data.get(consts.SAVE_KEY_MOVES, [])
         ]
         return SavedGame(
-            save_name=data.get("saveName", ""),
-            white_name=data.get("whiteName", ""),
-            black_name=data.get("blackName", ""),
-            winner=data.get("winner") or None,
-            saved_at=data.get("savedAt", ""),
+            save_name=data.get(consts.SAVE_KEY_NAME, ""),
+            white_name=data.get(consts.SAVE_KEY_WHITE_NAME, ""),
+            black_name=data.get(consts.SAVE_KEY_BLACK_NAME, ""),
+            winner=data.get(consts.SAVE_KEY_WINNER) or None,
+            saved_at=data.get(consts.SAVE_KEY_SAVED_AT, ""),
             moves=moves,
-            speed_ms=data.get("speedMs", consts.DEFAULT_MS_PER_SQUARE),
-            cooldown_ms=data.get("cooldownMs", consts.DEFAULT_COOLDOWN_DURATION_MS),
+            speed_ms=data.get(consts.SAVE_KEY_SPEED_MS, consts.DEFAULT_MS_PER_SQUARE),
+            cooldown_ms=data.get(consts.SAVE_KEY_COOLDOWN_MS, consts.DEFAULT_COOLDOWN_DURATION_MS),
         )
 
 
 def _sanitize(name: str) -> str:
     trimmed = (name or "").strip()
     if not trimmed:
-        trimmed = "game"
-    return _SAFE_NAME.sub("_", trimmed)
+        trimmed = consts.DEFAULT_SAVE_NAME
+    return _SAFE_NAME.sub(consts.SAVE_NAME_REPLACEMENT, trimmed)

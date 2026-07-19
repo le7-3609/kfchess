@@ -9,6 +9,8 @@ from abc import ABC, abstractmethod
 from typing import Optional
 from uuid import UUID, uuid4
 
+from kungfu_chess.config import consts
+
 
 
 class PieceStateInterface(ABC):
@@ -190,15 +192,16 @@ class TextPiece(PieceInterface):
 class PieceFactory:
     """Factory to create TextPiece instances from string tokens like 'wK'."""
 
-    VALID_COLORS = frozenset(('w', 'b'))
-    VALID_TYPES = frozenset(('K', 'Q', 'R', 'B', 'N', 'P'))
+    VALID_COLORS = frozenset(consts.ALL_COLORS)
+    VALID_TYPES = frozenset(consts.ALL_PIECE_TYPES)
 
     @staticmethod
     def from_string(token: str) -> Optional[PieceInterface]:
         """Return a TextPiece for *token*, or None if the token is invalid."""
-        if len(token) != 2:
+        if len(token) != consts.PIECE_TOKEN_LENGTH:
             return None
-        color_char, piece_char = token[0], token[1]
+        color_char = token[consts.TOKEN_COLOR_INDEX]
+        piece_char = token[consts.TOKEN_PIECE_TYPE_INDEX]
         if color_char not in PieceFactory.VALID_COLORS:
             return None
         if piece_char not in PieceFactory.VALID_TYPES:

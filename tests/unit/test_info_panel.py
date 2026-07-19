@@ -11,7 +11,8 @@ import unittest
 
 from kungfu_chess.io.moves_log import MoveLogEntry
 from kungfu_chess.ui.rendering.img import Img
-from kungfu_chess.ui.rendering.info_panel import MAX_ROWS, SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
+from kungfu_chess.ui.rendering.info_panel import InfoPanel
+from kungfu_chess.config.consts import PANEL_MAX_ROWS as MAX_ROWS, SIDE_PANEL_WIDTH, PANEL_TOP_HEIGHT as TOP_HEIGHT
 
 BOARD_SIZE = 64
 CANVAS_W = SIDE_PANEL_WIDTH * 2 + BOARD_SIZE

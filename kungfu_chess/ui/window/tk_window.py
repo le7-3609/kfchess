@@ -24,6 +24,7 @@ import tkinter as tk
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, Optional, Type
 
+from kungfu_chess.config import consts
 from kungfu_chess.events import (
     Event,
     GameEndedEvent,
@@ -38,18 +39,10 @@ from kungfu_chess.ui.preferences.board_themes import BOARD_THEMES, get_theme as 
 from kungfu_chess.ui.preferences.piece_themes import PIECE_THEMES, get_theme
 from kungfu_chess.ui.preferences.user_settings_store import UserSettings, UserSettingsStore
 from kungfu_chess.ui.rendering.img import Img
-from kungfu_chess.ui.rendering.info_panel import SIDE_PANEL_WIDTH, TOP_HEIGHT, InfoPanel
+from kungfu_chess.ui.rendering.info_panel import InfoPanel
 from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
 from kungfu_chess.ui.window.history_dialog import prompt_and_save, show_load_history_dialog
 from kungfu_chess.ui.window.image_view import TkImageView
-from kungfu_chess.ui.window.window_consts import BOARD_SIZE, TICK_MS
-
-SPEED_PRESETS_MS = {"Fast": 600, "Normal": 1000, "Slow": 1600}
-COOLDOWN_PRESETS_MS = {"Fast": 600, "Normal": 1000, "Slow": 1600}
-
-CAPTURE_FLASH_MS = 450
-CAPTURE_FLASH_COLOR = (255, 70, 40)
-CAPTURE_FLASH_MAX_ALPHA = 170
 
 
 @dataclass(frozen=True)
@@ -62,9 +55,11 @@ class _CaptureFlash:
     def alpha_at(self, clock_ms: int) -> int:
         """Flash opacity at *clock_ms*, fading linearly to nothing over its lifetime."""
         elapsed = clock_ms - self.started_ms
-        if elapsed < 0 or elapsed >= CAPTURE_FLASH_MS:
+        if elapsed < 0 or elapsed >= consts.CAPTURE_FLASH_MS:
             return 0
-        return round(CAPTURE_FLASH_MAX_ALPHA * (1 - elapsed / CAPTURE_FLASH_MS))
+        return round(
+            consts.CAPTURE_FLASH_MAX_ALPHA * (1 - elapsed / consts.CAPTURE_FLASH_MS)
+        )
 
 
 class TkGameWindow(Observer):
@@ -74,10 +69,10 @@ class TkGameWindow(Observer):
         self,
         service: GameService,
         renderer: PillowRenderer,
-        title: str = "Kung Fu Chess",
-        board_size: int = BOARD_SIZE,
-        white_name: str = "White",
-        black_name: str = "Black",
+        title: str = consts.WINDOW_TITLE,
+        board_size: int = consts.BOARD_SIZE,
+        white_name: str = consts.DEFAULT_WHITE_NAME,
+        black_name: str = consts.DEFAULT_BLACK_NAME,
         assets_dir: Optional[str] = None,
         settings_store: Optional[UserSettingsStore] = None,
     ):
@@ -91,7 +86,7 @@ class TkGameWindow(Observer):
         self.settings_store = settings_store or UserSettingsStore()
 
         self._capture_flashes: list[_CaptureFlash] = []
-        self._scores: Dict[str, int] = {"w": 0, "b": 0}
+        self._scores: Dict[str, int] = self._blank_scores()
         self._pending_game_over: Optional[GameEndedEvent] = None
 
         self.root = tk.Tk()
@@ -131,18 +126,25 @@ class TkGameWindow(Observer):
         if handler is not None:
             handler(event)
 
+    @staticmethod
+    def _blank_scores() -> Dict[str, int]:
+        return {color: consts.STARTING_SCORE for color in consts.ALL_COLORS}
+
     def _on_piece_captured(self, event: PieceCapturedEvent) -> None:
         self._capture_flashes.append(_CaptureFlash(pos=event.pos, started_ms=event.at_ms))
 
     def _on_score_updated(self, event: ScoreUpdatedEvent) -> None:
-        self._scores = {"w": event.white_score, "b": event.black_score}
+        self._scores = {
+            consts.COLOR_WHITE: event.white_score,
+            consts.COLOR_BLACK: event.black_score,
+        }
 
     def _on_game_ended(self, event: GameEndedEvent) -> None:
         self._pending_game_over = event
 
     def _on_game_started(self, event: GameStartedEvent) -> None:
         self._capture_flashes.clear()
-        self._scores = {"w": 0, "b": 0}
+        self._scores = self._blank_scores()
         self._pending_game_over = None
 
     def _build_settings_vars(self) -> None:
@@ -155,8 +157,8 @@ class TkGameWindow(Observer):
 
     def _build_canvas(self, board_size: int) -> None:
         """Create the canvas, its image view, and the click/resize bindings."""
-        self.canvas_width = SIDE_PANEL_WIDTH * 2 + board_size
-        self.canvas_height = TOP_HEIGHT + board_size
+        self.canvas_width = consts.SIDE_PANEL_WIDTH * 2 + board_size
+        self.canvas_height = consts.PANEL_TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
             self.root, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
         )
@@ -198,11 +200,12 @@ class TkGameWindow(Observer):
         )
         self._add_radio_submenu(
             settings_menu, "Movement Speed",
-            list(SPEED_PRESETS_MS.items()), self._speed_var, self._on_speed_selected,
+            list(consts.SPEED_PRESETS_MS.items()), self._speed_var, self._on_speed_selected,
         )
         self._add_radio_submenu(
             settings_menu, "Cooldown Time",
-            list(COOLDOWN_PRESETS_MS.items()), self._cooldown_var, self._on_cooldown_selected,
+            list(consts.COOLDOWN_PRESETS_MS.items()), self._cooldown_var,
+            self._on_cooldown_selected,
         )
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
 
@@ -272,9 +275,11 @@ class TkGameWindow(Observer):
         self.root.mainloop()
 
     def _canvas_to_cell(self, event_x: int, event_y: int) -> Optional[tuple[int, int]]:
-        board_x_offset = SIDE_PANEL_WIDTH + (self.canvas_width - SIDE_PANEL_WIDTH * 2 - self.board_size) // 2
-        board_y_offset = TOP_HEIGHT + (self.canvas_height - TOP_HEIGHT - self.board_size) // 2
-        
+        panel_width = consts.SIDE_PANEL_WIDTH
+        top_height = consts.PANEL_TOP_HEIGHT
+        board_x_offset = panel_width + (self.canvas_width - panel_width * 2 - self.board_size) // 2
+        board_y_offset = top_height + (self.canvas_height - top_height - self.board_size) // 2
+
         board_x = event_x - board_x_offset
         board_y = event_y - board_y_offset
         return self.renderer.get_geometry().pixel_to_cell(board_x, board_y)
@@ -301,19 +306,21 @@ class TkGameWindow(Observer):
             self.canvas_width = event.width
             self.canvas_height = event.height
             
-            available_board_w = max(100, self.canvas_width - SIDE_PANEL_WIDTH * 2)
-            available_board_h = max(100, self.canvas_height - TOP_HEIGHT)
+            minimum = consts.MIN_BOARD_DIMENSION_PX
+            available_board_w = max(minimum, self.canvas_width - consts.SIDE_PANEL_WIDTH * 2)
+            available_board_h = max(minimum, self.canvas_height - consts.PANEL_TOP_HEIGHT)
             self.board_size = min(available_board_w, available_board_h)
-            
+
+
             self.renderer.resize(self.board_size, self.board_size)
             self._refresh()
 
     def _schedule_tick(self) -> None:
-        self.root.after(TICK_MS, self._tick)
+        self.root.after(consts.TICK_MS, self._tick)
 
     def _tick(self) -> None:
         now = time.monotonic()
-        elapsed_ms = int((now - self._last_tick) * 1000)
+        elapsed_ms = int((now - self._last_tick) * consts.MS_PER_SECOND)
         self._last_tick = now
 
         self.service.advance_clock(elapsed_ms)
@@ -334,8 +341,8 @@ class TkGameWindow(Observer):
             self.canvas_width,
             self.canvas_height,
             self.service.get_moves(),
-            white_score=self._scores["w"],
-            black_score=self._scores["b"],
+            white_score=self._scores[consts.COLOR_WHITE],
+            black_score=self._scores[consts.COLOR_BLACK],
         )
         self.view.show(composed)
 
@@ -356,7 +363,7 @@ class TkGameWindow(Observer):
             rect = geometry.cell_to_pixel(flash.pos.row, flash.pos.col)
             board_img.fill_rect(
                 rect.x, rect.y, rect.width, rect.height,
-                (*CAPTURE_FLASH_COLOR, flash.alpha_at(clock_ms)),
+                (*consts.CAPTURE_FLASH_COLOR, flash.alpha_at(clock_ms)),
             )
 
     def _prompt_save_if_game_ended(self) -> None:

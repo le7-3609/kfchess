@@ -8,6 +8,7 @@ Must not own: movement rules, command execution, rendering, or test assertions
 import sys
 from typing import List, Optional, TextIO
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.position import Position
 
@@ -31,5 +32,5 @@ class BoardPrinter:
             tokens: List[str] = []
             for c in range(board.cols):
                 piece = board.get_piece(Position(r, c))
-                tokens.append('.' if piece is None else str(piece))
-            stream.write(" ".join(tokens) + "\n")
+                tokens.append(consts.EMPTY_SQUARE_TOKEN if piece is None else str(piece))
+            stream.write(consts.BOARD_TOKEN_SEPARATOR.join(tokens) + consts.BOARD_ROW_SEPARATOR)

@@ -10,25 +10,28 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.events import Event, Observer, PieceMovedEvent
 from kungfu_chess.model.position import Position
 
-_FILES = "abcdefgh"
-_RANKS = 8
-
-_NOTATION_PATTERN = re.compile(r"^([KQRBNP])([a-h][1-8])-([a-h][1-8])$")
+_NOTATION_PATTERN = re.compile(consts.NOTATION_PATTERN)
 
 
 def _algebraic(pos: Position) -> str:
     """Board Position -> algebraic square name (e.g. row=6,col=4 -> 'e2')."""
-    file_letter = _FILES[pos.col] if 0 <= pos.col < len(_FILES) else str(pos.col)
-    rank_number = _RANKS - pos.row
+    files = consts.NOTATION_FILES
+    file_letter = files[pos.col] if 0 <= pos.col < len(files) else str(pos.col)
+    rank_number = consts.NOTATION_RANKS - pos.row
     return f"{file_letter}{rank_number}"
 
 
 def _position(square: str) -> Position:
     """Algebraic square name -> board Position. Inverse of _algebraic."""
-    return Position(_RANKS - int(square[1]), _FILES.index(square[0]))
+    file_letter, rank_digit = square[0], square[1]
+    return Position(
+        consts.NOTATION_RANKS - int(rank_digit),
+        consts.NOTATION_FILES.index(file_letter),
+    )
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,10 @@ class MovesLog(Observer):
     def on_event(self, event: Event) -> None:
         if not isinstance(event, PieceMovedEvent):
             return
-        notation = f"{event.piece_type}{_algebraic(event.frm)}-{_algebraic(event.to)}"
+        notation = (
+            f"{event.piece_type}{_algebraic(event.frm)}"
+            f"{consts.NOTATION_MOVE_SEPARATOR}{_algebraic(event.to)}"
+        )
         self._entries.append(
             MoveLogEntry(color=event.color, notation=notation, time_ms=event.at_ms)
         )

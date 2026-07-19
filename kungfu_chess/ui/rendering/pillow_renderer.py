@@ -8,6 +8,7 @@ Must not own: game rules, board mutation, input parsing, or text-test logic
 
 import math
 
+from kungfu_chess.config import consts
 from kungfu_chess.ui.rendering.board_geometry import BoardGeometry
 from kungfu_chess.ui.rendering.img import Img
 from kungfu_chess.ui.rendering.sprite_library import SpriteLibrary
@@ -16,52 +17,39 @@ from kungfu_chess.view.game_snapshot import GameSnapshot, PieceSnapshot
 from kungfu_chess.view.piece_visual_state import PieceVisualState
 from kungfu_chess.view.renderer import RendererInterface
 
-LIGHT_SQUARE = (240, 217, 181, 255)
-DARK_SQUARE = (181, 136, 99, 255)
-SELECTION_COLOR = (220, 30, 30, 255)
-LEGAL_MOVE_CAPTURE_COLOR = (20, 255, 47, 160)
-LEGAL_MOVE_EMPTY_COLOR = (255, 246, 79, 160)
-CASTLE_TARGET_COLOR = (240, 200, 40, 160)
-JUMP_SHADOW_COLOR = (0, 0, 0, 90)
-GAME_OVER_OVERLAY_COLOR = (0, 0, 0, 160)
-GAME_OVER_TEXT_COLOR = (255, 255, 255, 255)
-
-REST_RED = (219, 68, 55)
-REST_AMBER = (240, 173, 40)
-REST_GREEN = (52, 168, 83)
-
-_GAME_OVER_LABELS = {
-    "king_captured": "KING CAPTURED",
-    "checkmate": "CHECKMATE",
-    "stalemate": "STALEMATE",
-    "insufficient_material": "DRAW - INSUFFICIENT MATERIAL",
-    "threefold_repetition": "DRAW - THREEFOLD REPETITION",
-    "fifty_move_rule": "DRAW - FIFTY MOVE RULE",
-}
-
-_COLOR_NAMES = {"w": "WHITE", "b": "BLACK"}
+# Re-exported so callers can name the highlight colors without depending on
+# the constant registry directly.
+LEGAL_MOVE_CAPTURE_COLOR = consts.LEGAL_MOVE_CAPTURE_COLOR
+LEGAL_MOVE_EMPTY_COLOR = consts.LEGAL_MOVE_EMPTY_COLOR
 
 
 def _rest_color(remaining_fraction: float) -> tuple[int, int, int, int]:
+    """Blend red -> amber -> green as a cooldown drains, for the rest indicator."""
     remaining_fraction = min(1.0, max(0.0, remaining_fraction))
-    if remaining_fraction >= 0.5:
-        t = (remaining_fraction - 0.5) / 0.5
-        c = _lerp_color(REST_AMBER, REST_GREEN, t)
+    midpoint = consts.REST_MIDPOINT_FRACTION
+    if remaining_fraction >= midpoint:
+        t = (remaining_fraction - midpoint) / midpoint
+        c = _lerp_color(consts.REST_AMBER, consts.REST_GREEN, t)
     else:
-        t = remaining_fraction / 0.5
-        c = _lerp_color(REST_RED, REST_AMBER, t)
-    return (*c, 255)
+        t = remaining_fraction / midpoint
+        c = _lerp_color(consts.REST_RED, consts.REST_AMBER, t)
+    return (*c, consts.COLOR_CHANNEL_MAX)
 
 
 def _lerp_color(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
-    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+    return tuple(
+        round(a[i] + (b[i] - a[i]) * t) for i in range(consts.RGB_CHANNEL_COUNT)
+    )
 
 
 def _game_over_text(snapshot: GameSnapshot) -> str:
-    label = _GAME_OVER_LABELS.get(snapshot.game_over_reason, "GAME OVER")
+    label = consts.GAME_OVER_LABELS.get(
+        snapshot.game_over_reason, consts.GAME_OVER_DEFAULT_LABEL
+    )
     if snapshot.winner is not None:
-        return f"{label} - {_COLOR_NAMES.get(snapshot.winner, snapshot.winner)} WINS"
-    return f"{label} - DRAW"
+        winner_name = consts.COLOR_BANNER_NAMES.get(snapshot.winner, snapshot.winner)
+        return f"{label} - {winner_name} {consts.GAME_OVER_WINNER_SUFFIX}"
+    return f"{label} - {consts.GAME_OVER_DRAW_SUFFIX}"
 
 
 class PillowRenderer(RendererInterface):
@@ -75,8 +63,8 @@ class PillowRenderer(RendererInterface):
         self._height = 0
         self._background_key: tuple | None = None
         self._background_img: Img | None = None
-        self._light_square = LIGHT_SQUARE
-        self._dark_square = DARK_SQUARE
+        self._light_square = consts.LIGHT_SQUARE
+        self._dark_square = consts.DARK_SQUARE
 
     def resize(self, width: int, height: int) -> None:
         self._width = width
@@ -129,11 +117,12 @@ class PillowRenderer(RendererInterface):
         """
         key = (self._width, self._height, snapshot.rows, snapshot.cols)
         if self._background_img is None or self._background_key != key:
-            base = Img().blank(self._width, self._height, (30, 30, 30, 255))
+            base = Img().blank(self._width, self._height, consts.BOARD_BACKDROP_COLOR)
             for r in range(snapshot.rows):
                 for c in range(snapshot.cols):
                     rect = self.geometry.cell_to_pixel(r, c)
-                    color = self._light_square if (r + c) % 2 == 0 else self._dark_square
+                    is_light = (r + c) % consts.CHECKERBOARD_MODULUS == 0
+                    color = self._light_square if is_light else self._dark_square
                     base.fill_rect(rect.x, rect.y, rect.width, rect.height, color)
             self._background_img = base
             self._background_key = key
@@ -144,28 +133,30 @@ class PillowRenderer(RendererInterface):
         if pos is None:
             return
         rect = self.geometry.cell_to_pixel(pos.row, pos.col)
-        inset = 2
+        inset = consts.SELECTION_INSET_PX
         img.draw_rect(
             rect.x + inset, rect.y + inset, rect.width - 2 * inset, rect.height - 2 * inset,
-            SELECTION_COLOR, width=4,
+            consts.SELECTION_COLOR, width=consts.SELECTION_BORDER_WIDTH,
         )
 
     def _draw_legal_moves(self, img: Img, snapshot: GameSnapshot) -> None:
         for pos in snapshot.legal_move_targets:
             rect = self.geometry.cell_to_pixel(pos.row, pos.col)
             occupied = snapshot.piece_at(pos) is not None
-            color = LEGAL_MOVE_CAPTURE_COLOR if occupied else LEGAL_MOVE_EMPTY_COLOR
+            color = (
+                consts.LEGAL_MOVE_CAPTURE_COLOR if occupied else consts.LEGAL_MOVE_EMPTY_COLOR
+            )
             cell_w = rect.width
             cell_h = rect.height
             cx = rect.x + cell_w / 2
             cy = rect.y + cell_h / 2
-            r = min(cell_w, cell_h) * 0.15
+            r = min(cell_w, cell_h) * consts.LEGAL_MOVE_DOT_RADIUS_RATIO
             img.fill_ellipse(round(cx - r), round(cy - r), round(2 * r), round(2 * r), color)
 
     def _draw_castle_targets(self, img: Img, snapshot: GameSnapshot) -> None:
         for pos in snapshot.castle_targets:
             rect = self.geometry.cell_to_pixel(pos.row, pos.col)
-            img.fill_rect(rect.x, rect.y, rect.width, rect.height, CASTLE_TARGET_COLOR)
+            img.fill_rect(rect.x, rect.y, rect.width, rect.height, consts.CASTLE_TARGET_COLOR)
 
     def _draw_piece(self, img: Img, pos: Position, piece: PieceSnapshot, snapshot: GameSnapshot) -> None:
         """Draw *piece* onto *img*, sliding it along its path if it is mid-move."""
@@ -175,7 +166,7 @@ class PillowRenderer(RendererInterface):
 
         x = self.geometry.origin_x + col * cell_w
         y = self.geometry.origin_y + row * cell_h
-        size = round(min(cell_w, cell_h) * 0.85)
+        size = round(min(cell_w, cell_h) * consts.PIECE_SPRITE_SIZE_RATIO)
 
         lift = self._draw_state_effects(img, piece, x, y, cell_w, cell_h)
         draw_x = x + (cell_w - size) / 2
@@ -207,15 +198,16 @@ class PillowRenderer(RendererInterface):
         self, img: Img, piece: PieceSnapshot, x: float, y: float, cell_w: float, cell_h: float
     ) -> float:
         """Draw the ground shadow of a jumping piece and return how far it has risen."""
-        shadow_w = cell_w * 0.7
-        shadow_h = cell_h * 0.18
+        shadow_w = cell_w * consts.JUMP_SHADOW_WIDTH_RATIO
+        shadow_h = cell_h * consts.JUMP_SHADOW_HEIGHT_RATIO
         shadow_x = x + (cell_w - shadow_w) / 2
-        shadow_y = y + cell_h * 0.82 - shadow_h / 2
+        shadow_y = y + cell_h * consts.JUMP_SHADOW_Y_RATIO - shadow_h / 2
         img.fill_ellipse(
-            round(shadow_x), round(shadow_y), round(shadow_w), round(shadow_h), JUMP_SHADOW_COLOR
+            round(shadow_x), round(shadow_y), round(shadow_w), round(shadow_h),
+            consts.JUMP_SHADOW_COLOR,
         )
         # A half sine peaks mid-jump and returns to 0 on landing.
-        return cell_h * 0.4 * math.sin(math.pi * self._state_progress(piece))
+        return cell_h * consts.JUMP_LIFT_RATIO * math.sin(math.pi * self._state_progress(piece))
 
     def _state_progress(self, piece: PieceSnapshot) -> float:
         """How far *piece* is through its current visual state, clamped to 0.0-1.0."""
@@ -250,15 +242,25 @@ class PillowRenderer(RendererInterface):
     def _draw_rest_square(self, img: Img, x: float, y: float, cell_w: float, cell_h: float, remaining_fraction: float) -> None:
         fill_height = round(cell_h * remaining_fraction)
         color = _rest_color(remaining_fraction)
-        img.fill_rect(round(x), round(y + cell_h - fill_height), round(cell_w), fill_height, (*color[:3], 110))
+        rgb = color[:consts.RGB_CHANNEL_COUNT]
+        img.fill_rect(
+            round(x), round(y + cell_h - fill_height), round(cell_w), fill_height,
+            (*rgb, consts.REST_FILL_ALPHA),
+        )
 
     def _draw_game_over(self, img: Img, snapshot: GameSnapshot) -> None:
-        img.fill_rect(0, 0, img.get().width, img.get().height, GAME_OVER_OVERLAY_COLOR)
+        img.fill_rect(0, 0, img.get().width, img.get().height, consts.GAME_OVER_OVERLAY_COLOR)
         text = _game_over_text(snapshot)
-        # Ensure the text fits in the board width (approx 0.6 ratio for Arial width)
-        font_size_based_on_width = (img.get().width * 0.9) / max(1, (len(text) * 0.6))
-        font_size = min(max(10, self.geometry.board_size / 16), font_size_based_on_width)
         img.put_text(
             text, img.get().width // 2, img.get().height // 2,
-            font_size, GAME_OVER_TEXT_COLOR, anchor="mm",
+            self._game_over_font_size(img, text), consts.GAME_OVER_TEXT_COLOR,
+            anchor=consts.TEXT_ANCHOR_MIDDLE_MIDDLE,
         )
+
+    def _game_over_font_size(self, img: Img, text: str) -> float:
+        """Size the banner so it fills the board without overflowing its width."""
+        width_budget = img.get().width * consts.GAME_OVER_TEXT_WIDTH_FRACTION
+        estimated_glyph_width = max(1, len(text) * consts.GAME_OVER_FONT_WIDTH_RATIO)
+        width_limited = width_budget / estimated_glyph_width
+        board_relative = self.geometry.board_size / consts.GAME_OVER_FONT_SIZE_DIVISOR
+        return min(max(consts.GAME_OVER_MIN_FONT_SIZE, board_relative), width_limited)

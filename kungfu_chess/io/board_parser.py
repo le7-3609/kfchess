@@ -6,6 +6,8 @@ Must not own: movement rules, command execution, rendering, or test assertions.
 
 from typing import List, Tuple
 
+from kungfu_chess.config import consts
+
 
 class BoardParser:
     """Parses the KungFu Chess textual script into (board_token_rows, commands).
@@ -39,10 +41,10 @@ class BoardParser:
             if not stripped:
                 continue
 
-            if stripped.startswith("Board:"):
+            if stripped.startswith(consts.BOARD_SECTION_HEADER):
                 in_board = True
                 in_commands = False
-            elif stripped.startswith("Commands:"):
+            elif stripped.startswith(consts.COMMANDS_SECTION_HEADER):
                 in_board = False
                 in_commands = True
             elif in_board:

@@ -19,6 +19,7 @@ Concrete collaborators live in:
 from dataclasses import dataclass
 from typing import List, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState
@@ -291,13 +292,15 @@ class GameEngine:
         if not parts:
             return
 
-        if parts[0] == "click" and len(parts) == 3:
+        keyword = parts[0]
+        is_click_shaped = len(parts) == consts.CLICK_COMMAND_PART_COUNT
+        if keyword == consts.COMMAND_CLICK and is_click_shaped:
             self._handle_click(int(parts[1]), int(parts[2]))
-        elif parts[0] == "right_click" and len(parts) == 3:
+        elif keyword == consts.COMMAND_RIGHT_CLICK and is_click_shaped:
             self._handle_right_click(int(parts[1]), int(parts[2]))
-        elif parts[0] == "wait" and len(parts) == 2:
+        elif keyword == consts.COMMAND_WAIT and len(parts) == consts.WAIT_COMMAND_PART_COUNT:
             self._handle_wait(int(parts[1]))
-        elif command == "print board":
+        elif command == consts.COMMAND_PRINT_BOARD:
             self._handle_print_board()
 
     def _resolve_pending(self) -> None:
@@ -351,28 +354,30 @@ class GameEngine:
         self._check_draw_end(board, state)
 
     def _both_kings_present(self, board: BoardInterface) -> bool:
-        return (
-            self._endgame_validator._has_king(board, "w")
-            and self._endgame_validator._has_king(board, "b")
+        return all(
+            self._endgame_validator._has_king(board, color) for color in consts.ALL_COLORS
         )
 
     def _check_decisive_end(self, board: BoardInterface, state: GameState) -> bool:
         """End the game if either color is checkmated or stalemated. Returns whether it did."""
-        for color in ("w", "b"):
+        for color in consts.ALL_COLORS:
             if self._endgame_validator.is_checkmate(board, state, color):
-                self._end_game(state, "checkmate", winner=self._opponent(color))
+                self._end_game(state, consts.GAME_OVER_CHECKMATE, winner=self._opponent(color))
                 return True
             if self._endgame_validator.is_stalemate(board, state, color):
-                self._end_game(state, "stalemate")
+                self._end_game(state, consts.GAME_OVER_STALEMATE)
                 return True
         return False
 
     def _check_draw_end(self, board: BoardInterface, state: GameState) -> bool:
         """End the game if any drawn-position rule applies. Returns whether it did."""
         draw_rules = (
-            ("insufficient_material", lambda: self._endgame_validator.is_insufficient_material(board)),
-            ("threefold_repetition", lambda: self._endgame_validator.is_threefold_repetition(board, state)),
-            ("fifty_move_rule", lambda: self._endgame_validator.is_fifty_move_rule(board, state)),
+            (consts.GAME_OVER_INSUFFICIENT_MATERIAL,
+             lambda: self._endgame_validator.is_insufficient_material(board)),
+            (consts.GAME_OVER_THREEFOLD_REPETITION,
+             lambda: self._endgame_validator.is_threefold_repetition(board, state)),
+            (consts.GAME_OVER_FIFTY_MOVE_RULE,
+             lambda: self._endgame_validator.is_fifty_move_rule(board, state)),
         )
         for reason, is_drawn in draw_rules:
             if is_drawn():
@@ -389,7 +394,7 @@ class GameEngine:
 
     @staticmethod
     def _opponent(color: str) -> str:
-        return "b" if color == "w" else "w"
+        return consts.COLOR_BLACK if color == consts.COLOR_WHITE else consts.COLOR_WHITE
 
     def _handle_click(self, x: int, y: int) -> None:
         self._resolve_pending()

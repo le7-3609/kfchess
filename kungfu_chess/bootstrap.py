@@ -6,6 +6,7 @@ This is the composition root for the kungfu_chess package.
 import sys
 from dataclasses import dataclass
 
+from kungfu_chess.config import consts
 from kungfu_chess.config.game_config import GameConfig
 from kungfu_chess.rules.piece_rules import (
     MoveValidatorFactory,
@@ -60,12 +61,12 @@ class CoreComponents:
 def _build_move_validator_factory(config: GameConfig) -> MoveValidatorFactory:
     """Assemble the per-piece-type move validators into a lookup factory."""
     return MoveValidatorFactory(validators={
-        "K": KingMoveValidator(),
-        "Q": QueenMoveValidator(),
-        "R": RookMoveValidator(),
-        "B": BishopMoveValidator(),
-        "N": KnightMoveValidator(),
-        "P": PawnMoveValidator(config=config),
+        consts.PIECE_KING: KingMoveValidator(),
+        consts.PIECE_QUEEN: QueenMoveValidator(),
+        consts.PIECE_ROOK: RookMoveValidator(),
+        consts.PIECE_BISHOP: BishopMoveValidator(),
+        consts.PIECE_KNIGHT: KnightMoveValidator(),
+        consts.PIECE_PAWN: PawnMoveValidator(config=config),
     })
 
 
@@ -240,4 +241,4 @@ def bootstrap() -> None:
     input_lines = sys.stdin.readlines()
     result = service.execute(input_lines)
     if not result.is_ok:
-        print(f"ERROR {result.error}")
+        print(f"{consts.ERROR_OUTPUT_PREFIX} {result.error}")

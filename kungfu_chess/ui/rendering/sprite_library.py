@@ -12,11 +12,14 @@ import re
 
 from PIL import Image
 
+from kungfu_chess.config import consts
 from kungfu_chess.view.piece_visual_state import PieceVisualState
 
-_FPS_PATTERN = re.compile(r'"frames_per_sec"\s*:\s*(-?\d+)')
-_LOOP_PATTERN = re.compile(r'"is_loop"\s*:\s*(true|false)')
+_FPS_PATTERN = re.compile(consts.SPRITE_FPS_PATTERN)
+_LOOP_PATTERN = re.compile(consts.SPRITE_LOOP_PATTERN)
 
+# Keyed by the view-layer enum, so this mapping stays here rather than in the
+# constant registry, which must not import from an outer layer.
 _STATE_NAMES = {
     PieceVisualState.IDLE: "idle",
     PieceVisualState.MOVE: "move",
@@ -24,11 +27,6 @@ _STATE_NAMES = {
     PieceVisualState.SHORT_REST: "short_rest",
     PieceVisualState.LONG_REST: "long_rest",
 }
-
-# kungfu_chess pieces are plain ("w"/"b", "K"/"Q"/"R"/"B"/"N"/"P") strings;
-# the sprite sheets are organised as <PIECE_LETTER><COLOR_LETTER>, e.g. "KW".
-_PIECE_TYPES = ("K", "Q", "R", "B", "N", "P")
-_COLORS = ("w", "b")
 
 
 class _Animation:
@@ -42,26 +40,34 @@ def _folder_name_candidates(piece_type: str, color: str) -> list[str]:
     """Different asset sets use different folder-naming conventions, e.g.
     "KW"/"KB" (piece letter + uppercase color) vs "wK"/"bK" (lowercase color
     + piece letter). Try both so any theme folder can be dropped in as-is."""
-    upper_color = "W" if color == "w" else "B"
-    return [f"{piece_type}{upper_color}", f"{color}{piece_type}"]
+    return [f"{piece_type}{color.upper()}", f"{color}{piece_type}"]
 
 
 def _to_black_and_white(src: Image.Image, dark: bool) -> Image.Image:
     """Remap every pixel's luminance into a narrow band so pieces render as strict
     black/white silhouettes regardless of the source sprite sheet's actual palette,
     preserving the original alpha channel."""
-    src = src.convert("RGBA")
-    range_low = 12 if dark else 205
-    range_span = 55
+    src = src.convert(consts.IMAGE_MODE_RGBA)
+    range_low = (
+        consts.SPRITE_DARK_LUMINANCE_FLOOR if dark else consts.SPRITE_LIGHT_LUMINANCE_FLOOR
+    )
+    channel_max = consts.COLOR_CHANNEL_MAX
 
-    lut = [max(0, min(255, range_low + round((lum / 255) * range_span))) for lum in range(256)]
+    lut = [
+        max(
+            consts.COLOR_CHANNEL_MIN,
+            min(channel_max, range_low + round((lum / channel_max) * consts.SPRITE_LUMINANCE_SPAN)),
+        )
+        for lum in range(consts.COLOR_CHANNEL_LEVELS)
+    ]
 
-    luminance = src.convert("RGB").convert("L", matrix=(0.299, 0.587, 0.114, 0))
+    luminance = src.convert(consts.IMAGE_MODE_RGB).convert(
+        consts.IMAGE_MODE_LUMINANCE, matrix=consts.LUMINANCE_MATRIX
+    )
     remapped = luminance.point(lut)
-    alpha = src.getchannel("A")
+    alpha = src.getchannel(consts.IMAGE_CHANNEL_ALPHA)
 
-    out = Image.merge("RGBA", (remapped, remapped, remapped, alpha))
-    return out
+    return Image.merge(consts.IMAGE_MODE_RGBA, (remapped, remapped, remapped, alpha))
 
 
 class SpriteLibrary:
@@ -70,54 +76,60 @@ class SpriteLibrary:
         self._animations: dict[tuple[str, str, PieceVisualState], _Animation] = {}
         self._resize_cache: dict[tuple[int, int], Image.Image] = {}
 
-        for piece_type in _PIECE_TYPES:
-            for color in _COLORS:
+        for piece_type in consts.ALL_PIECE_TYPES:
+            for color in consts.ALL_COLORS:
                 for state in PieceVisualState:
                     self._load(piece_type, color, state)
 
     def _load(self, piece_type: str, color: str, state: PieceVisualState) -> None:
+        candidates = _folder_name_candidates(piece_type, color)
         state_dir = None
-        for folder in _folder_name_candidates(piece_type, color):
-            candidate = os.path.join(self._base_path, folder, "states", _STATE_NAMES[state])
+        for folder in candidates:
+            candidate = os.path.join(
+                self._base_path, folder, consts.SPRITE_STATES_DIR, _STATE_NAMES[state]
+            )
             if os.path.isdir(candidate):
                 state_dir = candidate
                 break
         if state_dir is None:
             state_dir = os.path.join(
-                self._base_path, _folder_name_candidates(piece_type, color)[0], "states", _STATE_NAMES[state]
+                self._base_path, candidates[0], consts.SPRITE_STATES_DIR, _STATE_NAMES[state]
             )
 
         frames_per_sec, is_loop = self._read_config(state_dir)
-        frames = self._read_frames(state_dir, dark=(color == "b"))
+        frames = self._read_frames(state_dir, dark=(color == consts.COLOR_BLACK))
 
         self._animations[(piece_type, color, state)] = _Animation(frames, frames_per_sec, is_loop)
 
     @staticmethod
     def _read_config(state_dir: str) -> tuple[int, bool]:
-        config_path = os.path.join(state_dir, "config.json")
+        config_path = os.path.join(state_dir, consts.SPRITE_CONFIG_FILE)
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, consts.FILE_MODE_READ, encoding=consts.FILE_ENCODING) as f:
                 text = f.read()
         except OSError:
-            return 8, True
+            return consts.SPRITE_DEFAULT_FPS, consts.SPRITE_DEFAULT_IS_LOOP
 
         fps_match = _FPS_PATTERN.search(text)
         loop_match = _LOOP_PATTERN.search(text)
-        fps = int(fps_match.group(1)) if fps_match else 8
-        is_loop = (loop_match.group(1) == "true") if loop_match else True
+        fps = int(fps_match.group(1)) if fps_match else consts.SPRITE_DEFAULT_FPS
+        is_loop = (
+            (loop_match.group(1) == consts.SPRITE_JSON_TRUE)
+            if loop_match else consts.SPRITE_DEFAULT_IS_LOOP
+        )
         return fps, is_loop
 
     @staticmethod
     def _read_frames(state_dir: str, dark: bool) -> list[Image.Image]:
-        sprites_dir = os.path.join(state_dir, "sprites")
+        sprites_dir = os.path.join(state_dir, consts.SPRITE_FRAMES_DIR)
         frames = []
-        index = 1
+        index = consts.SPRITE_FIRST_FRAME_INDEX
         while True:
-            path = os.path.join(sprites_dir, f"{index}.png")
+            path = os.path.join(sprites_dir, f"{index}{consts.SPRITE_FRAME_EXTENSION}")
             if not os.path.isfile(path):
                 break
             try:
-                img = Image.open(path).convert("RGBA")
+                img = Image.open(path).convert(consts.IMAGE_MODE_RGBA)
             except OSError:
                 break
             frames.append(_to_black_and_white(img, dark))
@@ -131,7 +143,7 @@ class SpriteLibrary:
         if animation is None or not animation.frames:
             return None
 
-        index = elapsed_millis * animation.frames_per_sec // 1000
+        index = elapsed_millis * animation.frames_per_sec // consts.MS_PER_SECOND
         if animation.is_loop:
             index = index % len(animation.frames)
         else:

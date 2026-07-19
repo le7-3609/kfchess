@@ -6,6 +6,7 @@ game-over state.
 
 from typing import NamedTuple, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.piece import PieceInterface
@@ -34,7 +35,7 @@ class CastlingValidator:
         """Return True if clicking rook_piece while king_piece is selected represents a castle attempt."""
         return (
             king_piece.piece_type in self._config.king_pieces
-            and rook_piece.piece_type == "R"
+            and rook_piece.piece_type == consts.PIECE_ROOK
             and not king_piece.has_moved
             and not rook_piece.has_moved
             and king_pos.row == rook_pos.row
@@ -55,8 +56,8 @@ class CastlingValidator:
         if not self._is_path_clear(board, king_pos, rook_pos, dc):
             return None
 
-        king_dest = Position(king_pos.row, king_pos.col + 2 * dc)
-        rook_dest = Position(rook_pos.row, king_pos.col + 1 * dc)
+        king_dest = Position(king_pos.row, king_pos.col + consts.CASTLE_KING_COL_STEPS * dc)
+        rook_dest = Position(rook_pos.row, king_pos.col + consts.CASTLE_ROOK_COL_STEPS * dc)
 
         if not board.is_valid_position(king_dest) or not board.is_valid_position(rook_dest):
             return None

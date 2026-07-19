@@ -6,8 +6,9 @@ Must not own: game rules, board mutation, rendering, timing, or any knowledge
 of who subscribes.
 
 This module is deliberately the innermost shared dependency: every layer may
-import it, and it imports nothing but the Position value type. That is what
-lets the UI observe the simulation without the simulation ever naming the UI.
+import it, and it imports nothing but the Position value type and the constant
+registry. That is what lets the UI observe the simulation without the
+simulation ever naming the UI.
 
 Events carry plain values (color/piece-type letters, Positions) rather than
 live Piece or Board objects. A subscriber runs after the fact, so handing it a
@@ -20,13 +21,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Type
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.position import Position
 
 _LOGGER = logging.getLogger(__name__)
 
-ABORT_REASON_FRIENDLY_COLLISION = "friendly_collision"
-ABORT_REASON_PATH_BLOCKED = "path_blocked"
-ABORT_REASON_CAPTURED_IN_FLIGHT = "captured_in_flight"
+# Re-exported from consts so subscribers can name a reason without reaching
+# past the event module that hands it to them.
+ABORT_REASON_FRIENDLY_COLLISION = consts.ABORT_REASON_FRIENDLY_COLLISION
+ABORT_REASON_PATH_BLOCKED = consts.ABORT_REASON_PATH_BLOCKED
+ABORT_REASON_CAPTURED_IN_FLIGHT = consts.ABORT_REASON_CAPTURED_IN_FLIGHT
 
 
 @dataclass(frozen=True)

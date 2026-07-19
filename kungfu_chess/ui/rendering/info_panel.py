@@ -17,25 +17,16 @@ same inputs always paint the same pixels.
 
 from typing import Optional, Sequence, Tuple
 
+from kungfu_chess.config import consts
 from kungfu_chess.ui.rendering.img import Img
 from kungfu_chess.io.moves_log import MoveLogEntry
 
-BACKGROUND_COLOR = (45, 45, 45, 255)
-TEXT_COLOR = (235, 235, 235, 255)
-SCORE_COLOR = (150, 220, 150, 255)
-SIDE_PANEL_WIDTH = 220
-TOP_HEIGHT = 50
-ROW_HEIGHT = 20
-MAX_ROWS = 12
-
-_COLOR_NAMES = {"w": "White", "b": "Black"}
-
 
 def _format_time(millis: int) -> str:
-    total_seconds = millis // 1000
-    minutes = total_seconds // 60
-    seconds = total_seconds % 60
-    ms = millis % 1000
+    total_seconds = millis // consts.MS_PER_SECOND
+    minutes = total_seconds // consts.SECONDS_PER_MINUTE
+    seconds = total_seconds % consts.SECONDS_PER_MINUTE
+    ms = millis % consts.MS_PER_SECOND
     return f"{minutes:02d}:{seconds:02d}.{ms:03d}"
 
 
@@ -66,8 +57,10 @@ class InfoPanel:
         """
         img = self._chrome_for(canvas_width, canvas_height, moves, white_score, black_score).copy()
 
-        board_x = SIDE_PANEL_WIDTH + (canvas_width - SIDE_PANEL_WIDTH * 2 - board_size) // 2
-        board_y = TOP_HEIGHT + (canvas_height - TOP_HEIGHT - board_size) // 2
+        panel_width = consts.SIDE_PANEL_WIDTH
+        top_height = consts.PANEL_TOP_HEIGHT
+        board_x = panel_width + (canvas_width - panel_width * 2 - board_size) // 2
+        board_y = top_height + (canvas_height - top_height - board_size) // 2
 
         board_img.draw_on(img, board_x, board_y)
 
@@ -87,14 +80,15 @@ class InfoPanel:
         so it turns over exactly when the drawn pixels would differ — and a
         scrubbed-backwards replay, whose move list shrinks, invalidates it too.
         """
-        white_rows = self._rows_for("w", moves)
-        black_rows = self._rows_for("b", moves)
+        white_rows = self._rows_for(consts.COLOR_WHITE, moves)
+        black_rows = self._rows_for(consts.COLOR_BLACK, moves)
         key = (canvas_width, canvas_height, white_rows, black_rows, white_score, black_score)
         if self._chrome is None or self._chrome_key != key:
-            chrome = Img().blank(canvas_width, canvas_height, BACKGROUND_COLOR)
+            chrome = Img().blank(canvas_width, canvas_height, consts.PANEL_BACKGROUND_COLOR)
             self._draw_moves_column(chrome, 0, self.white_name, white_score, white_rows)
             self._draw_moves_column(
-                chrome, canvas_width - SIDE_PANEL_WIDTH, self.black_name, black_score, black_rows
+                chrome, canvas_width - consts.SIDE_PANEL_WIDTH,
+                self.black_name, black_score, black_rows,
             )
             self._chrome = chrome
             self._chrome_key = key
@@ -105,17 +99,22 @@ class InfoPanel:
             f"{_format_time(entry.time_ms)}  {entry.notation}"
             for entry in moves
             if entry.color == color
-        )[-MAX_ROWS:]
+        )[-consts.PANEL_MAX_ROWS:]
 
     def _draw_moves_column(
         self, img: Img, x: int, name: str, score: Optional[int], rows: Tuple[str, ...]
     ) -> None:
-        self._draw_column_header(img, x + SIDE_PANEL_WIDTH // 2, name, score)
+        self._draw_column_header(img, x + consts.SIDE_PANEL_WIDTH // 2, name, score)
 
-        y = TOP_HEIGHT
+        y = consts.PANEL_TOP_HEIGHT
         for row_text in rows:
-            img.put_text(row_text, x + 10, y, 11, TEXT_COLOR, anchor="lt")
-            y += ROW_HEIGHT
+            img.put_text(
+                row_text,
+                x + consts.PANEL_ROW_TEXT_X_OFFSET, y,
+                consts.PANEL_ROW_FONT_SIZE, consts.PANEL_TEXT_COLOR,
+                anchor=consts.TEXT_ANCHOR_LEFT_TOP,
+            )
+            y += consts.PANEL_ROW_HEIGHT
 
     def _draw_column_header(self, img: Img, center_x: int, name: str, score: Optional[int]) -> None:
         """Draw the player's name, with their score beneath it when there is one.
@@ -124,7 +123,19 @@ class InfoPanel:
         with one both are drawn higher so the pair fits the same band.
         """
         if score is None:
-            img.put_text(name, center_x, 12, 16, TEXT_COLOR, anchor="mt")
+            img.put_text(
+                name, center_x, consts.PANEL_NAME_ONLY_Y,
+                consts.PANEL_NAME_FONT_SIZE, consts.PANEL_TEXT_COLOR,
+                anchor=consts.TEXT_ANCHOR_MIDDLE_TOP,
+            )
             return
-        img.put_text(name, center_x, 6, 16, TEXT_COLOR, anchor="mt")
-        img.put_text(f"+{score}", center_x, 28, 12, SCORE_COLOR, anchor="mt")
+        img.put_text(
+            name, center_x, consts.PANEL_NAME_WITH_SCORE_Y,
+            consts.PANEL_NAME_FONT_SIZE, consts.PANEL_TEXT_COLOR,
+            anchor=consts.TEXT_ANCHOR_MIDDLE_TOP,
+        )
+        img.put_text(
+            f"+{score}", center_x, consts.PANEL_SCORE_Y,
+            consts.PANEL_SCORE_FONT_SIZE, consts.PANEL_SCORE_COLOR,
+            anchor=consts.TEXT_ANCHOR_MIDDLE_TOP,
+        )

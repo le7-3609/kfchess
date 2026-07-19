@@ -8,6 +8,7 @@ still-in-flight movements whose path/landing has since become blocked.
 
 from typing import List, Optional, Tuple
 
+from kungfu_chess.config import consts
 from kungfu_chess.model.board import BoardInterface
 from kungfu_chess.model.game_state import GameState, Movement, Cooldown, EnPassantTarget
 from kungfu_chess.model.position import Position
@@ -81,7 +82,7 @@ class ArrivalResolver:
     def _resolve_jump_landing(self, state: GameState, mov: Movement, t: int) -> bool:
         """Successful jump-in-place landing. Returns whether to reset the halfmove clock."""
         self._enter_cooldown(state, mov.piece, t)
-        return mov.piece.piece_type == "P"
+        return mov.piece.piece_type == consts.PIECE_PAWN
 
     def _find_airborne_enemy_capturing(self, movements: List[Movement], mov: Movement, t: int) -> Optional[Movement]:
         """Return the airborne (jumping) enemy Movement occupying mov's destination, if any."""
@@ -185,7 +186,7 @@ class ArrivalResolver:
             captor_piece_type=captor.piece_type,
         ))
         if victim.piece_type in self._config.king_pieces:
-            self._announce_game_end(state, "king_captured", captor.color, t)
+            self._announce_game_end(state, consts.GAME_OVER_KING_CAPTURED, captor.color, t)
 
     def _announce_abort(self, mov: Movement, stopped_at: Position, reason: str, t: int) -> None:
         self._event_bus.publish(MoveAbortedEvent(
@@ -254,7 +255,7 @@ class ArrivalResolver:
         arriving: List[Movement],
         movements: List[Movement],
     ) -> bool:
-        if mov.piece.piece_type != "P":
+        if mov.piece.piece_type != consts.PIECE_PAWN:
             return False
 
         for ep in list(state.en_passant_targets):
@@ -270,9 +271,10 @@ class ArrivalResolver:
         return False
 
     def _maybe_create_en_passant_target(self, state: GameState, mov: Movement, t: int) -> None:
-        if mov.piece.piece_type == "P":
+        if mov.piece.piece_type == consts.PIECE_PAWN:
             player_cfg = self._config.get_player(mov.piece.color)
-            if player_cfg and abs(mov.to.row - mov.frm.row) == 2 and mov.frm.row in player_cfg.pawn_start_rows:
+            is_double_step = abs(mov.to.row - mov.frm.row) == consts.PAWN_DOUBLE_STEP
+            if player_cfg and is_double_step and mov.frm.row in player_cfg.pawn_start_rows:
                 ep_pos = Position(mov.frm.row + player_cfg.forward_direction, mov.frm.col)
                 state.en_passant_targets.append(
                     EnPassantTarget(
@@ -312,7 +314,7 @@ class ArrivalResolver:
 
         reset_halfmove = False
         increment_halfmove = False
-        if mov.piece.piece_type == "P" or is_capture or is_ep:
+        if mov.piece.piece_type == consts.PIECE_PAWN or is_capture or is_ep:
             reset_halfmove = True
         elif mov.frm != mov.to:
             increment_halfmove = True
@@ -347,14 +349,15 @@ class ArrivalResolver:
         castling exemption in CollisionResolver (same-color K+R pair sharing
         start/arrival times).
         """
-        if mov.piece.piece_type not in ("K", "R"):
+        if mov.piece.piece_type not in consts.CASTLING_PIECE_PAIR:
             return False
         for other in ongoing:
             if other is mov:
                 continue
+            piece_pair = {other.piece.piece_type, mov.piece.piece_type}
             if (other.piece.color == mov.piece.color
                     and other.start_ms == mov.start_ms
                     and other.arrival_ms == mov.arrival_ms
-                    and {other.piece.piece_type, mov.piece.piece_type} == {"K", "R"}):
+                    and piece_pair == consts.CASTLING_PIECE_PAIR):
                 return True
         return False

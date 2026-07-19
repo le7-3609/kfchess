@@ -173,11 +173,11 @@ class PawnMoveValidator(MoveValidatorInterface):
         if board.is_valid_position(one_step) and board.get_piece(one_step) is None:
             destinations.add(one_step)
             if frm.row in player_config.pawn_start_rows:
-                two_step = Position(frm.row + direction * 2, frm.col)
+                two_step = Position(frm.row + direction * consts.PAWN_DOUBLE_STEP, frm.col)
                 if board.is_valid_position(two_step) and board.get_piece(two_step) is None:
                     destinations.add(two_step)
 
-        for dc in (-1, 1):
+        for dc in consts.PAWN_CAPTURE_COL_OFFSETS:
             diag = Position(frm.row + direction, frm.col + dc)
             if board.is_valid_position(diag):
                 occupant = board.get_piece(diag)
@@ -230,7 +230,7 @@ class StandardPawnPromotion(PromotionStrategyInterface):
     def evaluate_promotion(
         self, piece: PieceInterface, to_pos: Position, config: 'GameConfig'  # type: ignore[name-defined]
     ) -> Optional[PieceInterface]:
-        if piece.piece_type != "P":
+        if piece.piece_type != consts.PIECE_PAWN:
             return None
         player_config = config.get_player(piece.color)
         if player_config is None:

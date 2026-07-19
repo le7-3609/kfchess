@@ -7,11 +7,10 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog
 from typing import Callable, Optional
 
+from kungfu_chess.config import consts
 from kungfu_chess.service import GameService
 from kungfu_chess.ui.rendering.pillow_renderer import PillowRenderer
 from kungfu_chess.ui.window.replay_window import TkReplayWindow
-
-_COLOR_NAMES = {"w": "White", "b": "Black"}
 
 
 def prompt_and_save(
@@ -28,7 +27,7 @@ def prompt_and_save(
     ongoing). Dismissing the prompt returns None and saves nothing, whereas an
     empty name falls back to "<white>_vs_<black>".
     """
-    winner_name = _COLOR_NAMES.get(winner, winner) if winner else None
+    winner_name = consts.COLOR_DISPLAY_NAMES.get(winner, winner) if winner else None
     message = f"Game over - {winner_name} wins!\nSave this game as:" if winner_name else "Save this game as:"
     save_name = simpledialog.askstring("Save History", message, parent=parent)
     if save_name is None:
