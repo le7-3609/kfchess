@@ -17,11 +17,12 @@ from kungfu_chess.io.command_parser import (
     TextCommandFormatter,
     TextCommandParser,
 )
+from kungfu_chess.model.position import Position
 
 
 ALL_COMMANDS = (
-    ClickCommand(50, 50),
-    RightClickCommand(150, 250),
+    ClickCommand(Position(0, 0)),
+    RightClickCommand(Position(1, 2)),
     WaitCommand(1000),
     PrintBoardCommand(),
 )
@@ -30,8 +31,8 @@ ALL_COMMANDS = (
 class TestParseLine(unittest.TestCase):
     def test_parses_each_command_type(self) -> None:
         cases = [
-            ("click 50 50", ClickCommand(50, 50)),
-            ("right_click 150 250", RightClickCommand(150, 250)),
+            ("click 0 0", ClickCommand(Position(0, 0))),
+            ("right_click 1 2", RightClickCommand(Position(1, 2))),
             ("wait 1000", WaitCommand(1000)),
             ("print board", PrintBoardCommand()),
         ]
@@ -40,16 +41,20 @@ class TestParseLine(unittest.TestCase):
                 self.assertEqual(TextCommandParser.parse_line(line), expected)
 
     def test_ignores_surrounding_whitespace_and_keyword_case(self) -> None:
-        self.assertEqual(TextCommandParser.parse_line("  CLICK 50 50  "), ClickCommand(50, 50))
+        self.assertEqual(
+            TextCommandParser.parse_line("  CLICK 0 0  "), ClickCommand(Position(0, 0))
+        )
         self.assertEqual(TextCommandParser.parse_line("Print Board"), PrintBoardCommand())
 
-    def test_pixel_args_map_to_x_then_y(self) -> None:
-        command = TextCommandParser.parse_line("click 450 750")
-        self.assertEqual((command.x, command.y), (450, 750))
+    def test_cell_args_map_to_row_then_col(self) -> None:
+        command = TextCommandParser.parse_line("click 4 7")
+        self.assertEqual((command.pos.row, command.pos.col), (4, 7))
 
     def test_accepts_negative_coordinates(self) -> None:
         # Off-board clicks are the engine's to reject, not the parser's.
-        self.assertEqual(TextCommandParser.parse_line("click -10 -20"), ClickCommand(-10, -20))
+        self.assertEqual(
+            TextCommandParser.parse_line("click -10 -20"), ClickCommand(Position(-10, -20))
+        )
 
 
 class TestParseLineRejections(unittest.TestCase):
@@ -84,7 +89,7 @@ class TestParseScript(unittest.TestCase):
         commands = TextCommandParser.parse_script(
             ["# a comment", "", "click 50 50", "   ", "print board"]
         )
-        self.assertEqual(commands, [ClickCommand(50, 50), PrintBoardCommand()])
+        self.assertEqual(commands, [ClickCommand(Position(50, 50)), PrintBoardCommand()])
 
     def test_raises_on_an_unparseable_line(self) -> None:
         with self.assertRaises(CommandParseException):
@@ -114,14 +119,14 @@ class TestCommandObjects(unittest.TestCase):
         # Frozen so a queued command cannot change between submission and the
         # tick that applies it (runtime/async_runner.py).
         with self.assertRaises(dataclasses.FrozenInstanceError):
-            ClickCommand(1, 2).x = 99
+            ClickCommand(Position(1, 2)).pos = Position(9, 9)
 
     def test_commands_compare_by_value(self) -> None:
-        self.assertEqual(ClickCommand(1, 2), ClickCommand(1, 2))
-        self.assertNotEqual(ClickCommand(1, 2), ClickCommand(2, 1))
+        self.assertEqual(ClickCommand(Position(1, 2)), ClickCommand(Position(1, 2)))
+        self.assertNotEqual(ClickCommand(Position(1, 2)), ClickCommand(Position(2, 1)))
 
     def test_click_and_right_click_are_distinct_types(self) -> None:
-        self.assertNotEqual(ClickCommand(1, 2), RightClickCommand(1, 2))
+        self.assertNotEqual(ClickCommand(Position(1, 2)), RightClickCommand(Position(1, 2)))
 
 
 class TestBoardParserTolerance(unittest.TestCase):
@@ -132,15 +137,15 @@ class TestBoardParserTolerance(unittest.TestCase):
 
     def test_skips_unparseable_command_lines(self) -> None:
         _board, cmds = self.parser.parse(
-            ["Board:", "wK bK", "Commands:", "click 50 50", "not a command", "print board"]
+            ["Board:", "wK bK", "Commands:", "click 0 0", "not a command", "print board"]
         )
-        self.assertEqual(cmds, [ClickCommand(50, 50), PrintBoardCommand()])
+        self.assertEqual(cmds, [ClickCommand(Position(0, 0)), PrintBoardCommand()])
 
     def test_skips_comment_lines_in_the_command_section(self) -> None:
         _board, cmds = self.parser.parse(
-            ["Board:", "wK bK", "Commands:", "# select the king", "click 50 50"]
+            ["Board:", "wK bK", "Commands:", "# select the king", "click 0 0"]
         )
-        self.assertEqual(cmds, [ClickCommand(50, 50)])
+        self.assertEqual(cmds, [ClickCommand(Position(0, 0))])
 
 
 class TestEngineRejectsUnknownCommands(unittest.TestCase):

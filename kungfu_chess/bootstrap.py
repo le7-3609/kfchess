@@ -33,7 +33,6 @@ from kungfu_chess.io.board_validator import BoardValidator
 from kungfu_chess.io.game_history_store import GameHistoryStore
 from kungfu_chess.io.moves_log import MovesLog
 from kungfu_chess.io.replay import ReplayWriter, ReplayEngineDecorator
-from kungfu_chess.input.board_mapper import BoardMapper
 from kungfu_chess.repos import _InMemoryBoardRepo, _InMemoryStateRepo
 from kungfu_chess.service import GameService
 
@@ -113,7 +112,6 @@ def _build_engine(
         config=config,
         arbiter=arbiter,
         game_play_state_factory=GamePlayStateFactory(),
-        board_mapper=BoardMapper(config.cell_size_px),
     ))
 
 

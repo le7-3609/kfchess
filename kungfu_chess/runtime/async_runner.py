@@ -41,7 +41,7 @@ class AsyncGameRunner:
         runner = AsyncGameRunner(engine, tick_rate_hz=20)
         await runner.start()
         ...
-        runner.submit_command(ClickCommand(1, 2))  # thread/coroutine-safe enqueue
+        runner.submit_command(ClickCommand(Position(1, 2)))  # thread/coroutine-safe enqueue
         ...
         await runner.stop()
 
@@ -81,7 +81,7 @@ class AsyncGameRunner:
         return self._task is not None and not self._task.done()
 
     def submit_command(self, command: GameCommand) -> "asyncio.Future":
-        """Queue *command* (e.g. ``ClickCommand(1, 2)``) for the next tick.
+        """Queue *command* (e.g. ``ClickCommand(Position(1, 2))``) for the next tick.
 
         Safe to call from any coroutine running on the same event loop
         (e.g. a websocket message handler). Returns a Future that resolves
