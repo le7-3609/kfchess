@@ -47,6 +47,20 @@ class ForfeitOutcome:
     new_loser_elo: int
 
 
+@dataclass(frozen=True)
+class GameEndOutcome:
+    """New ratings resulting from a game that ended on its own merits, for the caller to persist.
+
+    Framed by seat (white/black) rather than winner/loser, since a draw has no
+    winner but still rates both players.
+    """
+
+    white_session: Any
+    black_session: Any
+    new_white_elo: int
+    new_black_elo: int
+
+
 class GameRoom:
     """Aggregate root for a single game: seats, lifecycle state, and move dispatch."""
 
@@ -193,6 +207,47 @@ class GameRoom:
             loser_session=disconnected_session,
             new_winner_elo=new_winner_elo,
             new_loser_elo=new_loser_elo,
+        )
+
+    def compute_game_end_outcome(self, winner_color: Optional[str]) -> Optional[GameEndOutcome]:
+        """Compute the ELO adjustment for a game that ended on its own merits.
+
+        *winner_color* is consts.COLOR_WHITE/COLOR_BLACK for a decisive result
+        (checkmate, king capture) or None for a draw (stalemate, insufficient
+        material, repetition, fifty-move) — the same shape GameEndedEvent.winner
+        carries. Does not persist or mutate any state.
+
+        A bot holds no account row, so rating a game against one would both
+        no-op in the database and corrupt the human's stored rating.
+        """
+        white = self._white_player
+        black = self._black_player
+        if white is None or black is None:
+            return None
+
+        if getattr(white, "is_bot", False) or getattr(black, "is_bot", False):
+            return None
+
+        if winner_color is None:
+            new_white_elo, new_black_elo = calculate_elo(
+                winner_elo=white.elo, loser_elo=black.elo, draw=True
+            )
+        elif winner_color == consts.COLOR_WHITE:
+            new_white_elo, new_black_elo = calculate_elo(winner_elo=white.elo, loser_elo=black.elo)
+        elif winner_color == consts.COLOR_BLACK:
+            new_black_elo, new_white_elo = calculate_elo(winner_elo=black.elo, loser_elo=white.elo)
+        else:
+            _LOGGER.warning(
+                "Room %s: game-end outcome requested with unknown winner color %r",
+                self._room_id, winner_color,
+            )
+            return None
+
+        return GameEndOutcome(
+            white_session=white,
+            black_session=black,
+            new_white_elo=new_white_elo,
+            new_black_elo=new_black_elo,
         )
 
     def handle_move(

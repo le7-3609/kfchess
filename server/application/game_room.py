@@ -1,7 +1,8 @@
 """Game room — network broadcast, background tasks, and persistence for a game.
 
 Owns: network broadcast wiring, background task lifecycle (tick runner, bot
-driver, disconnect countdown), and ELO persistence on forfeit.
+driver, disconnect countdown), and ELO persistence on forfeit or natural
+game end.
 Must not own: seat-assignment invariants, room lifecycle state, or move
 authorization — those live in server.domain.room.game_room.GameRoom, the pure
 aggregate this class composes.
@@ -44,18 +45,18 @@ RoomExpiredCallback = Callable[[str], Optional[Awaitable[None]]]
 class _RoomLifecycleObserver(Observer):
     """Reports the terminal event of a game back to the room that owns its bus.
 
-    Deliberately does nothing but forward the fact. It is called from inside
+    Deliberately does nothing but forward the event. It is called from inside
     EventBus dispatch, which runs part-way through a simulation tick, so any
     real work here would stall the tick it is riding on — the room turns this
-    notification into deferred teardown itself.
+    notification into deferred ELO settlement and teardown itself.
     """
 
-    def __init__(self, on_game_ended: Callable[[], None]) -> None:
+    def __init__(self, on_game_ended: Callable[[GameEndedEvent], None]) -> None:
         self._on_game_ended = on_game_ended
 
     def on_event(self, event: Event) -> None:
         if isinstance(event, GameEndedEvent):
-            self._on_game_ended()
+            self._on_game_ended(event)
 
 
 class GameRoom:
@@ -88,7 +89,10 @@ class GameRoom:
         # Held so the detached teardown task cannot be garbage-collected
         # mid-flight: the event loop keeps only weak references to tasks.
         self._expiry_task: Optional[asyncio.Task] = None
-        self._lifecycle_observer = _RoomLifecycleObserver(on_game_ended=self._trigger_expiry)
+        # Same reasoning as _expiry_task: this races teardown as its own
+        # detached task, so a reference must be kept alive until it completes.
+        self._elo_settlement_task: Optional[asyncio.Task] = None
+        self._lifecycle_observer = _RoomLifecycleObserver(on_game_ended=self._on_game_ended)
 
     @property
     def room_id(self) -> str:
@@ -196,6 +200,41 @@ class GameRoom:
         # A forfeit ends the game by writing straight to GameState, which
         # publishes nothing — so this path has to announce its own expiry.
         self._trigger_expiry()
+
+    def _on_game_ended(self, event: GameEndedEvent) -> None:
+        """GameEndedEvent handler: settle ELO for a natural result, then expire the room.
+
+        Called from inside EventBus dispatch, mid-tick — same constraint
+        _trigger_expiry itself is under, so the async database write is
+        deferred onto a task of its own rather than awaited inline. Scheduled
+        independently of expiry so a database-less room (tests, ad-hoc
+        construction) still reaps normally with nothing to persist.
+        """
+        loop = self._resolve_loop()
+        if loop is not None:
+            self._elo_settlement_task = loop.create_task(
+                self._settle_elo_for_game_end(event.winner)
+            )
+        self._trigger_expiry()
+
+    async def _settle_elo_for_game_end(self, winner_color: Optional[str]) -> None:
+        """Persist ELO for a game that ended on its own merits (not a forfeit).
+
+        Mirrors _apply_forfeit's persistence shape: gated on a database
+        existing, a no-op whenever either seat is a bot.
+        """
+        outcome = (
+            self._domain.compute_game_end_outcome(winner_color)
+            if self._database is not None
+            else None
+        )
+        if outcome is None:
+            return
+
+        await self._database.update_elo(outcome.white_session.username, outcome.new_white_elo)
+        await self._database.update_elo(outcome.black_session.username, outcome.new_black_elo)
+        outcome.white_session.elo = outcome.new_white_elo
+        outcome.black_session.elo = outcome.new_black_elo
 
     def _trigger_expiry(self) -> None:
         """Hand this room to its reaper exactly once, off the current call stack.

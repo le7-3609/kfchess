@@ -7,6 +7,7 @@ from server.application.game_room import GameRoom
 from server.domain.room.game_room import RoomState
 from server.domain.room.room_role import RoomRole
 from server.presentation.ws_connection import PlayerSession
+from shared.events import GameEndedEvent
 
 
 class MockSession:
@@ -182,6 +183,100 @@ async def test_countdown_expiry_forfeits_and_updates_elo():
     assert db.elo_updates["Alice"] < 1200
     assert room.state == RoomState.FINISHED
     assert room.white_player is None
+
+
+@pytest.mark.asyncio
+async def test_natural_checkmate_updates_elo_in_database_and_sessions():
+    db = MockDatabase()
+    room, white, black = _seated_room(database=db)
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+    await room._elo_settlement_task
+
+    assert db.elo_updates["Alice"] > 1200
+    assert db.elo_updates["Bob"] < 1200
+    assert white.elo == db.elo_updates["Alice"]
+    assert black.elo == db.elo_updates["Bob"]
+
+
+@pytest.mark.asyncio
+async def test_natural_king_capture_rates_the_black_winner():
+    db = MockDatabase()
+    room, white, black = _seated_room(database=db)
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="king_captured", winner="b"))
+    await room._elo_settlement_task
+
+    assert db.elo_updates["Bob"] > 1200
+    assert db.elo_updates["Alice"] < 1200
+
+
+@pytest.mark.asyncio
+async def test_natural_draw_updates_elo_for_both_players():
+    db = MockDatabase()
+    room, white, black = _seated_room(database=db)
+    white.elo = 1400
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="stalemate", winner=None))
+    await room._elo_settlement_task
+
+    assert db.elo_updates["Alice"] < 1400
+    assert db.elo_updates["Bob"] > 1200
+    assert white.elo == db.elo_updates["Alice"]
+    assert black.elo == db.elo_updates["Bob"]
+
+
+@pytest.mark.asyncio
+async def test_natural_game_end_against_a_bot_does_not_touch_elo():
+    db = MockDatabase()
+    room = GameRoom(room_id="bot_room", database=db)
+    human = MockSession("Alice", 1)
+    room.add_player(human)
+    room.add_bot_opponent()
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+    await room._elo_settlement_task
+
+    assert db.elo_updates == {}
+    assert human.elo == 1200
+
+
+@pytest.mark.asyncio
+async def test_natural_game_end_without_a_database_does_not_raise():
+    room, white, black = _seated_room()
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+    await room._elo_settlement_task
+
+    assert white.elo == 1200
+    assert black.elo == 1200
+
+
+@pytest.mark.asyncio
+async def test_natural_game_end_settles_elo_and_reaps_the_room_via_room_manager():
+    """End-to-end through the real production wiring: RoomManager is what
+    actually supplies on_room_expired, so this is the only place that
+    exercises ELO settlement and reaping together."""
+    from server.application.room_manager import RoomManager
+
+    db = MockDatabase()
+    rm = RoomManager(database=db)
+    white, black = MockSession("Alice", 1), MockSession("Bob", 2)
+    room_id = rm.create_room(white)
+    rm.join_room(room_id, black)
+    room = rm.get_room(room_id)
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+    await room._expiry_task
+    await room._elo_settlement_task
+
+    assert db.elo_updates["Alice"] > 1200
+    assert db.elo_updates["Bob"] < 1200
+    assert white.elo == db.elo_updates["Alice"]
+    assert black.elo == db.elo_updates["Bob"]
+    assert rm.get_room(room_id) is None
+    assert room.state == RoomState.FINISHED
+    assert room.state == RoomState.FINISHED
 
 
 @pytest.mark.asyncio
