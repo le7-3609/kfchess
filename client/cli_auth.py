@@ -116,11 +116,13 @@ def _decode_response(raw_frame: str | bytes) -> Dict[str, Any]:
 
 async def _perform_handshake(server_url: str, credentials: UserCredentials) -> Dict[str, Any]:
     """Open a short-lived connection, send the auth frame, and return the reply."""
-    async with asyncio.timeout(AUTH_TIMEOUT_SECONDS):
+    async def _do_handshake() -> Dict[str, Any]:
         async with websockets.connect(server_url) as connection:
             await connection.send(_build_auth_frame(credentials))
             raw_reply = await connection.recv()
-    return _decode_response(raw_reply)
+            return _decode_response(raw_reply)
+
+    return await asyncio.wait_for(_do_handshake(), timeout=AUTH_TIMEOUT_SECONDS)
 
 
 async def prompt_authentication(server_url: str) -> UserCredentials:
@@ -141,7 +143,7 @@ async def prompt_authentication(server_url: str) -> UserCredentials:
 
     try:
         response = await _perform_handshake(server_url, credentials)
-    except TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError):
         _fail(f"Server did not respond within {AUTH_TIMEOUT_SECONDS:.0f}s: {server_url}")
     except (OSError, websockets.exceptions.WebSocketException) as exc:
         _fail(f"Could not reach the server at {server_url}: {exc}")
