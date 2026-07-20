@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -r requirements.txt      # Pillow, pytest, pre-commit
 
-python main_gui.py                   # Tkinter GUI (prompts for player names, then plays)
+python client/main_gui.py            # Tkinter GUI (prompts for player names, then plays)
 python main.py                       # headless: reads a command script from stdin
+python main_server.py                # WebSocket game server
 
 pytest                               # full suite (~200 tests, a few seconds)
 pytest tests/unit/test_board.py                      # one file
@@ -30,30 +31,38 @@ Kung Fu Chess is real-time chess with **no turns**: both colors move concurrentl
 
 ## Architecture
 
-Clean Architecture with a strict numbered layering. **Every module's docstring names its layer and states what it must *not* own** — read it before editing; those constraints are the design, not decoration. Dependencies point inward only, and interfaces are declared in the inner layer that needs them (e.g. `PixelMapperInterface` lives in `engine/engine_interfaces.py`, not in `input/`, so engine never imports input).
+The repo is split into three top-level packages (repo root must be on `sys.path` — running from the root, as pytest and the entry scripts do, handles this):
+
+- **[shared/](shared/)** — the core game engine and domain models. No UI or network dependency; both other packages import from it.
+- **[client/](client/)** — the Tk/Pillow GUI (`client/ui/`, `client/main_gui.py`) and, later, the WebSocket network client.
+- **[server/](server/)** — the WebSocket server, matchmaking, auth, persistence, and game rooms. Imports `shared` only; never `client`.
+
+Dependencies point one way: `client → shared ← server`. Never import `client` or `server` from `shared`.
+
+Within `shared/`, Clean Architecture with a strict numbered layering. **Every module's docstring names its layer and states what it must *not* own** — read it before editing; those constraints are the design, not decoration. Dependencies point inward only, and interfaces are declared in the inner layer that needs them (e.g. `PixelMapperInterface` lives in `engine/engine_interfaces.py`, not in `input/`, so engine never imports input).
 
 | Layer | Package | Role |
 |---|---|---|
-| 1 | [events.py](kungfu_chess/events.py) | `Event` value types, `Observer`, `EventBus` — the pub/sub spine every layer may import |
-| 1–2 | [model/](kungfu_chess/model/), [config/](kungfu_chess/config/) | `Position`, `ArrayBoard`, `TextPiece`, `GameState`, `Movement`, `Cooldown`, `Result`; `GameConfig` timing constants |
-| 2–3 | [rules/](kungfu_chess/rules/) | pure legality/math: per-piece validators, `PathChecker`, `ThreatValidator`, `EndgameValidator`, `CastlingValidator` |
-| 4 | [realtime/](kungfu_chess/realtime/) | `RealTimeArbiter` tick loop + `CollisionResolver`, `ArrivalResolver`, `ProxyBoard`, duration strategies |
-| 5 | [engine/](kungfu_chess/engine/) | `GameEngine` command dispatch, click/jump/castling processors, game-over detection |
-| 6 | [input/](kungfu_chess/input/), [view/](kungfu_chess/view/), [ui/](kungfu_chess/ui/) | pixel↔cell mapping, `GameSnapshot` DTO, Pillow renderer, Tk window |
-| 7 | [io/](kungfu_chess/io/) | board parse/print, moves log, JSON history store, replay decorator |
-| 8–9 | [texttests/](kungfu_chess/texttests/), [runtime/](kungfu_chess/runtime/) | `.kfc` script runner; asyncio tick loop |
+| 1 | [events.py](shared/events.py) | `Event` value types, `Observer`, `EventBus` — the pub/sub spine every layer may import |
+| 1–2 | [model/](shared/model/), [config/](shared/config/) | `Position`, `ArrayBoard`, `TextPiece`, `GameState`, `Movement`, `Cooldown`, `Result`; `GameConfig` timing constants |
+| 2–3 | [rules/](shared/rules/) | pure legality/math: per-piece validators, `PathChecker`, `ThreatValidator`, `EndgameValidator`, `CastlingValidator` |
+| 4 | [realtime/](shared/realtime/) | `RealTimeArbiter` tick loop + `CollisionResolver`, `ArrivalResolver`, `ProxyBoard`, duration strategies |
+| 5 | [engine/](shared/engine/) | `GameEngine` command dispatch, click/jump/castling processors, game-over detection |
+| 6 | [input/](shared/input/), [view/](shared/view/), [ui/](client/ui/) | pixel↔cell mapping, `GameSnapshot` DTO, Pillow renderer, Tk window (`ui/` lives in `client/`) |
+| 7 | [io/](shared/io/) | board parse/print, moves log, JSON history store, replay decorator |
+| 8–9 | [texttests/](shared/texttests/), [runtime/](shared/runtime/) | `.kfc` script runner; asyncio tick loop |
 
-The core is a pure simulation engine with no UI or network dependency. Keep it that way — a networked server should be addable without touching `rules/`, `realtime/`, or `engine/`.
+The core is a pure simulation engine with no UI or network dependency. Keep it that way — the server consumes it through `GameService`/`bootstrap` without touching `rules/`, `realtime/`, or `engine/`. Note `input/` stays in `shared` (not `client`): `bootstrap.py` wires `BoardMapper` for the pixel-coordinate click path used by text tests and bots.
 
 ### The two boundaries that matter
 
-**[service.py](kungfu_chess/service.py) — `GameService` is the only public entry point.** The Tk window, script runner, and bots all talk exclusively to it: commands (`init_game`, `execute_command`, `click`, `right_click`, `advance_clock`, history save/load), queries (`get_snapshot`, `get_moves`, `list_saves`), and event subscription (`subscribe`, `unsubscribe`). Nothing outside reaches through to `GameEngine`, the repositories, the arbiter, or the bus itself. Optional collaborators (`arbiter`, `moves_log`, `history_store`, `event_bus`) gate only the query/history/subscription methods — the pure `execute()` path used by text tests works without them.
+**[service.py](shared/service.py) — `GameService` is the only public entry point.** The Tk window, script runner, and bots all talk exclusively to it: commands (`init_game`, `execute_command`, `click`, `right_click`, `advance_clock`, history save/load), queries (`get_snapshot`, `get_moves`, `list_saves`), and event subscription (`subscribe`, `unsubscribe`). Nothing outside reaches through to `GameEngine`, the repositories, the arbiter, or the bus itself. Optional collaborators (`arbiter`, `moves_log`, `history_store`, `event_bus`) gate only the query/history/subscription methods — the pure `execute()` path used by text tests works without them.
 
-**[bootstrap.py](kungfu_chess/bootstrap.py) — the composition root.** All wiring happens here; nothing else constructs the object graph.
+**[bootstrap.py](shared/bootstrap.py) — the composition root.** All wiring happens here; nothing else constructs the object graph.
 - `build_core(...)` returns `CoreComponents`, the shared stack.
 - `build_service()` — `InstantMovementDuration`, for tests and scripted runs.
 - `build_realtime_service()` — `ChebyshevDistanceDuration`, pieces travel over time; adds moves log + history store.
-- Bots need the *same* repo/arbiter instances, so they can't be injected after the fact — [bot_factory.py](kungfu_chess/bot_factory.py) composes `build_core()` with bot construction instead.
+- Bots need the *same* repo/arbiter instances, so they can't be injected after the fact — [bot_factory.py](shared/bot_factory.py) composes `build_core()` with bot construction instead.
 
 ### Non-obvious invariants
 
@@ -94,5 +103,5 @@ Integration tests in [tests/integration/scripts/](tests/integration/scripts/) ar
 ## Conventions
 
 - PEP-8, type annotations, and the existing docstring style: a module docstring stating layer + owns/must-not-own, and comments that explain *why* for real-time simulation subtleties.
-- Errors flow back as `Result.ok/fail` (see [model/game_state.py](kungfu_chess/model/game_state.py)), not exceptions, on the command path.
+- Errors flow back as `Result.ok/fail` (see [model/game_state.py](shared/model/game_state.py)), not exceptions, on the command path.
 - Every feature, fix, or refactor needs test coverage, and the suite must stay green — it exists to pin collision priorities and rule edge cases across refactors.
