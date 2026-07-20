@@ -1,8 +1,8 @@
-"""Unit tests for kungfu_chess.io.board_validator."""
+"""Unit tests for shared.io.board_validator."""
 
 import unittest
 
-from kungfu_chess.io.board_validator import BoardValidator
+from shared.io.board_validator import BoardValidator
 
 
 class TestBoardValidator(unittest.TestCase):

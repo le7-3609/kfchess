@@ -5,11 +5,11 @@ import os
 import tempfile
 import unittest
 
-from kungfu_chess.config import consts
-from kungfu_chess.events import PieceMovedEvent
-from kungfu_chess.io.game_history_store import GameHistoryStore
-from kungfu_chess.io.moves_log import MovesLog
-from kungfu_chess.model.position import Position
+from shared.config import consts
+from shared.events import PieceMovedEvent
+from shared.io.game_history_store import GameHistoryStore
+from shared.io.moves_log import MovesLog
+from shared.model.position import Position
 
 
 class _StoreTestCase(unittest.TestCase):

@@ -1,11 +1,11 @@
-"""Unit tests for kungfu_chess.rules.piece_rules — validators and factory."""
+"""Unit tests for shared.rules.piece_rules — validators and factory."""
 
 import unittest
 
-from kungfu_chess.errors import MissingValidatorError
-from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.rules.piece_rules import (
+from shared.errors import MissingValidatorError
+from shared.model.position import Position
+from shared.model.board import ArrayBoard
+from shared.rules.piece_rules import (
     KingMoveValidator,
     QueenMoveValidator,
     RookMoveValidator,
@@ -15,8 +15,8 @@ from kungfu_chess.rules.piece_rules import (
     MoveValidatorFactory,
     StandardPawnPromotion,
 )
-from kungfu_chess.config.game_config import GameConfig
-from kungfu_chess.model.piece import TextPiece as Piece
+from shared.config.game_config import GameConfig
+from shared.model.piece import TextPiece as Piece
 
 
 def _board(rows: int = 8, cols: int = 8) -> ArrayBoard:

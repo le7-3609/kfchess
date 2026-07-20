@@ -5,13 +5,13 @@ replay window. No tkinter here; ReplayDirector is a function of the save alone.
 import unittest
 from unittest.mock import Mock
 
-from kungfu_chess.config.game_config import GameConfig
-from kungfu_chess.io.game_history_store import SavedGame
-from kungfu_chess.io.moves_log import MoveLogEntry, parse_notation
-from kungfu_chess.io.replay import ReplayEngineDecorator
-from kungfu_chess.model.position import Position
-from kungfu_chess.ui.window.replay_window import ReplayDirector, reconstruct_moves
-from kungfu_chess.view.piece_visual_state import PieceVisualState
+from shared.config.game_config import GameConfig
+from shared.io.game_history_store import SavedGame
+from shared.io.moves_log import MoveLogEntry, parse_notation
+from shared.io.replay import ReplayEngineDecorator
+from shared.model.position import Position
+from client.ui.window.replay_window import ReplayDirector, reconstruct_moves
+from shared.view.piece_visual_state import PieceVisualState
 
 E2, E4 = Position(6, 4), Position(4, 4)
 D7, D5 = Position(1, 3), Position(3, 3)

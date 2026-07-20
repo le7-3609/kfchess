@@ -1,14 +1,14 @@
-"""Unit tests for kungfu_chess.input.controller."""
+"""Unit tests for shared.input.controller."""
 
 import unittest
 from typing import List, Optional, Tuple
 
-from kungfu_chess.model.board import ArrayBoard, BoardInterface
-from kungfu_chess.model.piece import TextPiece
-from kungfu_chess.model.position import Position
-from kungfu_chess.input.board_mapper import BoardMapper
-from kungfu_chess.input.controller import Controller
-from kungfu_chess.engine.engine_interfaces import BoardRepositoryInterface
+from shared.model.board import ArrayBoard, BoardInterface
+from shared.model.piece import TextPiece
+from shared.model.position import Position
+from shared.input.board_mapper import BoardMapper
+from shared.input.controller import Controller
+from shared.engine.engine_interfaces import BoardRepositoryInterface
 
 
 class FakeBoardRepository(BoardRepositoryInterface):

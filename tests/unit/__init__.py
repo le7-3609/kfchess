@@ -1,1 +1,1 @@
-"""Unit tests package for kungfu_chess."""
+"""Unit tests package for shared."""

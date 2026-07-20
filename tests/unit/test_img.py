@@ -7,7 +7,7 @@ these pin that down.
 
 import unittest
 
-from kungfu_chess.ui.rendering.img import Img
+from client.ui.rendering.img import Img
 
 LIGHT = (240, 217, 181, 255)
 HALF_BLACK = (0, 0, 0, 160)

@@ -222,3 +222,8 @@ __marimo__/
 
 # Kung Fu Chess player settings (piece theme, etc.)
 /user_settings.json
+
+# Kung Fu Chess multiplayer server's local SQLite database
+/kfchess.db
+/kfchess.db-shm
+/kfchess.db-wal

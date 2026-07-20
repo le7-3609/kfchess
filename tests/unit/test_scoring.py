@@ -5,7 +5,7 @@ The tracker never reads the board, so these drive it purely through the bus.
 
 import unittest
 
-from kungfu_chess.events import (
+from shared.events import (
     Event,
     EventBus,
     GameStartedEvent,
@@ -13,8 +13,8 @@ from kungfu_chess.events import (
     PieceCapturedEvent,
     ScoreUpdatedEvent,
 )
-from kungfu_chess.model.position import Position
-from kungfu_chess.scoring import MaterialScoreTracker
+from shared.model.position import Position
+from shared.scoring import MaterialScoreTracker
 
 
 def _capture(piece_type: str, color: str = "b", captor_color: str = "w") -> PieceCapturedEvent:

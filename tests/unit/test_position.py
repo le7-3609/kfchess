@@ -1,8 +1,8 @@
-"""Unit tests for kungfu_chess.model.position."""
+"""Unit tests for shared.model.position."""
 
 import unittest
 
-from kungfu_chess.model.position import Position
+from shared.model.position import Position
 
 
 class TestPosition(unittest.TestCase):

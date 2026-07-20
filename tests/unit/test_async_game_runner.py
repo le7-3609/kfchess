@@ -1,13 +1,13 @@
-"""Unit tests for kungfu_chess.runtime.async_runner.AsyncGameRunner."""
+"""Unit tests for shared.runtime.async_runner.AsyncGameRunner."""
 
 import asyncio
 import unittest
 
-from kungfu_chess.bootstrap import build_realtime_service
-from kungfu_chess.config.game_config import GameConfig
-from kungfu_chess.engine.input_commands import ClickCommand, WaitCommand
-from kungfu_chess.model.position import Position
-from kungfu_chess.runtime.async_runner import AsyncGameRunner
+from shared.bootstrap import build_realtime_service
+from shared.config.game_config import GameConfig
+from shared.engine.input_commands import ClickCommand, WaitCommand
+from shared.model.position import Position
+from shared.runtime.async_runner import AsyncGameRunner
 
 
 BOARD = [

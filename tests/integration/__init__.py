@@ -1,1 +1,1 @@
-"""Integration tests package for kungfu_chess."""
+"""Integration tests package for shared."""

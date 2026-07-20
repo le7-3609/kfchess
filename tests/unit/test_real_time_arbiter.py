@@ -1,21 +1,21 @@
-"""Unit tests for kungfu_chess.realtime.real_time_arbiter."""
+"""Unit tests for shared.realtime.real_time_arbiter."""
 
 import unittest
 from typing import List
 
-from kungfu_chess.events import Event, EventBus, Observer, PieceCapturedEvent
-from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.piece import TextPiece as Piece
-from kungfu_chess.model.game_state import Cooldown, GameState, Movement
-from kungfu_chess.realtime.real_time_arbiter import (
+from shared.events import Event, EventBus, Observer, PieceCapturedEvent
+from shared.model.position import Position
+from shared.model.board import ArrayBoard
+from shared.model.piece import TextPiece as Piece
+from shared.model.game_state import Cooldown, GameState, Movement
+from shared.realtime.real_time_arbiter import (
     RealTimeArbiter,
     ChebyshevDistanceDuration,
     InstantMovementDuration,
     ProxyBoard,
 )
-from kungfu_chess.rules.rule_engine import PathChecker
-from kungfu_chess.rules.piece_rules import (
+from shared.rules.rule_engine import PathChecker
+from shared.rules.piece_rules import (
     StandardPawnPromotion,
     MoveValidatorFactory,
     KingMoveValidator,
@@ -25,7 +25,7 @@ from kungfu_chess.rules.piece_rules import (
     KnightMoveValidator,
     PawnMoveValidator,
 )
-from kungfu_chess.config.game_config import GameConfig
+from shared.config.game_config import GameConfig
 
 
 def _make_factory(config: GameConfig) -> MoveValidatorFactory:
@@ -390,7 +390,7 @@ class TestArbiterCollisions(unittest.TestCase):
     def test_cooldown_expiration(self) -> None:
         p = Piece("w", "R")
         p.transition_to_cooldown()
-        from kungfu_chess.model.game_state import Cooldown
+        from shared.model.game_state import Cooldown
         self.state.active_cooldowns.append(Cooldown(piece=p, end_ms=1000))
 
         self.state.clock_ms = 1500

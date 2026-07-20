@@ -1,10 +1,10 @@
-"""Unit tests for kungfu_chess.io.board_parser."""
+"""Unit tests for shared.io.board_parser."""
 
 import unittest
 
-from kungfu_chess.engine.input_commands import ClickCommand, PrintBoardCommand
-from kungfu_chess.io.board_parser import BoardParser
-from kungfu_chess.model.position import Position
+from shared.engine.input_commands import ClickCommand, PrintBoardCommand
+from shared.io.board_parser import BoardParser
+from shared.model.position import Position
 
 
 class TestBoardParser(unittest.TestCase):

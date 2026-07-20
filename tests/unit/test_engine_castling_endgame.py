@@ -1,13 +1,13 @@
 """Unit tests for castling and endgame logic in GameEngine."""
 
 import unittest
-from kungfu_chess.bootstrap import build_service
-from kungfu_chess.engine.input_commands import ClickCommand, WaitCommand
-from kungfu_chess.model.position import Position
-from kungfu_chess.model.piece import TextPiece
+from shared.bootstrap import build_service
+from shared.engine.input_commands import ClickCommand, WaitCommand
+from shared.model.position import Position
+from shared.model.piece import TextPiece
 
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.game_state import GameState
+from shared.model.board import ArrayBoard
+from shared.model.game_state import GameState
 
 class TestEngineCastlingEndgame(unittest.TestCase):
     

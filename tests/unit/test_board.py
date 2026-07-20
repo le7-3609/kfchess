@@ -1,11 +1,11 @@
-"""Unit tests for kungfu_chess.model.board."""
+"""Unit tests for shared.model.board."""
 
 import unittest
 
-from kungfu_chess.errors import EmptyCellError, InvalidPositionError, OccupiedCellError
-from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.piece import TextPiece as Piece, PieceFactory
+from shared.errors import EmptyCellError, InvalidPositionError, OccupiedCellError
+from shared.model.position import Position
+from shared.model.board import ArrayBoard
+from shared.model.piece import TextPiece as Piece, PieceFactory
 
 
 class TestArrayBoard(unittest.TestCase):
