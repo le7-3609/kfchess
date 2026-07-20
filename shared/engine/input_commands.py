@@ -17,9 +17,19 @@ is drained a tick later, on a different call stack than the producer.
 
 from dataclasses import dataclass
 
+from shared.model.position import Position
+
 
 class GameCommand:
     """Marker base for every command ``GameEngine.execute_command`` accepts."""
+
+
+@dataclass(frozen=True)
+class RequestMoveCommand(GameCommand):
+    """Direct move request from *source* to *target* (used by bots / direct move APIs)."""
+
+    source: Position
+    target: Position
 
 
 @dataclass(frozen=True)

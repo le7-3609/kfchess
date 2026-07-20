@@ -164,14 +164,30 @@ class LocalGameController(IGameController):
         self._flush_events()
         self._publish_snapshot()
 
+    def _is_own_piece(self, pos: Position) -> bool:
+        """True if *pos* holds a piece owned by this controller's seat."""
+        if not isinstance(self._assigned_color, str):
+            return True
+        board = self._service._board_repo.get_board()
+        if board is None:
+            return True
+        piece = board.get_piece(pos)
+        return piece is not None and piece.color == self._assigned_color
+
     def submit_select(self, pos: Position) -> None:
         """Select *pos* in the engine, so the next snapshot carries its legal moves."""
+        if not self._is_own_piece(pos):
+            return
         self._service.click(pos.row, pos.col)
 
     def submit_move(self, source: Position, target: Position) -> None:
+        if not self._is_own_piece(source):
+            return
         self._service.request_move(source, target)
 
     def submit_jump(self, pos: Position) -> None:
+        if not self._is_own_piece(pos):
+            return
         self._service.right_click(pos.row, pos.col)
 
     def apply_preferences(self, ms_per_square: int, cooldown_ms: int) -> None:

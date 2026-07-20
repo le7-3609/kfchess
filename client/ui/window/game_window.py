@@ -359,25 +359,63 @@ class GameWindow(GameControllerListener):
         if cell is None:
             return
 
+        pos = Position(*cell)
+        target_piece = self._latest_snapshot.pieces.get(pos)
+        assigned_color = self.controller.assigned_color
+        if not isinstance(assigned_color, str):
+            assigned_color = None
+
         if self._pending_source is None:
+            if assigned_color is not None and (target_piece is None or target_piece.color != assigned_color):
+                return
             self._pending_source = cell
-            self.controller.submit_select(Position(*cell))
+            self.controller.submit_select(pos)
             self._refresh()
             return
 
-        source, self._pending_source = self._pending_source, None
-        if source != cell:
-            self.controller.submit_move(Position(*source), Position(*cell))
+        source_cell = self._pending_source
+        source_pos = Position(*source_cell)
+        source_piece = self._latest_snapshot.pieces.get(source_pos)
+
+        if cell == source_cell:
+            self._pending_source = None
+            self.controller.submit_select(pos)
+            self._refresh()
+            return
+
+        if target_piece is not None and (
+            (assigned_color is not None and target_piece.color == assigned_color)
+            or (assigned_color is None and source_piece is not None and target_piece.color == source_piece.color)
+        ):
+            if pos in self._latest_snapshot.castle_targets:
+                self._pending_source = None
+                self.controller.submit_move(source_pos, pos)
+            else:
+                self._pending_source = cell
+                self.controller.submit_select(pos)
+            self._refresh()
+            return
+
+        self._pending_source = None
+        self.controller.submit_move(source_pos, pos)
         self._refresh()
 
     def _on_right_click(self, event) -> None:
         """Jump the piece under the cursor in place, regardless of any selection."""
-        if self.controller.is_viewer:
+        if self.controller.is_viewer or self._latest_snapshot is None:
             return
         cell = self._canvas_to_cell(event.x, event.y)
         if cell is None:
             return
-        self.controller.submit_jump(Position(*cell))
+        pos = Position(*cell)
+        assigned_color = self.controller.assigned_color
+        if not isinstance(assigned_color, str):
+            assigned_color = None
+        if assigned_color is not None:
+            piece_snap = self._latest_snapshot.pieces.get(pos)
+            if piece_snap is None or piece_snap.color != assigned_color:
+                return
+        self.controller.submit_jump(pos)
         self._refresh()
 
     def _on_resize(self, event) -> None:

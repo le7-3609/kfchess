@@ -55,6 +55,7 @@ from shared.engine.input_commands import (
     ClickCommand,
     GameCommand,
     PrintBoardCommand,
+    RequestMoveCommand,
     RightClickCommand,
     WaitCommand,
 )
@@ -233,8 +234,12 @@ class GameEngine:
         state = self._state_repo.get_state()
         if state.game_over:
             return
+        saved_selected = state.selected_pos if state.selected_pos != source else None
         state.selected_pos = source
         self._click_commands.handle_click(state, board, destination)
+        if saved_selected is not None:
+            state.selected_pos = saved_selected
+            self._state_repo.save_state(state)
 
     def legal_moves_from(self, source: Position) -> List[Position]:
         """Return every legal destination for the piece at *source* right now.
@@ -300,6 +305,8 @@ class GameEngine:
         match command:
             case ClickCommand(x, y):
                 self._handle_click(x, y)
+            case RequestMoveCommand(source, target):
+                self.request_move(source, target)
             case RightClickCommand(x, y):
                 self._handle_right_click(x, y)
             case WaitCommand(ms):

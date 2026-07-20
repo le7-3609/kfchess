@@ -194,3 +194,31 @@ def test_an_offline_match_offers_jump_preferences_and_history(started):
     assert controller.supports_jump is True
     assert controller.supports_preferences is True
     assert controller.history is not None
+
+
+def test_assigned_color_blocks_moving_opponent_pieces():
+    clock = _FakeClock()
+    service = build_realtime_service()
+    controller = LocalGameController(
+        service=service,
+        assigned_color=consts.COLOR_WHITE,
+        clock=clock,
+    )
+    listener = MagicMock()
+    controller.start(listener)
+
+    # Black pawn is at (1, 4) in standard starting position
+    black_pawn_pos = Position(1, 4)
+    target_pos = Position(3, 4)
+
+    # Attempting to move Black pawn as White player should be rejected
+    controller.submit_move(black_pawn_pos, target_pos)
+
+    for _ in range(5):
+        clock.advance_ms(200)
+        controller.poll()
+
+    snapshot = listener.on_snapshot.call_args[0][0]
+    # Black pawn should still be at (1, 4) and target (3, 4) should remain empty
+    assert black_pawn_pos in snapshot.pieces
+    assert target_pos not in snapshot.pieces

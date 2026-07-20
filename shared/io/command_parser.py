@@ -15,6 +15,7 @@ from shared.engine.input_commands import (
     ClickCommand,
     GameCommand,
     PrintBoardCommand,
+    RequestMoveCommand,
     RightClickCommand,
     WaitCommand,
 )
@@ -124,6 +125,8 @@ class TextCommandFormatter:
         match command:
             case ClickCommand(x, y):
                 return f"click {x} {y}"
+            case RequestMoveCommand(source, target):
+                return f"move {source.col} {source.row} {target.col} {target.row}"
             case RightClickCommand(x, y):
                 return f"right_click {x} {y}"
             case WaitCommand(ms):

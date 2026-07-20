@@ -59,7 +59,10 @@ def _geometry() -> BoardGeometry:
 def _window(controller=None) -> GameWindow:
     """A GameWindow with just enough state for listener/gesture tests."""
     window = GameWindow.__new__(GameWindow)
-    window.controller = controller or MagicMock()
+    if controller is None:
+        controller = MagicMock()
+        controller.assigned_color = None
+    window.controller = controller
     window.username = "tester"
     window.renderer = MagicMock()
     window.renderer.get_geometry.return_value = _geometry()
@@ -223,3 +226,47 @@ def test_right_click_asks_the_controller_to_jump_in_place():
     window._on_right_click(_click_at(6, 4))
 
     controller.submit_jump.assert_called_once_with(Position(6, 4))
+
+
+def test_cannot_select_or_jump_opponent_piece_when_assigned_color_set():
+    from shared.view.piece_visual_state import PieceVisualState
+    from shared.view.game_snapshot import PieceSnapshot, GameSnapshot
+
+    controller = MagicMock()
+    controller.is_viewer = False
+    controller.assigned_color = consts.COLOR_WHITE
+    window = _window(controller)
+
+    black_pawn = PieceSnapshot(
+        color=consts.COLOR_BLACK,
+        piece_type="pawn",
+        has_moved=False,
+        can_select=True,
+        can_move=True,
+        state=PieceVisualState.IDLE,
+        state_elapsed_millis=0,
+        state_duration_millis=0,
+    )
+    window._latest_snapshot = GameSnapshot(
+        rows=8,
+        cols=8,
+        pieces={Position(1, 4): black_pawn},
+        selected_pos=None,
+        legal_move_targets=(),
+        castle_targets=(),
+        active_movements=(),
+        cooldown_positions=(),
+        clock_ms=0,
+        game_over=False,
+        game_over_reason=None,
+        winner=None,
+    )
+
+    # First left click on Black pawn should be ignored
+    window._on_left_click(_click_at(1, 4))
+    assert window._pending_source is None
+    controller.submit_select.assert_not_called()
+
+    # Right click on Black pawn should be ignored
+    window._on_right_click(_click_at(1, 4))
+    controller.submit_jump.assert_not_called()

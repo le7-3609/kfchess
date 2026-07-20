@@ -12,7 +12,7 @@ from shared.model.position import Position
 from shared.rules.rule_engine import EndgameValidator
 from shared.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface
 from shared.engine.engine_interfaces import InputSourceInterface
-from shared.engine.input_commands import ClickCommand, GameCommand
+from shared.engine.input_commands import GameCommand, RequestMoveCommand
 
 
 class RandomBotInputSource(InputSourceInterface):
@@ -45,12 +45,5 @@ class RandomBotInputSource(InputSourceInterface):
             return []
 
         src, dst = random.choice(valid_moves)
-        return self._move_to_click_commands(src, dst)
+        return [RequestMoveCommand(source=src, target=dst)]
 
-    def _move_to_click_commands(self, src: Position, dst: Position) -> List[GameCommand]:
-        """Express *src* -> *dst* as the select-then-move click pair a human would make."""
-        cell_size = self._config.cell_size_px
-        return [
-            ClickCommand(x=src.col * cell_size, y=src.row * cell_size),
-            ClickCommand(x=dst.col * cell_size, y=dst.row * cell_size),
-        ]

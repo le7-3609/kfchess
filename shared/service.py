@@ -286,7 +286,14 @@ class GameService:
         player.promotion_rank = promotion_rank
 
     def _trigger_bot_reaction_if_active(self) -> None:
+        if getattr(self, "_in_bot_reaction", False):
+            return
         if self._bot and not self._state_repo.get_state().game_over:
-            bot_cmds = self._bot.get_next_commands()
-            for b_cmd in bot_cmds:
-                self._engine.execute_command(b_cmd)
+            self._in_bot_reaction = True
+            try:
+                bot_cmds = self._bot.get_next_commands()
+                for b_cmd in bot_cmds:
+                    self._engine.execute_command(b_cmd)
+            finally:
+                self._in_bot_reaction = False
+
