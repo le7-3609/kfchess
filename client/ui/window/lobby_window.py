@@ -290,9 +290,24 @@ class LobbyWindow:
 
         # Pre-feed the game_start message so color/title/opponent are immediately populated
         game_win._handle_message(start_msg)
+        self._forward_pending_frames(game_win)
 
         game_win.root.protocol("WM_DELETE_WINDOW", lambda: self._on_game_window_closed(game_win))
-        game_win.root.mainloop()
+        game_win.attach_and_run()
+
+    def _forward_pending_frames(self, game_win: NetworkedGameWindow) -> None:
+        """Replay any frames still sitting in the lobby's queue onto the game window.
+
+        The network client keeps pushing onto the lobby's queue (game_state,
+        events, ...) right up until `attach_and_run` redirects it, so a frame
+        that lands in that gap must be forwarded here rather than dropped.
+        """
+        while True:
+            try:
+                message = self._message_queue.get_nowait()
+            except queue.Empty:
+                return
+            game_win._handle_message(message)
 
     def _on_game_window_closed(self, game_win: NetworkedGameWindow) -> None:
         game_win._on_close()

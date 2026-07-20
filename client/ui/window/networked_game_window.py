@@ -184,6 +184,19 @@ class NetworkedGameWindow:
         self._schedule_queue_poll()
         self.root.mainloop()
 
+    def attach_and_run(self) -> None:
+        """Take over an already-started NetworkClient, then block on the Tk main loop.
+
+        Used when the caller (LobbyWindow) opened the persistent connection
+        before this window existed, so it had somewhere to receive
+        `game_start` while still showing its own dialog. Calling
+        `network_client.start()` again here would raise, so this redirects
+        the running client's callback instead of opening a fresh one.
+        """
+        self.network_client.set_message_callback(self._message_queue.put)
+        self._schedule_queue_poll()
+        self.root.mainloop()
+
     def _schedule_queue_poll(self) -> None:
         self.root.after(ui_consts.NETWORK_POLL_MS, self._process_network_queue)
 

@@ -1,3 +1,4 @@
+import queue
 from unittest.mock import MagicMock
 from shared.config import consts
 from client.ui.rendering.board_geometry import BoardGeometry
@@ -78,6 +79,29 @@ def test_networked_game_window_events():
     })
     assert window._scores[consts.COLOR_WHITE] == 3
     assert window._scores[consts.COLOR_BLACK] == 1
+
+
+def test_attach_and_run_redirects_the_running_client_instead_of_restarting_it():
+    """Regression: LobbyWindow hands off a NetworkClient it already started.
+
+    Calling `.start()` again would raise, so `attach_and_run` must instead
+    redirect the client's callback onto this window's own queue and start
+    this window's poll loop — otherwise game_state frames keep flowing to
+    whatever queue the client was originally started with and the board
+    never renders.
+    """
+    mock_client = MagicMock()
+    window = NetworkedGameWindow.__new__(NetworkedGameWindow)
+    window.network_client = mock_client
+    window._message_queue = queue.Queue()
+    window.root = MagicMock()
+
+    window.attach_and_run()
+
+    mock_client.start.assert_not_called()
+    mock_client.set_message_callback.assert_called_once_with(window._message_queue.put)
+    window.root.after.assert_called_once()
+    window.root.mainloop.assert_called_once()
 
 
 def _bare_window() -> NetworkedGameWindow:

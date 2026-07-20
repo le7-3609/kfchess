@@ -95,6 +95,16 @@ class NetworkClient:
         self._initial_action = action
         self._room_id = room_id
 
+    def set_message_callback(self, on_message_callback: OnMessageCallback) -> None:
+        """Redirect future frames to a new callback without restarting the connection.
+
+        Lets a caller that started the client before its eventual consumer
+        existed (the lobby opens the socket while still showing the
+        matchmaking dialog, before the game window is built) hand delivery
+        off once that consumer is ready.
+        """
+        self._on_message = on_message_callback
+
     def start(self, on_message_callback: OnMessageCallback) -> None:
         """Spawn the background event loop and open the server connection.
 

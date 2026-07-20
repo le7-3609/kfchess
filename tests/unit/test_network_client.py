@@ -201,6 +201,20 @@ class TestReconnectionBackoff(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(connect_calls), 1)
 
 
+class TestSetMessageCallback(unittest.TestCase):
+    def test_redirects_future_frames_without_touching_connection_state(self):
+        client = nc.NetworkClient("ws://fake", "alice", "secret")
+        first: List[Dict[str, Any]] = []
+        second: List[Dict[str, Any]] = []
+        client._on_message = first.append
+
+        client.set_message_callback(second.append)
+        client._publish({"type": "game_state", "state": {}})
+
+        self.assertEqual(first, [])
+        self.assertEqual(second, [{"type": "game_state", "state": {}}])
+
+
 class TestCancelSearch(unittest.IsolatedAsyncioTestCase):
     async def test_send_cancel_search_sends_frame_on_the_loop(self):
         client = nc.NetworkClient("ws://fake", "alice", "secret")
