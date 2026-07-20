@@ -38,12 +38,19 @@ _MSG_TYPE_OPPONENT_DISCONNECTED = "opponent_disconnected"
 _MSG_TYPE_COUNTDOWN_TICK = "countdown_tick"
 _MSG_TYPE_OPPONENT_RECONNECTED = "opponent_reconnected"
 _MSG_TYPE_FORFEIT_VICTORY = "forfeit_victory"
+_MSG_TYPE_GAME_END = "game_end"
+_GAME_END_REASON_DISCONNECTION_TIMEOUT = "disconnection_timeout"
 
 _PLACEHOLDER_OPPONENT_NAME = "Waiting for opponent..."
 _DISCONNECTED_MESSAGE = "Connection lost. Attempting to reconnect…"
 _RECONNECT_FAILED_MESSAGE = "Unable to reconnect to the server. The match cannot continue."
 _FORFEIT_VICTORY_MESSAGE = "Your opponent forfeited by disconnecting — you win!"
 _DEFAULT_OPPONENT_LABEL = "Your opponent"
+
+# Maps this window's assigned "w"/"b" color onto the game_end frame's
+# white/black rating keys — the frame speaks in seat names, the client in
+# the terser color codes used everywhere else on the wire.
+_RATING_KEY_BY_COLOR = {consts.COLOR_WHITE: "white", consts.COLOR_BLACK: "black"}
 
 
 @dataclass(frozen=True)
@@ -230,6 +237,8 @@ class NetworkedGameWindow:
             self._on_opponent_reconnected(message)
         elif msg_type == _MSG_TYPE_FORFEIT_VICTORY:
             self._on_forfeit_victory(message)
+        elif msg_type == _MSG_TYPE_GAME_END:
+            self._on_game_end(message)
         elif msg_type == _MSG_TYPE_ERROR:
             _LOGGER.warning("Server error: %s", message.get("message"))
         elif msg_type == MSG_TYPE_CONNECTION_STATUS:
@@ -281,6 +290,38 @@ class NetworkedGameWindow:
     def _on_forfeit_victory(self, message: Dict[str, Any]) -> None:
         self._disconnected_opponent_name = None
         self._reconnect_overlay.show_terminal(_FORFEIT_VICTORY_MESSAGE, on_close=self._on_close)
+
+    def _on_game_end(self, message: Dict[str, Any]) -> None:
+        """Show the final result, appending this player's rating change when the
+        game was rated (both seats human, server has a database configured).
+
+        A rated forfeit reaches this too — the frame carries a richer picture
+        (reason, winner, and both ratings) than `forfeit_victory` alone, so
+        this supersedes that overlay's plain text rather than fighting it.
+        """
+        self._disconnected_opponent_name = None
+        reason = message.get("reason", "")
+        winner = message.get("winner")
+        text = self._describe_game_end(reason, winner)
+
+        rating_key = _RATING_KEY_BY_COLOR.get(self._assigned_color)
+        rating = message.get(rating_key) if rating_key else None
+        if rating is not None:
+            text += f"\nNew rating: {rating['new_elo']} ({rating['elo_change']:+d})"
+
+        self._reconnect_overlay.show_terminal(text, on_close=self._on_close)
+
+    def _describe_game_end(self, reason: str, winner: Optional[str]) -> str:
+        won = winner is not None and winner == self._assigned_color
+        if reason == _GAME_END_REASON_DISCONNECTION_TIMEOUT:
+            return (
+                "Your opponent forfeited by disconnecting — you win!"
+                if won
+                else "You forfeited by disconnecting."
+            )
+        if winner is None:
+            return "Game over — draw."
+        return "Game over — you win!" if won else "Game over — you lose."
 
     def _on_connection_status(self, message: Dict[str, Any]) -> None:
         """Drive the modal reconnect overlay from NetworkClient's status frames."""

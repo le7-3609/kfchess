@@ -15,6 +15,7 @@ from server.application.auth_service import AuthService
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.infrastructure.database.database import Database
 from server.presentation.ws_server import KFChessServer
+from shared.events import GameEndedEvent
 
 _RECV_TIMEOUT = 2.0
 _TEST_PASSWORD = "password123"
@@ -166,6 +167,47 @@ async def test_matched_players_can_move_and_receive_state(auth_server):
                 t in received_types
                 for t in ("game_state", "event_move_started", "event_piece_moved")
             ), received_types
+
+
+@pytest.mark.asyncio
+async def test_game_end_broadcasts_new_elo_and_elo_change_for_both_players(auth_server):
+    """A natural game end must hand each player their updated rating alongside
+    the result — not just who won — so the client can show it without a
+    separate round trip. Triggered by publishing GameEndedEvent directly onto
+    the room's bus, the same seam server/unit tests use, since driving a real
+    game to checkmate over the wire buys nothing extra here.
+    """
+    port = 8780
+    server = await auth_server(port)
+
+    async with _connect(port) as ws1, _connect(port) as ws2:
+        await _play(ws1, "Rater")
+        await _play(ws2, "Ratee")
+        start1 = await _recv_until(ws1, "game_start")
+        await _recv_until(ws2, "game_start")
+
+        room = server.room_manager.get_room(start1["room_id"])
+        room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+        await room._elo_settlement_task
+
+        white_end = await _recv_until(ws1 if start1["color"] == "w" else ws2, "game_end")
+        black_end = await _recv_until(ws2 if start1["color"] == "w" else ws1, "game_end")
+
+        for end in (white_end, black_end):
+            assert end["reason"] == "checkmate"
+            assert end["winner"] == "w"
+            assert set(end["white"]) == {"new_elo", "elo_change"}
+            assert set(end["black"]) == {"new_elo", "elo_change"}
+
+        # White won: rating rises for White, falls for Black — both starting at 1200.
+        assert white_end["white"]["elo_change"] > 0
+        assert white_end["black"]["elo_change"] < 0
+        assert white_end["white"]["new_elo"] == 1200 + white_end["white"]["elo_change"]
+        assert white_end["black"]["new_elo"] == 1200 + white_end["black"]["elo_change"]
+
+        # Wait for the room's own reap so its background tasks are gone before
+        # this test's context managers tear the sockets down underneath it.
+        await room._expiry_task
 
 
 @pytest.mark.asyncio

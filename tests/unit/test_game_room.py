@@ -186,6 +186,28 @@ async def test_countdown_expiry_forfeits_and_updates_elo():
 
 
 @pytest.mark.asyncio
+async def test_countdown_expiry_broadcasts_game_end_with_new_elo_and_elo_change():
+    """The game_end frame must carry both sides' rating change, framed by
+    seat (white/black) rather than winner/loser, since the disconnected
+    player is White here — the opposite of the winner/loser shape
+    ForfeitOutcome itself uses internally."""
+    db = MockDatabase()
+    room, white, black = _seated_room(database=db, disconnect_timeout_seconds=1)
+
+    room.handle_disconnect(white)
+    await asyncio.sleep(1.3)
+
+    for session in (white, black):
+        ends = [m for m in session.sent_messages if m["type"] == "game_end"]
+        assert len(ends) == 1
+        end = ends[0]
+        assert end["reason"] == "disconnection_timeout"
+        assert end["winner"] == "b"
+        assert end["white"] == {"new_elo": db.elo_updates["Alice"], "elo_change": db.elo_updates["Alice"] - 1200}
+        assert end["black"] == {"new_elo": db.elo_updates["Bob"], "elo_change": db.elo_updates["Bob"] - 1200}
+
+
+@pytest.mark.asyncio
 async def test_natural_checkmate_updates_elo_in_database_and_sessions():
     db = MockDatabase()
     room, white, black = _seated_room(database=db)
@@ -197,6 +219,40 @@ async def test_natural_checkmate_updates_elo_in_database_and_sessions():
     assert db.elo_updates["Bob"] < 1200
     assert white.elo == db.elo_updates["Alice"]
     assert black.elo == db.elo_updates["Bob"]
+
+
+@pytest.mark.asyncio
+async def test_natural_checkmate_broadcasts_game_end_with_new_elo_and_elo_change():
+    db = MockDatabase()
+    room, white, black = _seated_room(database=db)
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+    await room._elo_settlement_task
+
+    for session in (white, black):
+        ends = [m for m in session.sent_messages if m["type"] == "game_end"]
+        assert len(ends) == 1
+        end = ends[0]
+        assert end["reason"] == "checkmate"
+        assert end["winner"] == "w"
+        assert end["white"] == {"new_elo": db.elo_updates["Alice"], "elo_change": db.elo_updates["Alice"] - 1200}
+        assert end["black"] == {"new_elo": db.elo_updates["Bob"], "elo_change": db.elo_updates["Bob"] - 1200}
+
+
+@pytest.mark.asyncio
+async def test_natural_game_end_against_a_bot_sends_no_game_end_frame():
+    """A bot opponent means no account to rate, so the frame that carries
+    rating deltas must not be sent at all — not with null ratings."""
+    db = MockDatabase()
+    room = GameRoom(room_id="bot_room", database=db)
+    human = MockSession("Alice", 1)
+    room.add_player(human)
+    room.add_bot_opponent()
+
+    room._core.event_bus.publish(GameEndedEvent(at_ms=0, reason="checkmate", winner="w"))
+    await room._elo_settlement_task
+
+    assert all(m["type"] != "game_end" for m in human.sent_messages)
 
 
 @pytest.mark.asyncio

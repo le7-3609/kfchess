@@ -1,7 +1,11 @@
 import queue
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from shared.config import consts
+from shared.model.position import Position
+from shared.view.game_snapshot import GameSnapshot, PieceSnapshot
+from shared.view.piece_visual_state import PieceVisualState
 from client.ui.rendering.board_geometry import BoardGeometry
+from client.ui.rendering.pillow_renderer import PillowRenderer
 from client.ui.window.networked_game_window import NetworkedGameWindow
 
 
@@ -32,6 +36,60 @@ def test_board_geometry_flipping():
     assert rect_a1_flipped.x == 700
     assert rect_a1_flipped.y == 0
     assert geom.pixel_to_cell(710, 10) == (7, 0)
+
+
+def _single_piece_snapshot(pos: Position) -> GameSnapshot:
+    piece = PieceSnapshot(
+        color=consts.COLOR_BLACK,
+        piece_type="P",
+        has_moved=False,
+        can_select=True,
+        can_move=True,
+        state=PieceVisualState.IDLE,
+        state_elapsed_millis=0,
+        state_duration_millis=0,
+    )
+    return GameSnapshot(
+        rows=8,
+        cols=8,
+        pieces={pos: piece},
+        selected_pos=None,
+        legal_move_targets=(),
+        castle_targets=(),
+        active_movements=(),
+        cooldown_positions=(),
+        clock_ms=0,
+        game_over=False,
+        game_over_reason=None,
+        winner=None,
+    )
+
+
+def test_pillow_renderer_draw_piece_flipped():
+    """A flipped board must draw piece sprites at the flipped pixel cell too.
+
+    Regression: the background, selection and legal-move highlights all routed
+    through geometry.cell_to_pixel (which honors `flipped`), but _draw_piece
+    computed its own pixel origin straight from the raw (row, col), leaving
+    Black's sprites at the top while everything else was flipped to the bottom.
+    """
+    renderer = PillowRenderer("nonexistent-sprite-path")
+    renderer.resize(800, 800)
+    renderer.set_flipped(True)
+
+    pos = Position(0, 0)
+    snapshot = _single_piece_snapshot(pos)
+
+    # _draw_state_effects receives the cell's top-left pixel (x, y) before the
+    # sprite-centering offset, so it is the cleanest probe of where the piece
+    # is anchored. Stub it out (returning 0.0 lift) and capture that origin.
+    with patch.object(PillowRenderer, "_draw_state_effects", return_value=0.0) as effects:
+        renderer.draw(snapshot)
+
+    _img, _piece, x, y, _cw, _ch = effects.call_args[0]
+    expected = renderer.geometry.cell_to_pixel(pos.row, pos.col)
+    assert x == expected.x
+    assert y == expected.y
 
 
 def test_networked_game_window_events():
@@ -161,4 +219,96 @@ def test_forfeit_victory_shows_a_terminal_overlay():
     assert "win" in args[0].lower()
     assert kwargs["on_close"] is window._on_close
     assert window._disconnected_opponent_name is None
+
+
+def test_game_end_shows_the_winners_new_rating():
+    """The White winner reads its own rating change out of the "white" key,
+    not the loser's — this is the parsing the client needs for the ELO sync
+    to actually reach the player it applies to."""
+    window = _bare_window()
+    window._assigned_color = consts.COLOR_WHITE
+
+    window._on_game_end({
+        "type": "game_end",
+        "reason": "checkmate",
+        "winner": consts.COLOR_WHITE,
+        "white": {"new_elo": 1215, "elo_change": 15},
+        "black": {"new_elo": 1185, "elo_change": -15},
+    })
+
+    window._reconnect_overlay.show_terminal.assert_called_once()
+    args, kwargs = window._reconnect_overlay.show_terminal.call_args
+    assert "win" in args[0].lower()
+    assert "1215" in args[0]
+    assert "+15" in args[0]
+    assert kwargs["on_close"] is window._on_close
+
+
+def test_game_end_shows_the_losers_new_rating():
+    window = _bare_window()
+    window._assigned_color = consts.COLOR_BLACK
+
+    window._on_game_end({
+        "type": "game_end",
+        "reason": "checkmate",
+        "winner": consts.COLOR_WHITE,
+        "white": {"new_elo": 1215, "elo_change": 15},
+        "black": {"new_elo": 1185, "elo_change": -15},
+    })
+
+    args, _ = window._reconnect_overlay.show_terminal.call_args
+    assert "lose" in args[0].lower()
+    assert "1185" in args[0]
+    assert "-15" in args[0]
+
+
+def test_game_end_draw_with_no_rating_payload_shows_result_only():
+    """An unrated game (no database, or a bot involved) omits both rating
+    keys entirely — the handler must not choke looking one up."""
+    window = _bare_window()
+    window._assigned_color = consts.COLOR_WHITE
+
+    window._on_game_end({"type": "game_end", "reason": "stalemate", "winner": None})
+
+    args, _ = window._reconnect_overlay.show_terminal.call_args
+    assert "draw" in args[0].lower()
+    assert "rating" not in args[0].lower()
+
+
+def test_game_end_after_forfeit_credits_the_win_and_the_rating():
+    """A rated forfeit's game_end frame supersedes the plain forfeit_victory
+    text with a message that names the reason and the rating change."""
+    window = _bare_window()
+    window._assigned_color = consts.COLOR_BLACK
+
+    window._on_game_end({
+        "type": "game_end",
+        "reason": "disconnection_timeout",
+        "winner": consts.COLOR_BLACK,
+        "white": {"new_elo": 1185, "elo_change": -15},
+        "black": {"new_elo": 1215, "elo_change": 15},
+    })
+
+    args, _ = window._reconnect_overlay.show_terminal.call_args
+    assert "forfeited" in args[0].lower()
+    assert "win" in args[0].lower()
+    assert "1215" in args[0]
+
+
+def test_tk_image_view_uses_canvas_as_master():
+    from client.ui.window.image_view import TkImageView
+    canvas = MagicMock()
+    canvas_image_id = 1
+    image_mock = MagicMock()
+    pil_img_mock = MagicMock()
+    image_mock.get.return_value = pil_img_mock
+
+    view = TkImageView(canvas, canvas_image_id)
+    with MagicMock() as mock_photo_image:
+        from unittest.mock import patch
+        with patch("client.ui.window.image_view.ImageTk.PhotoImage", return_value=mock_photo_image) as mock_photo_cls:
+            view.show(image_mock)
+            mock_photo_cls.assert_called_once_with(pil_img_mock, master=canvas)
+            canvas.itemconfig.assert_called_once_with(canvas_image_id, image=mock_photo_image)
+
 

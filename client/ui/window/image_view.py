@@ -39,5 +39,6 @@ class TkImageView(ImageViewInterface):
         self._tk_image = None  # keep a reference alive; tkinter drops GC'd images
 
     def show(self, image: object) -> None:
-        self._tk_image = ImageTk.PhotoImage(image.get())
+        self._tk_image = ImageTk.PhotoImage(image.get(), master=self._canvas)
         self._canvas.itemconfig(self._canvas_image_id, image=self._tk_image)
+

@@ -11,9 +11,10 @@ aggregate this class composes.
 import asyncio
 import inspect
 import logging
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from shared.bot_factory import build_random_bot
+from shared.config import consts
 from shared.events import Event, GameEndedEvent, Observer
 from shared.model.game_state import Result
 from shared.runtime.async_runner import AsyncGameRunner
@@ -27,11 +28,26 @@ from server.application.disconnect_handler import (
     DEFAULT_DISCONNECT_TIMEOUT_SECONDS,
     DisconnectHandler,
 )
-from server.domain.room.game_room import GameRoom as DomainGameRoom, RoomState
+from server.domain.room.game_room import (
+    ForfeitOutcome,
+    GameRoom as DomainGameRoom,
+    RoomState,
+)
 from server.domain.room.room_role import RoomRole
 from server.domain.player.player_interface import DEFAULT_BOT_USERNAME, BotPlayerAdapter
-from server.application.dtos.response_frames import build_game_state_message
+from server.application.dtos.response_frames import build_game_ended_message, build_game_state_message
 from server.application.dtos.protocol_mapper import AlgebraicParser, SnapshotSerializer
+
+_DISCONNECT_FORFEIT_REASON = "disconnection_timeout"
+
+
+def _rating_delta(session: Any, new_elo: int) -> Dict[str, int]:
+    """A `{new_elo, elo_change}` pair for the game-end frame.
+
+    Must be read before *session*'s own `.elo` is overwritten with *new_elo*,
+    since the change is computed against whatever `.elo` still holds.
+    """
+    return {"new_elo": new_elo, "elo_change": new_elo - session.elo}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -190,6 +206,15 @@ class GameRoom:
             else None
         )
         if outcome is not None:
+            white_session, white_new_elo, black_session, black_new_elo = self._forfeit_outcome_by_seat(outcome)
+            winner_color = opponent_session.color if opponent_session is not None else None
+            await self._broadcast_game_ended(
+                _DISCONNECT_FORFEIT_REASON,
+                winner_color,
+                _rating_delta(white_session, white_new_elo),
+                _rating_delta(black_session, black_new_elo),
+            )
+
             await self._database.update_elo(outcome.winner_session.username, outcome.new_winner_elo)
             await self._database.update_elo(outcome.loser_session.username, outcome.new_loser_elo)
             outcome.winner_session.elo = outcome.new_winner_elo
@@ -200,6 +225,19 @@ class GameRoom:
         # A forfeit ends the game by writing straight to GameState, which
         # publishes nothing — so this path has to announce its own expiry.
         self._trigger_expiry()
+
+    @staticmethod
+    def _forfeit_outcome_by_seat(outcome: ForfeitOutcome) -> Tuple[Any, int, Any, int]:
+        """Reframe a forfeit's winner/loser outcome by White/Black seat.
+
+        The game-end frame speaks in seats (matching the natural-end path),
+        while `ForfeitOutcome` speaks in winner/loser — so this bridges the two.
+
+        Returns (white_session, white_new_elo, black_session, black_new_elo).
+        """
+        if outcome.winner_session.color == consts.COLOR_WHITE:
+            return outcome.winner_session, outcome.new_winner_elo, outcome.loser_session, outcome.new_loser_elo
+        return outcome.loser_session, outcome.new_loser_elo, outcome.winner_session, outcome.new_winner_elo
 
     def _on_game_ended(self, event: GameEndedEvent) -> None:
         """GameEndedEvent handler: settle ELO for a natural result, then expire the room.
@@ -213,15 +251,20 @@ class GameRoom:
         loop = self._resolve_loop()
         if loop is not None:
             self._elo_settlement_task = loop.create_task(
-                self._settle_elo_for_game_end(event.winner)
+                self._settle_elo_for_game_end(event.reason, event.winner)
             )
         self._trigger_expiry()
 
-    async def _settle_elo_for_game_end(self, winner_color: Optional[str]) -> None:
-        """Persist ELO for a game that ended on its own merits (not a forfeit).
+    async def _settle_elo_for_game_end(self, reason: str, winner_color: Optional[str]) -> None:
+        """Broadcast the rated game-end frame, then persist ELO for a game
+        that ended on its own merits (not a forfeit).
 
         Mirrors _apply_forfeit's persistence shape: gated on a database
-        existing, a no-op whenever either seat is a bot.
+        existing, a no-op whenever either seat is a bot. The broadcast happens
+        before either database write, and both happen inside this task's first
+        synchronous stretch — ahead of the sibling expiry task _on_game_ended
+        also schedules — so the rating a player sees is never stale by the
+        time the room is reaped.
         """
         outcome = (
             self._domain.compute_game_end_outcome(winner_color)
@@ -231,10 +274,30 @@ class GameRoom:
         if outcome is None:
             return
 
+        await self._broadcast_game_ended(
+            reason,
+            winner_color,
+            _rating_delta(outcome.white_session, outcome.new_white_elo),
+            _rating_delta(outcome.black_session, outcome.new_black_elo),
+        )
+
         await self._database.update_elo(outcome.white_session.username, outcome.new_white_elo)
         await self._database.update_elo(outcome.black_session.username, outcome.new_black_elo)
         outcome.white_session.elo = outcome.new_white_elo
         outcome.black_session.elo = outcome.new_black_elo
+
+    async def _broadcast_game_ended(
+        self,
+        reason: str,
+        winner: Optional[str],
+        white_rating: Dict[str, int],
+        black_rating: Dict[str, int],
+    ) -> None:
+        """Send both seats the rated game-end frame."""
+        message = build_game_ended_message(reason, winner, white_rating, black_rating)
+        for session in (self._domain.white_player, self._domain.black_player):
+            if session is not None:
+                await session.send(message)
 
     def _trigger_expiry(self) -> None:
         """Hand this room to its reaper exactly once, off the current call stack.

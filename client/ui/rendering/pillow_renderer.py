@@ -171,6 +171,9 @@ class PillowRenderer(RendererInterface):
         cell_w = self.geometry.get_cell_width()
         cell_h = self.geometry.get_cell_height()
         col, row = self._current_cell(pos, snapshot)
+        if self.geometry.flipped:
+            col = (self.geometry.cols - 1) - col
+            row = (self.geometry.rows - 1) - row
 
         x = self.geometry.origin_x + col * cell_w
         y = self.geometry.origin_y + row * cell_h
