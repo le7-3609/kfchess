@@ -253,7 +253,7 @@ class GameRoom:
     def handle_move(
         self, session: Any, from_sq: str, src_pos: Position, dst_pos: Position
     ) -> Result[None, str]:
-        """Authorize and dispatch an already-parsed move directly against the GameEngine.
+        """Authorize an already-parsed move and dispatch it through GameService.
 
         *from_sq* is carried through only for authorization error messages —
         parsing algebraic squares into Position is a wire-format concern owned
@@ -267,8 +267,7 @@ class GameRoom:
         if not ownership.is_ok:
             return ownership
 
-        self._engine.request_move(src_pos, dst_pos)
-        return Result.ok(None)
+        return self._service.request_move(src_pos, dst_pos)
 
     def _authorize_move(self, session: Any) -> Result[None, str]:
         """Gate a move on the room being live and *session* holding a player seat."""

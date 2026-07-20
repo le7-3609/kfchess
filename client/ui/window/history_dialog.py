@@ -1,13 +1,15 @@
 """Save/Load History dialogs (UI window layer) — tkinter prompts that drive
-the GameService history endpoint. This layer owns only widgets and event
-routing; all persistence goes through the service facade, never the store.
+the match's history endpoint. This layer owns only widgets and event routing;
+all persistence goes through the MatchHistoryPort it is handed, never the
+store — and never the whole GameService, which a networked match has no local
+instance of.
 """
 
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 from typing import Callable, Optional
 
-from shared.service import GameService
+from client.game_controller import MatchHistoryPort
 from client.ui import consts as ui_consts
 from client.ui.rendering.pillow_renderer import PillowRenderer
 from client.ui.window.replay_window import TkReplayWindow
@@ -15,7 +17,7 @@ from client.ui.window.replay_window import TkReplayWindow
 
 def prompt_and_save(
     parent: tk.Tk,
-    service: GameService,
+    service: MatchHistoryPort,
     white_name: str,
     black_name: str,
     winner: Optional[str],
@@ -41,7 +43,7 @@ def prompt_and_save(
 
 def show_load_history_dialog(
     parent: tk.Tk,
-    service: GameService,
+    service: MatchHistoryPort,
     renderer_factory: Callable[[], PillowRenderer],
 ) -> None:
     """Lists every saved game file and, on selection, replays it visually.

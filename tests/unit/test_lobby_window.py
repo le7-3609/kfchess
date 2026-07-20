@@ -28,10 +28,10 @@ def test_forward_pending_frames_replays_queued_messages_onto_the_game_window():
     lobby._message_queue.put(score_msg)
     lobby._message_queue.put(game_state_msg)
 
-    game_win = MagicMock()
-    lobby._forward_pending_frames(game_win)
+    controller = MagicMock()
+    lobby._forward_pending_frames(controller)
 
-    assert [c.args[0] for c in game_win._handle_message.call_args_list] == [
+    assert [c.args[0] for c in controller.accept_frame.call_args_list] == [
         score_msg,
         game_state_msg,
     ]
@@ -40,8 +40,9 @@ def test_forward_pending_frames_replays_queued_messages_onto_the_game_window():
 
 def test_forward_pending_frames_is_a_noop_when_nothing_is_queued():
     lobby = _bare_lobby()
-    game_win = MagicMock()
+    controller = MagicMock()
 
-    lobby._forward_pending_frames(game_win)
+    lobby._forward_pending_frames(controller)
 
-    game_win._handle_message.assert_not_called()
+    controller.accept_frame.assert_not_called()
+

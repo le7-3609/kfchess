@@ -23,6 +23,7 @@ from shared.config.game_config import GameConfig
 from shared.events import Event, EventBus, GameStartedEvent, Observer
 from shared.model.game_state import GameState, Result
 from shared.model.board import BoardInterface
+from shared.model.position import Position
 from shared.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface, GameEngine
 from shared.engine.engine_interfaces import InputSourceInterface
 from shared.engine.input_commands import ClickCommand, GameCommand, RightClickCommand
@@ -123,6 +124,18 @@ class GameService:
         return self.execute_command(
             RightClickCommand(x=self._cell_to_px(col), y=self._cell_to_px(row))
         )
+
+    def request_move(self, source: Position, target: Position) -> Result:
+        """Move the piece on *source* to *target*, in board cells.
+
+        What click() would take two calls to express, for callers that already
+        hold both endpoints — a decoded network move frame, or a UI that
+        tracks its own selection. Exists so those callers stay on this facade
+        instead of reaching through to GameEngine.request_move.
+        """
+        self._engine.request_move(source, target)
+        self._trigger_bot_reaction_if_active()
+        return Result.ok(None)
 
     def advance_clock(self, ms: int) -> Result:
         """Advance the simulation clock and resolve pending motions."""
