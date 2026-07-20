@@ -1,11 +1,11 @@
-"""Unit tests for kungfu_chess.ui.rendering.sprite_library's dual folder-naming support."""
+"""Unit tests for client.ui.rendering.sprite_library's dual folder-naming support."""
 
 import os
 import tempfile
 import unittest
 
-from kungfu_chess.ui.rendering.sprite_library import SpriteLibrary
-from kungfu_chess.view.piece_visual_state import PieceVisualState
+from client.ui.rendering.sprite_library import SpriteLibrary
+from shared.view.piece_visual_state import PieceVisualState
 
 
 def _make_state_dir(base: str, folder: str, state: str) -> str:

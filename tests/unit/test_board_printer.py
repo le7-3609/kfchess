@@ -1,12 +1,12 @@
-"""Unit tests for kungfu_chess.io.board_printer."""
+"""Unit tests for shared.io.board_printer."""
 
 import unittest
 from io import StringIO
 
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.piece import TextPiece as Piece
-from kungfu_chess.model.position import Position
-from kungfu_chess.io.board_printer import BoardPrinter
+from shared.model.board import ArrayBoard
+from shared.model.piece import TextPiece as Piece
+from shared.model.position import Position
+from shared.io.board_printer import BoardPrinter
 
 
 class TestBoardPrinter(unittest.TestCase):

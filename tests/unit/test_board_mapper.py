@@ -1,10 +1,10 @@
-"""Unit tests for kungfu_chess.input.board_mapper."""
+"""Unit tests for shared.input.board_mapper."""
 
 import unittest
 
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.position import Position
-from kungfu_chess.input.board_mapper import BoardMapper
+from shared.model.board import ArrayBoard
+from shared.model.position import Position
+from shared.input.board_mapper import BoardMapper
 
 
 class TestBoardMapper(unittest.TestCase):

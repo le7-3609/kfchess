@@ -1,10 +1,10 @@
-"""Unit tests for kungfu_chess.engine.game_engine — GameEngine command dispatching."""
+"""Unit tests for shared.engine.game_engine — GameEngine command dispatching."""
 
 import sys
 import unittest
 from io import StringIO
 
-from kungfu_chess.bootstrap import build_realtime_service, build_service, GameService
+from shared.bootstrap import build_realtime_service, build_service, GameService
 
 
 def _run(service: GameService, input_lines: list) -> tuple:

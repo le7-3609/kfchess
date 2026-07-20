@@ -1,18 +1,18 @@
-"""Unit tests for kungfu_chess.io.command_parser — the text<->GameCommand boundary."""
+"""Unit tests for shared.io.command_parser — the text<->GameCommand boundary."""
 
 import dataclasses
 import unittest
 
-from kungfu_chess.bootstrap import build_service
-from kungfu_chess.engine.input_commands import (
+from shared.bootstrap import build_service
+from shared.engine.input_commands import (
     ClickCommand,
     GameCommand,
     PrintBoardCommand,
     RightClickCommand,
     WaitCommand,
 )
-from kungfu_chess.io.board_parser import BoardParser
-from kungfu_chess.io.command_parser import (
+from shared.io.board_parser import BoardParser
+from shared.io.command_parser import (
     CommandParseException,
     TextCommandFormatter,
     TextCommandParser,

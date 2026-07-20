@@ -1,12 +1,12 @@
-"""Unit tests for kungfu_chess.rules.rule_engine — RuleEngine, PathChecker, ThreatValidator."""
+"""Unit tests for shared.rules.rule_engine — RuleEngine, PathChecker, ThreatValidator."""
 
 import unittest
 
-from kungfu_chess.model.position import Position
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.piece import TextPiece as Piece
-from kungfu_chess.rules.rule_engine import MoveValidation, PathChecker, RuleEngine, ThreatValidator
-from kungfu_chess.rules.piece_rules import (
+from shared.model.position import Position
+from shared.model.board import ArrayBoard
+from shared.model.piece import TextPiece as Piece
+from shared.rules.rule_engine import MoveValidation, PathChecker, RuleEngine, ThreatValidator
+from shared.rules.piece_rules import (
     MoveValidatorFactory,
     KingMoveValidator,
     QueenMoveValidator,
@@ -15,7 +15,7 @@ from kungfu_chess.rules.piece_rules import (
     KnightMoveValidator,
     PawnMoveValidator,
 )
-from kungfu_chess.config.game_config import GameConfig
+from shared.config.game_config import GameConfig
 
 
 def _make_factory() -> MoveValidatorFactory:

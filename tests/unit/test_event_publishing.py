@@ -9,8 +9,8 @@ needs to draw them.
 import unittest
 from typing import List, Type
 
-from kungfu_chess.bootstrap import build_realtime_service, build_service
-from kungfu_chess.events import (
+from shared.bootstrap import build_realtime_service, build_service
+from shared.events import (
     ABORT_REASON_FRIENDLY_COLLISION,
     Event,
     GameEndedEvent,
@@ -22,7 +22,7 @@ from kungfu_chess.events import (
     PieceMovedEvent,
     PiecePromotedEvent,
 )
-from kungfu_chess.model.position import Position
+from shared.model.position import Position
 
 
 class _Recorder(Observer):
@@ -266,7 +266,7 @@ class TestSubscriptionThroughTheFacade(unittest.TestCase):
         self.assertEqual(recorder.seen, [])
 
     def test_a_service_built_without_a_bus_refuses_subscription(self):
-        from kungfu_chess.service import GameService
+        from shared.service import GameService
 
         service = GameService(
             board_repo=None, state_repo=None, parser=None, validator=None, engine=None

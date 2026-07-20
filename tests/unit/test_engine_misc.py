@@ -1,12 +1,12 @@
 """Unit tests for miscellaneous branches in GameEngine."""
 
 import unittest
-from kungfu_chess.bootstrap import build_service
-from kungfu_chess.engine.input_commands import ClickCommand
-from kungfu_chess.model.position import Position
-from kungfu_chess.model.piece import TextPiece
-from kungfu_chess.model.board import ArrayBoard
-from kungfu_chess.model.game_state import GameState, Cooldown
+from shared.bootstrap import build_service
+from shared.engine.input_commands import ClickCommand
+from shared.model.position import Position
+from shared.model.piece import TextPiece
+from shared.model.board import ArrayBoard
+from shared.model.game_state import GameState, Cooldown
 
 class TestEngineMisc(unittest.TestCase):
     def setUp(self) -> None:
