@@ -21,7 +21,7 @@ class BoardParser:
         wK . . .
         . wR . bK
         Commands:
-        click 50 50
+        click 0 0
         wait 1000
         print board
     """

@@ -5,10 +5,14 @@ click/jump/castling collaborators.
 Must not own: piece-specific movement logic, rendering, input parsing,
               DSL parsing, or pixel mapping.
 
+Commands and queries carry grid Position(row, col) exclusively — pixels never
+reach this layer; that conversion happens at the UI's own boundary
+(input/board_mapper.py) before a command is built.
+
 Concrete collaborators live in:
   - engine/input_commands.py (ClickCommand, RightClickCommand, WaitCommand,
     PrintBoardCommand — the typed command vocabulary dispatched below)
-  - engine/engine_interfaces.py (PixelMapperInterface, BoardRepositoryInterface,
+  - engine/engine_interfaces.py (BoardRepositoryInterface,
     GameStateRepositoryInterface, BoardPrinterInterface)
   - events.py                (EventBus — announces game-over to subscribers)
   - engine/play_state.py     (GamePlayState, ActivePlayState, GameOverPlayState,
@@ -37,7 +41,6 @@ from shared.rules.rule_engine import (
 from shared.events import EventBus, GameEndedEvent
 from shared.realtime.arbiter_interfaces import RealTimeArbiterInterface
 from shared.engine.engine_interfaces import (
-    PixelMapperInterface,
     BoardRepositoryInterface,
     GameStateRepositoryInterface,
     BoardPrinterInterface,
@@ -61,7 +64,6 @@ from shared.engine.input_commands import (
 )
 
 __all__ = [
-    "PixelMapperInterface",
     "BoardRepositoryInterface",
     "GameStateRepositoryInterface",
     "BoardPrinterInterface",
@@ -90,7 +92,6 @@ class GameEngineDependencies:
     event_bus: EventBus
     path_checker: PathCheckerInterface
     config: 'GameConfig'  # type: ignore[name-defined]
-    board_mapper: PixelMapperInterface
     arbiter: Optional[RealTimeArbiterInterface] = None
     game_play_state_factory: Optional[GamePlayStateFactory] = None
     threat_validator: Optional[ThreatValidator] = None
@@ -108,9 +109,8 @@ class GameEngine:
       - Starting legal motions via the arbiter (including castling's king+rook pair)
       - Game-over detection after each command
 
-    Pixel-to-cell mapping is delegated to a PixelMapperInterface implementation
-    (see input/board_mapper.py for the concrete BoardMapper); the engine layer
-    depends only on the interface, never on the input/ package.
+    Commands carry grid Position throughout; pixel-to-cell mapping happens only
+    at the UI's own boundary (see input/board_mapper.py), never here.
     Selection state (GameState.selected_pos) is owned and mutated here, not by
     the Controller — the Controller is a stateless click-to-command translator.
     """
@@ -130,7 +130,6 @@ class GameEngine:
         self._event_bus = deps.event_bus
         self._path_checker = deps.path_checker
         self._config = deps.config
-        self._board_mapper = deps.board_mapper
 
     def _build_rule_collaborators(self, deps: GameEngineDependencies) -> None:
         """Adopt the rule-layer collaborators, constructing standard defaults for any omitted.
@@ -303,12 +302,12 @@ class GameEngine:
         caller rather than bad user input, so it fails loudly here.
         """
         match command:
-            case ClickCommand(x, y):
-                self._handle_click(x, y)
+            case ClickCommand(pos):
+                self._handle_click(pos)
             case RequestMoveCommand(source, target):
                 self.request_move(source, target)
-            case RightClickCommand(x, y):
-                self._handle_right_click(x, y)
+            case RightClickCommand(pos):
+                self._handle_right_click(pos)
             case WaitCommand(ms):
                 self._handle_wait(ms)
             case PrintBoardCommand():
@@ -409,33 +408,27 @@ class GameEngine:
     def _opponent(color: str) -> str:
         return consts.COLOR_BLACK if color == consts.COLOR_WHITE else consts.COLOR_WHITE
 
-    def _handle_click(self, x: int, y: int) -> None:
+    def _handle_click(self, pos: Position) -> None:
         self._resolve_pending()
         board = self._board_repo.get_board()
-        if board is None:
-            return
-        target = self._board_mapper.pixel_to_position(x, y, board)
-        if target is None:
+        if board is None or not board.is_valid_position(pos):
             return
         state = self._state_repo.get_state()
         play_state = self._game_play_state_factory.get_state(state.game_over)
-        play_state.handle_click(self, target)
+        play_state.handle_click(self, pos)
 
-    def _handle_right_click(self, x: int, y: int) -> None:
-        """Jump the piece under (x, y) in place, regardless of current selection.
+    def _handle_right_click(self, pos: Position) -> None:
+        """Jump the piece at *pos* in place, regardless of current selection.
 
-        Mirrors request_move(target, target): a same-cell move is the arbiter's
+        Mirrors request_move(pos, pos): a same-cell move is the arbiter's
         jump-in-place. Unlike _handle_click this ignores selection state, so it
         works as a direct "make this piece hop" command.
         """
         self._resolve_pending()
         board = self._board_repo.get_board()
-        if board is None:
+        if board is None or not board.is_valid_position(pos):
             return
-        target = self._board_mapper.pixel_to_position(x, y, board)
-        if target is None:
-            return
-        self.request_move(target, target)
+        self.request_move(pos, pos)
 
     def _execute_active_click(self, target: Position) -> None:
         board = self._board_repo.get_board()

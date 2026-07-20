@@ -4,11 +4,12 @@ Owns: the immutable DTOs GameEngine dispatches on (click, right-click, wait,
 print board).
 Must not own: DSL text parsing, pixel mapping, rule logic, or execution.
 
-Declared in the engine layer — the innermost layer that consumes them — for the
-same reason PixelMapperInterface lives in engine/engine_interfaces.py: the
+Declared in the engine layer — the innermost layer that consumes them — so the
 outer layers that produce commands (io/ text parsing, input/ bots, runtime/
 queues, ui/ windows) depend inward on this vocabulary, and engine never imports
-them.
+them. Positions are grid Position(row, col) throughout; pixels exist only at
+the UI's own boundary (input/board_mapper.py), which converts to Position
+before anything reaches this vocabulary.
 
 Commands are frozen so a queued command cannot be mutated between submission
 and application — runtime/async_runner.py parks them in an asyncio queue that
@@ -34,18 +35,16 @@ class RequestMoveCommand(GameCommand):
 
 @dataclass(frozen=True)
 class ClickCommand(GameCommand):
-    """Left-click at pixel (*x*, *y*): select, move, or castle by selection state."""
+    """Left-click at *pos*: select, move, or castle by selection state."""
 
-    x: int
-    y: int
+    pos: Position
 
 
 @dataclass(frozen=True)
 class RightClickCommand(GameCommand):
-    """Right-click at pixel (*x*, *y*): jump the piece there in place."""
+    """Right-click at *pos*: jump the piece there in place."""
 
-    x: int
-    y: int
+    pos: Position
 
 
 @dataclass(frozen=True)

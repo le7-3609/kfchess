@@ -12,7 +12,7 @@ from shared.model.position import Position
 from shared.rules.rule_engine import EndgameValidator
 from shared.engine.game_engine import BoardRepositoryInterface, GameStateRepositoryInterface
 from shared.engine.engine_interfaces import InputSourceInterface
-from shared.engine.input_commands import GameCommand, RequestMoveCommand
+from shared.engine.input_commands import GameCommand, RequestMoveCommand, ClickCommand
 
 
 class RandomBotInputSource(InputSourceInterface):
@@ -24,13 +24,11 @@ class RandomBotInputSource(InputSourceInterface):
         board_repo: BoardRepositoryInterface,
         state_repo: GameStateRepositoryInterface,
         endgame_validator: EndgameValidator,
-        config,
     ) -> None:
         self._color = color
         self._board_repo = board_repo
         self._state_repo = state_repo
         self._endgame_validator = endgame_validator
-        self._config = config
 
     def get_next_commands(self) -> List[GameCommand]:
         board = self._board_repo.get_board()
@@ -47,3 +45,6 @@ class RandomBotInputSource(InputSourceInterface):
         src, dst = random.choice(valid_moves)
         return [RequestMoveCommand(source=src, target=dst)]
 
+    def _move_to_click_commands(self, src: Position, dst: Position) -> List[GameCommand]:
+        """Express *src* -> *dst* as the select-then-move click pair a human would make."""
+        return [ClickCommand(pos=src), ClickCommand(pos=dst)]

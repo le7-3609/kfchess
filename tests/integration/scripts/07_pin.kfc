@@ -4,8 +4,8 @@
 Board:
 wK . . . wR . . bR
 Commands:
-click 450 50
-click 450 150
+click 0 4
+click 1 4
 print board
 Expected:
 wK . . . wR . . bR

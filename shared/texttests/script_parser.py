@@ -9,8 +9,8 @@ Must not own: movement rules, direct Board mutation, or duplicated game logic.
     wK . . .
     . wR . bK
     Commands:
-    click 50 50
-    click 350 50
+    click 0 0
+    click 0 3
     print board
     Expected:
     wK . . .

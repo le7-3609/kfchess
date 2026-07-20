@@ -43,8 +43,8 @@ class TestAsyncGameRunner(unittest.TestCase):
             service, runner, clock = _build_runner(ms_per_square=1000)
             await runner.start()
 
-            select_fut = runner.submit_command(ClickCommand(50, 50))   # select wR at (0,0)
-            move_fut = runner.submit_command(ClickCommand(350, 50))    # move to (0,3): 3 squares away
+            select_fut = runner.submit_command(ClickCommand(Position(0, 0)))  # select wR at (0,0)
+            move_fut = runner.submit_command(ClickCommand(Position(0, 3)))    # move to (0,3): 3 squares away
             # Both commands are queued concurrently; only the tick loop drains them.
             self.assertFalse(select_fut.done())
             self.assertFalse(move_fut.done())

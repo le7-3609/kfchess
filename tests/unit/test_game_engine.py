@@ -34,8 +34,8 @@ class TestGameEngineClickCommand(unittest.TestCase):
         service = build_service()
         success, output = _run(service, self.BOARD + [
             "Commands:",
-            "click 50 50",    # select wK at (0,0)
-            "click 150 50",   # move to (0,1)
+            "click 0 0",    # select wK at (0,0)
+            "click 0 1",    # move to (0,1)
             "print board",
         ])
         self.assertTrue(success)
@@ -55,8 +55,8 @@ class TestGameEngineClickCommand(unittest.TestCase):
         service = build_service()
         success, output = _run(service, self.BOARD + [
             "Commands:",
-            "click 150 150",   # select wR at (1,1)
-            "click 350 150",   # move to (1,3) — capture bK
+            "click 1 1",    # select wR at (1,1)
+            "click 1 3",    # move to (1,3) — capture bK
             "print board",
         ])
         self.assertTrue(success)
@@ -83,10 +83,10 @@ class TestTwinPiecesMoveIndependently(unittest.TestCase):
         service = build_realtime_service(ms_per_square=1000, require_kings=False)
         success, output = _run(service, self.BOARD + [
             "Commands:",
-            "click 50 50",     # select the rook at (0, 0)
-            "click 350 50",    # send it to (0, 3) — 3 squares, arrives at 3000ms
-            "click 50 250",    # select its twin at (2, 0), still at clock 0
-            "click 350 250",   # send it to (2, 3)
+            "click 0 0",    # select the rook at (0, 0)
+            "click 0 3",    # send it to (0, 3) — 3 squares, arrives at 3000ms
+            "click 2 0",    # select its twin at (2, 0), still at clock 0
+            "click 2 3",    # send it to (2, 3)
             "wait 3000",
             "print board",
         ])

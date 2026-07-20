@@ -27,19 +27,6 @@ class InputSourceInterface(ABC):
         """Return the next batch of commands to execute, if any."""
 
 
-class PixelMapperInterface(ABC):
-    """Translates raw pixel coordinates into board positions.
-
-    Defined here (Layer 4) rather than imported from input/ (Layer 6) so the
-    dependency points inward: input.BoardMapper implements this interface,
-    it is never the other way around.
-    """
-
-    @abstractmethod
-    def pixel_to_position(self, x: int, y: int, board: BoardInterface) -> Optional[Position]:
-        """Convert pixel coordinates (x, y) to a board Position, or None if off-board."""
-
-
 class BoardRepositoryInterface(ABC):
     @abstractmethod
     def get_board(self) -> Optional[BoardInterface]:

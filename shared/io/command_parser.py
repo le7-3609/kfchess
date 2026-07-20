@@ -1,7 +1,8 @@
 """Command DSL translation — text to GameCommand and back (Layer 7 Text I/O).
 
-Owns: the textual shape of the command DSL ("click 50 50", "wait 200",
-"print board") in both directions.
+Owns: the textual shape of the command DSL ("click 0 0", "wait 200",
+"print board") in both directions. Click/right_click arguments are grid
+(row, col) cells, matching Position — never pixels.
 Must not own: command execution, board parsing, rule logic, or pixel mapping.
 
 This is the only module that knows commands ever had a text form. The engine
@@ -9,7 +10,7 @@ and service layers consume GameCommand objects exclusively, so changing the
 script format stops here.
 """
 
-from typing import List, Tuple
+from typing import List
 
 from shared.engine.input_commands import (
     ClickCommand,
@@ -19,6 +20,7 @@ from shared.engine.input_commands import (
     RightClickCommand,
     WaitCommand,
 )
+from shared.model.position import Position
 
 
 class CommandParseException(Exception):
@@ -76,11 +78,9 @@ class TextCommandParser:
     def _build_command(keyword: str, args: List[str]) -> GameCommand:
         match keyword:
             case "click":
-                x, y = TextCommandParser._parse_pixel_args(keyword, args)
-                return ClickCommand(x=x, y=y)
+                return ClickCommand(pos=TextCommandParser._parse_cell_args(keyword, args))
             case "right_click":
-                x, y = TextCommandParser._parse_pixel_args(keyword, args)
-                return RightClickCommand(x=x, y=y)
+                return RightClickCommand(pos=TextCommandParser._parse_cell_args(keyword, args))
             case "wait":
                 return WaitCommand(ms=TextCommandParser._parse_duration_args(args))
             case "print":
@@ -89,12 +89,12 @@ class TextCommandParser:
                 raise CommandParseException(f"Unknown command: {keyword!r}")
 
     @staticmethod
-    def _parse_pixel_args(keyword: str, args: List[str]) -> Tuple[int, int]:
+    def _parse_cell_args(keyword: str, args: List[str]) -> Position:
         if len(args) != 2:
             raise CommandParseException(
-                f"{keyword!r} expects 'x y', got {len(args)} argument(s)"
+                f"{keyword!r} expects 'row col', got {len(args)} argument(s)"
             )
-        return int(args[0]), int(args[1])
+        return Position(int(args[0]), int(args[1]))
 
     @staticmethod
     def _parse_duration_args(args: List[str]) -> int:
@@ -123,12 +123,12 @@ class TextCommandFormatter:
     def format_command(command: GameCommand) -> str:
         """Render *command* as the DSL line that parses back into it."""
         match command:
-            case ClickCommand(x, y):
-                return f"click {x} {y}"
+            case ClickCommand(pos):
+                return f"click {pos.row} {pos.col}"
             case RequestMoveCommand(source, target):
-                return f"move {source.col} {source.row} {target.col} {target.row}"
-            case RightClickCommand(x, y):
-                return f"right_click {x} {y}"
+                return f"move {source.row} {source.col} {target.row} {target.col}"
+            case RightClickCommand(pos):
+                return f"right_click {pos.row} {pos.col}"
             case WaitCommand(ms):
                 return f"wait {ms}"
             case PrintBoardCommand():

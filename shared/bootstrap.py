@@ -113,7 +113,6 @@ def _build_engine(
         config=config,
         arbiter=arbiter,
         game_play_state_factory=GamePlayStateFactory(),
-        board_mapper=BoardMapper(config.cell_size_px),
     ))
 
 
