@@ -10,14 +10,14 @@ from unittest.mock import MagicMock
 
 from shared.config import consts
 from shared.model.position import Position
-from client.game_controller import NoticeLevel
-from client.network_client import (
+from client.controllers.game_controller import NoticeLevel
+from client.controllers.network_game_controller import NetworkGameController
+from client.network.network_client import (
     MSG_TYPE_CONNECTION_STATUS,
     STATUS_DISCONNECTED,
     STATUS_RECONNECT_FAILED,
     STATUS_RECONNECTING,
 )
-from client.network_game_controller import NetworkGameController
 
 
 def _controller(assigned_color=None):
@@ -207,6 +207,7 @@ def test_forfeit_victory_is_terminal():
     notice = _only_notice(listener)
     assert notice.level is NoticeLevel.TERMINAL
     assert "win" in notice.text.lower()
+    assert notice.outcome is True
 
 
 def test_game_end_shows_the_winners_new_rating():
@@ -230,6 +231,7 @@ def test_game_end_shows_the_winners_new_rating():
     assert "win" in notice.text.lower()
     assert "1215" in notice.text
     assert "+15" in notice.text
+    assert notice.outcome is True
 
 
 def test_game_end_shows_the_losers_new_rating():
@@ -246,10 +248,12 @@ def test_game_end_shows_the_losers_new_rating():
     )
     controller.poll()
 
-    text = _only_notice(listener).text
+    notice = _only_notice(listener)
+    text = notice.text
     assert "lose" in text.lower()
     assert "1185" in text
     assert "-15" in text
+    assert notice.outcome is False
 
 
 def test_game_end_draw_with_no_rating_payload_shows_result_only():
@@ -260,9 +264,11 @@ def test_game_end_draw_with_no_rating_payload_shows_result_only():
     controller.accept_frame({"type": "game_end", "reason": "stalemate", "winner": None})
     controller.poll()
 
-    text = _only_notice(listener).text
+    notice = _only_notice(listener)
+    text = notice.text
     assert "draw" in text.lower()
     assert "rating" not in text.lower()
+    assert notice.outcome is None
 
 
 def test_game_end_after_forfeit_credits_the_win_and_the_rating():
@@ -281,10 +287,12 @@ def test_game_end_after_forfeit_credits_the_win_and_the_rating():
     )
     controller.poll()
 
-    text = _only_notice(listener).text
+    notice = _only_notice(listener)
+    text = notice.text
     assert "forfeited" in text.lower()
     assert "win" in text.lower()
     assert "1215" in text
+    assert notice.outcome is True
 
 
 def test_connection_status_drives_transient_then_terminal_notices():

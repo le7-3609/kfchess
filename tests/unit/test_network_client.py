@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import websockets
 
-from client import network_client as nc
+from client.network import network_client as nc
 
 
 class _FakeConnection:

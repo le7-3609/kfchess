@@ -20,11 +20,11 @@ from tkinter import messagebox, ttk
 from typing import Any, Dict, Optional
 
 from shared.config import consts
-from client.cli_auth import UserCredentials
-from client.game_controller import IGameController
-from client.local_game_controller import build_bot_controller, build_hotseat_controller
-from client.network_client import NetworkClient
-from client.network_game_controller import NetworkGameController
+from client.auth.cli_auth import UserCredentials
+from client.controllers.game_controller import IGameController
+from client.controllers.local_game_controller import build_bot_controller, build_hotseat_controller
+from client.controllers.network_game_controller import NetworkGameController
+from client.network.network_client import NetworkClient
 from client.ui import consts as ui_consts
 from client.ui.preferences.board_themes import get_theme as get_board_theme
 from client.ui.preferences.piece_themes import get_theme as get_piece_theme

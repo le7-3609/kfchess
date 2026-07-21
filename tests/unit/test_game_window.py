@@ -15,7 +15,7 @@ from shared.config import consts
 from shared.io.moves_log import MoveLogEntry
 from shared.model.position import Position
 from shared.view.game_snapshot import GameSnapshot
-from client.game_controller import GameNotice, GameSessionInfo, NoticeLevel
+from client.controllers.game_controller import GameNotice, GameSessionInfo, NoticeLevel
 from client.ui.rendering.board_geometry import BoardGeometry
 from client.ui.window.game_window import GameWindow
 
@@ -78,6 +78,7 @@ def _window(controller=None) -> GameWindow:
     window._moves = []
     window._scores = {consts.COLOR_WHITE: 0, consts.COLOR_BLACK: 0}
     window._capture_flashes = []
+    window._sound_player = MagicMock()
     return window
 
 
@@ -150,6 +151,46 @@ def test_recorded_moves_and_scores_accumulate_for_the_next_render():
     assert [entry.notation for entry in window._moves] == ["Pe2-e4"]
     assert window._scores == {consts.COLOR_WHITE: 3, consts.COLOR_BLACK: 1}
     assert window._capture_flashes[0].pos == Position(4, 4)
+
+
+def test_a_recorded_move_plays_the_move_sound():
+    window = _window()
+
+    window.on_move_recorded(MoveLogEntry(color=consts.COLOR_WHITE, notation="Pe2-e4", time_ms=1))
+
+    window._sound_player.play_move.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "outcome, expected_sound",
+    [(True, "play_win"), (False, "play_lose")],
+)
+def test_a_terminal_notice_plays_the_matching_outcome_sound(outcome, expected_sound):
+    window = _window()
+
+    window.on_notice(GameNotice(NoticeLevel.TERMINAL, "Game over", outcome=outcome))
+
+    assert getattr(window._sound_player, expected_sound).called
+
+
+def test_a_terminal_notice_with_no_personal_outcome_stays_silent():
+    """A draw, a spectator, or hotseat play has no seat to score a win or a
+    loss for, so neither outcome sound should fire."""
+    window = _window()
+
+    window.on_notice(GameNotice(NoticeLevel.TERMINAL, "Game over — draw", outcome=None))
+
+    window._sound_player.play_win.assert_not_called()
+    window._sound_player.play_lose.assert_not_called()
+
+
+def test_a_non_terminal_notice_plays_no_outcome_sound():
+    window = _window()
+
+    window.on_notice(GameNotice(NoticeLevel.TRANSIENT, "Reconnecting…"))
+
+    window._sound_player.play_win.assert_not_called()
+    window._sound_player.play_lose.assert_not_called()
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog
 from typing import Callable, Optional
 
-from client.game_controller import MatchHistoryPort
+from client.controllers.game_controller import MatchHistoryPort
 from client.ui import consts as ui_consts
 from client.ui.rendering.pillow_renderer import PillowRenderer
 from client.ui.window.replay_window import TkReplayWindow

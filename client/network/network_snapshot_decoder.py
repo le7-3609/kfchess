@@ -7,7 +7,7 @@ Must not own: network I/O, GUI state, or game rules.
 
 from typing import Any, Dict
 
-from client.algebraic_notation import parse_square
+from client.notation.algebraic_notation import parse_square
 from shared.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
 from shared.view.piece_visual_state import PieceVisualState
 

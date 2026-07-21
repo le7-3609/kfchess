@@ -158,6 +158,14 @@ SPRITE_OUTLINE_BLUR_RADIUS = 2
 SPRITE_TRANSPARENT_RGBA = (0, 0, 0, 0)
 
 # --------------------------------------------------------------------------
+# Sound cues
+# --------------------------------------------------------------------------
+SOUNDS_DIR_NAME = "sounds"
+SOUND_FILE_MOVE = "move.wav"
+SOUND_FILE_WIN = "TADA.WAV"
+SOUND_FILE_LOSE = "fail.wav"
+
+# --------------------------------------------------------------------------
 # Replay window
 # --------------------------------------------------------------------------
 # Held after the final arrival so the last move can be seen landing and

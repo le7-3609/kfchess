@@ -25,7 +25,7 @@ from shared.config import consts
 from shared.io.moves_log import MoveLogEntry
 from shared.model.position import Position
 from shared.view.game_snapshot import GameSnapshot
-from client.game_controller import (
+from client.controllers.game_controller import (
     GameControllerListener,
     GameNotice,
     GameSessionInfo,
@@ -39,6 +39,7 @@ from client.ui.preferences.user_settings_store import UserSettings, UserSettings
 from client.ui.rendering.img import Img
 from client.ui.rendering.info_panel import InfoPanel
 from client.ui.rendering.pillow_renderer import PillowRenderer
+from client.ui.sound_player import SoundPlayer
 from client.ui.window.history_dialog import prompt_and_save, show_load_history_dialog
 from client.ui.window.image_view import TkImageView
 from client.ui.window.reconnect_overlay import ReconnectOverlay
@@ -91,6 +92,7 @@ class GameWindow(GameControllerListener):
         self._moves: List[MoveLogEntry] = []
         self._scores: Dict[str, int] = self._blank_scores()
         self._capture_flashes: List[_CaptureFlash] = []
+        self._sound_player = SoundPlayer(assets_dir)
 
         self.root = tk.Tk()
         self.root.title(title)
@@ -139,6 +141,7 @@ class GameWindow(GameControllerListener):
 
     def on_move_recorded(self, entry: MoveLogEntry) -> None:
         self._moves.append(entry)
+        self._sound_player.play_move()
 
     def on_score_changed(self, white_score: int, black_score: int) -> None:
         self._scores = {consts.COLOR_WHITE: white_score, consts.COLOR_BLACK: black_score}
@@ -150,9 +153,16 @@ class GameWindow(GameControllerListener):
         if notice.level is NoticeLevel.CLEARED:
             self._overlay.hide()
         elif notice.level is NoticeLevel.TERMINAL:
+            self._play_ending_sound(notice.outcome)
             self._overlay.show_terminal(notice.text, on_close=self.close)
         else:
             self._overlay.show(notice.text)
+
+    def _play_ending_sound(self, outcome: Optional[bool]) -> None:
+        if outcome is True:
+            self._sound_player.play_win()
+        elif outcome is False:
+            self._sound_player.play_lose()
 
     @staticmethod
     def _blank_scores() -> Dict[str, int]:

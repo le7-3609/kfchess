@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from client.cli_auth import prompt_authentication
+from client.auth.cli_auth import prompt_authentication
 from client.ui import consts as ui_consts
 from client.ui.preferences.user_settings_store import UserSettingsStore
 from client.ui.window.lobby_window import LobbyWindow

@@ -13,8 +13,8 @@ from shared.bootstrap import build_realtime_service
 from shared.config import consts
 from shared.events import GameEndedEvent, PieceCapturedEvent, PieceMovedEvent, ScoreUpdatedEvent
 from shared.model.position import Position
-from client.game_controller import NoticeLevel
-from client.local_game_controller import LocalGameController
+from client.controllers.game_controller import NoticeLevel
+from client.controllers.local_game_controller import LocalGameController
 
 
 class _FakeClock:
@@ -141,6 +141,7 @@ def test_game_over_is_a_terminal_notice_naming_the_winning_seat(started):
     notice = listener.on_notice.call_args[0][0]
     assert notice.level is NoticeLevel.TERMINAL
     assert "White" in notice.text
+    assert notice.outcome is None
 
 
 def test_game_over_against_a_bot_is_phrased_as_a_win_or_a_loss():
@@ -156,7 +157,9 @@ def test_game_over_against_a_bot_is_phrased_as_a_win_or_a_loss():
     )
     controller.poll()
 
-    assert "you lose" in listener.on_notice.call_args[0][0].text.lower()
+    notice = listener.on_notice.call_args[0][0]
+    assert "you lose" in notice.text.lower()
+    assert notice.outcome is False
 
 
 def test_the_clock_stops_once_the_game_has_ended(started):

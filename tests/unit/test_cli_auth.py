@@ -9,7 +9,7 @@ import unittest
 from typing import Any, Dict
 from unittest.mock import patch
 
-from client import cli_auth
+from client.auth import cli_auth
 
 
 class _FakeConnection:

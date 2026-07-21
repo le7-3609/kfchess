@@ -30,8 +30,7 @@ from shared.events import (
 from shared.io.moves_log import MoveLogEntry
 from shared.model.position import Position
 from shared.service import GameService
-from client.algebraic_notation import format_square
-from client.game_controller import (
+from client.controllers.game_controller import (
     GameControllerListener,
     GameNotice,
     GameSessionInfo,
@@ -39,6 +38,7 @@ from client.game_controller import (
     MatchHistoryPort,
     NoticeLevel,
 )
+from client.notation.algebraic_notation import format_square
 from client.ui import consts as ui_consts
 
 _LOGGER = logging.getLogger(__name__)
@@ -263,7 +263,10 @@ class LocalGameController(IGameController):
 
     def _emit_game_ended(self, event: GameEndedEvent) -> None:
         self._ended = True
-        self._listener.on_notice(GameNotice(NoticeLevel.TERMINAL, self._describe_ending(event)))
+        notice = GameNotice(
+            NoticeLevel.TERMINAL, self._describe_ending(event), self._match_outcome(event)
+        )
+        self._listener.on_notice(notice)
 
     def _describe_ending(self, event: GameEndedEvent) -> str:
         """Phrase a local result by seat, since offline no seat is "yours".
@@ -280,6 +283,12 @@ class LocalGameController(IGameController):
             return f"Game over — {winner_name} wins ({label.title()})."
         outcome = "you win" if event.winner == self._assigned_color else "you lose"
         return f"Game over — {outcome} ({label.title()})."
+
+    def _match_outcome(self, event: GameEndedEvent) -> Optional[bool]:
+        """This seat's personal result, or None with no seat or no winner to compare it to."""
+        if event.winner is None or self._assigned_color is None:
+            return None
+        return event.winner == self._assigned_color
 
 
 def build_hotseat_controller(ms_per_square: int, cooldown_ms: int) -> LocalGameController:

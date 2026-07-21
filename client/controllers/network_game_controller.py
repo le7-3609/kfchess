@@ -22,15 +22,14 @@ from typing import Any, Callable, Dict, Optional
 from shared.config import consts
 from shared.io.moves_log import MoveLogEntry
 from shared.model.position import Position
-from client.algebraic_notation import format_square, parse_square
-from client.game_controller import (
+from client.controllers.game_controller import (
     GameControllerListener,
     GameNotice,
     GameSessionInfo,
     IGameController,
     NoticeLevel,
 )
-from client.network_client import (
+from client.network.network_client import (
     MSG_TYPE_CONNECTION_STATUS,
     NetworkClient,
     STATUS_CONNECTED,
@@ -38,7 +37,8 @@ from client.network_client import (
     STATUS_RECONNECTING,
     STATUS_RECONNECT_FAILED,
 )
-from client.network_snapshot_decoder import decode_game_snapshot
+from client.network.network_snapshot_decoder import decode_game_snapshot
+from client.notation.algebraic_notation import format_square, parse_square
 from client.ui import consts as ui_consts
 
 _LOGGER = logging.getLogger(__name__)
@@ -244,7 +244,9 @@ class NetworkGameController(IGameController):
 
     def _on_forfeit_victory(self, message: Dict[str, Any]) -> None:
         self._disconnected_opponent_name = None
-        self._listener.on_notice(GameNotice(NoticeLevel.TERMINAL, _FORFEIT_VICTORY_MESSAGE))
+        self._listener.on_notice(
+            GameNotice(NoticeLevel.TERMINAL, _FORFEIT_VICTORY_MESSAGE, outcome=True)
+        )
 
     def _on_game_end(self, message: Dict[str, Any]) -> None:
         """Report the final result, with this player's rating change if rated.
@@ -254,14 +256,16 @@ class NetworkGameController(IGameController):
         supersedes that notice rather than fighting it.
         """
         self._disconnected_opponent_name = None
-        text = self._describe_game_end(message.get("reason", ""), message.get("winner"))
+        winner = message.get("winner")
+        text = self._describe_game_end(message.get("reason", ""), winner)
+        outcome = None if winner is None else winner == self._assigned_color
 
         rating_key = _RATING_KEY_BY_COLOR.get(self._assigned_color)
         rating = message.get(rating_key) if rating_key else None
         if rating is not None:
             text += f"\nNew rating: {rating['new_elo']} ({rating['elo_change']:+d})"
 
-        self._listener.on_notice(GameNotice(NoticeLevel.TERMINAL, text))
+        self._listener.on_notice(GameNotice(NoticeLevel.TERMINAL, text, outcome))
 
     def _describe_game_end(self, reason: str, winner: Optional[str]) -> str:
         won = winner is not None and winner == self._assigned_color

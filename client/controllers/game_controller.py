@@ -5,8 +5,8 @@ going out, typed session/snapshot/event/notice callbacks coming back — plus
 the capability flags that let a single window serve a mode with no opponent to
 disconnect and a mode with no local clock to advance.
 Must not own: sockets, wire frames, tkinter widgets, or game rules. The two
-implementations live in client/network_game_controller.py and
-client/local_game_controller.py; this module names only what they share, so
+implementations live in client/controllers/network_game_controller.py and
+client/controllers/local_game_controller.py; this module names only what they share, so
 GameWindow can hold either without ever learning which one it got.
 
 Every callback is delivered on the UI thread, from inside `poll()`. A
@@ -64,10 +64,17 @@ class GameNotice:
     networked match can report a rating change or an opponent who dropped, and
     only it knows which seat this window occupies. The window's job is to show
     the string at the right level, not to interpret it.
+
+    *outcome* is this seat's personal result — True for a win, False for a
+    loss, None when there isn't one (a draw, a spectator, hotseat play with no
+    assigned seat, or any non-terminal notice). It is stated here, rather than
+    parsed from *text*, because only the controller knows both the winner and
+    this seat's color.
     """
 
     level: NoticeLevel
     text: str = ""
+    outcome: Optional[bool] = None
 
     @staticmethod
     def cleared() -> "GameNotice":
