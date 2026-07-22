@@ -16,6 +16,11 @@ from shared.model.position import Position
 
 _NOTATION_PATTERN = re.compile(consts.NOTATION_PATTERN)
 
+# Capture-group indices of NOTATION_PATTERN.
+_GROUP_PIECE_TYPE = 1
+_GROUP_FROM_SQUARE = 2
+_GROUP_TO_SQUARE = 3
+
 
 def _algebraic(pos: Position) -> str:
     """Board Position -> algebraic square name (e.g. row=6,col=4 -> 'e2')."""
@@ -66,9 +71,9 @@ def parse_notation(notation: str) -> Optional[ParsedNotation]:
     if match is None:
         return None
     return ParsedNotation(
-        piece_type=match.group(1),
-        frm=_position(match.group(2)),
-        to=_position(match.group(3)),
+        piece_type=match.group(_GROUP_PIECE_TYPE),
+        frm=_position(match.group(_GROUP_FROM_SQUARE)),
+        to=_position(match.group(_GROUP_TO_SQUARE)),
     )
 
 

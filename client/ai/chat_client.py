@@ -21,6 +21,29 @@ DEFAULT_TIMEOUT_S = 10.0
 # budget keeps responses fast and stops the model narrating its plans.
 MAX_COMPLETION_TOKENS = 20
 
+_JSON_ENCODING = "utf-8"
+_HTTP_METHOD_POST = "POST"
+_HEADER_AUTHORIZATION = "Authorization"
+_HEADER_CONTENT_TYPE = "Content-Type"
+_CONTENT_TYPE_JSON = "application/json"
+
+# OpenAI-compatible chat-completions payload/response keys.
+_KEY_MODEL = "model"
+_KEY_MESSAGES = "messages"
+_KEY_ROLE = "role"
+_KEY_CONTENT = "content"
+_KEY_TEMPERATURE = "temperature"
+_KEY_MAX_TOKENS = "max_tokens"
+_KEY_CHOICES = "choices"
+_KEY_MESSAGE = "message"
+_ROLE_SYSTEM = "system"
+_ROLE_USER = "user"
+
+# Temperature 0: the strategy wants the model's single best pick, not creative
+# variety — variety comes from the game itself.
+_DETERMINISTIC_TEMPERATURE = 0
+_FIRST_CHOICE_INDEX = 0
+
 
 class ChatClientError(Exception):
     """The request failed or the response carried no completion."""
@@ -53,11 +76,14 @@ class UrllibTransport:
         self, url: str, headers: Dict[str, str], payload: dict, timeout_s: float
     ) -> dict:
         request = urllib.request.Request(
-            url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
+            url,
+            data=json.dumps(payload).encode(_JSON_ENCODING),
+            headers=headers,
+            method=_HTTP_METHOD_POST,
         )
         try:
             with urllib.request.urlopen(request, timeout=timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
+                return json.loads(response.read().decode(_JSON_ENCODING))
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise ChatClientError(f"LLM request failed: {exc}") from exc
 
@@ -92,25 +118,23 @@ class OpenAiCompatChatClient:
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         """One chat completion; raises ChatClientError on transport or shape failure."""
         payload = {
-            "model": self._model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+            _KEY_MODEL: self._model,
+            _KEY_MESSAGES: [
+                {_KEY_ROLE: _ROLE_SYSTEM, _KEY_CONTENT: system_prompt},
+                {_KEY_ROLE: _ROLE_USER, _KEY_CONTENT: user_prompt},
             ],
-            # Temperature 0: the strategy wants the model's single best pick,
-            # not creative variety — variety comes from the game itself.
-            "temperature": 0,
-            "max_tokens": MAX_COMPLETION_TOKENS,
+            _KEY_TEMPERATURE: _DETERMINISTIC_TEMPERATURE,
+            _KEY_MAX_TOKENS: MAX_COMPLETION_TOKENS,
         }
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
+            _HEADER_AUTHORIZATION: f"Bearer {self._api_key}",
+            _HEADER_CONTENT_TYPE: _CONTENT_TYPE_JSON,
         }
         response = self._transport.post_json(self._url, headers, payload, self._timeout_s)
         return self._extract_reply(response)
 
     def _extract_reply(self, response: dict) -> str:
         try:
-            return response["choices"][0]["message"]["content"]
+            return response[_KEY_CHOICES][_FIRST_CHOICE_INDEX][_KEY_MESSAGE][_KEY_CONTENT]
         except (KeyError, IndexError, TypeError) as exc:
             raise ChatClientError(f"LLM response had no completion: {response!r}") from exc

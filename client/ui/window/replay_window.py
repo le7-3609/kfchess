@@ -329,7 +329,7 @@ class TkReplayWindow:
 
         self.window = tk.Toplevel(parent)
         self.window.title(f"Replay: {saved.save_name}")
-        self.window.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.window.protocol(ui_consts.WM_DELETE_WINDOW_PROTOCOL, self._on_close)
 
         self._build_canvas(board_size)
         self._build_controls(saved)
@@ -337,15 +337,15 @@ class TkReplayWindow:
 
     def _build_canvas(self, board_size: int) -> None:
         """Create the canvas, its image view, and the resize binding."""
-        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * 2 + board_size
+        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * ui_consts.SIDE_PANEL_COUNT + board_size
         self.canvas_height = ui_consts.PANEL_TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
             self.window, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
         )
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.bind("<Configure>", self._on_resize)
+        self.canvas.bind(ui_consts.EVENT_CONFIGURE, self._on_resize)
 
-        canvas_image_id = self.canvas.create_image(0, 0, anchor="nw")
+        canvas_image_id = self.canvas.create_image(0, 0, anchor=ui_consts.ANCHOR_NORTH_WEST)
         self.view = TkImageView(self.canvas, canvas_image_id)
         self.renderer.resize(board_size, board_size)
 
@@ -361,11 +361,21 @@ class TkReplayWindow:
 
     def _build_controls(self, saved: SavedGame) -> None:
         controls = tk.Frame(self.window)
-        controls.pack(fill=tk.X, padx=10, pady=(0, 10))
+        controls.pack(fill=tk.X, padx=ui_consts.SPACING_LG, pady=(0, ui_consts.SPACING_LG))
 
-        self._play_button = tk.Button(controls, text="Pause", width=8, command=self._toggle_play)
+        self._play_button = tk.Button(
+            controls,
+            text=ui_consts.REPLAY_PAUSE_LABEL,
+            width=ui_consts.REPLAY_BUTTON_WIDTH,
+            command=self._toggle_play,
+        )
         self._play_button.pack(side=tk.LEFT)
-        tk.Button(controls, text="Restart", width=8, command=self._restart).pack(side=tk.LEFT, padx=(5, 10))
+        tk.Button(
+            controls,
+            text=ui_consts.REPLAY_RESTART_LABEL,
+            width=ui_consts.REPLAY_BUTTON_WIDTH,
+            command=self._restart,
+        ).pack(side=tk.LEFT, padx=(ui_consts.SPACING_SM, ui_consts.SPACING_LG))
 
         self._scrubber_var = tk.IntVar(master=self.window, value=0)
         self._scrubber = tk.Scale(
@@ -379,14 +389,16 @@ class TkReplayWindow:
         )
         self._scrubber.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        self._time_label = tk.Label(controls, text=_format_clock(0), width=10)
-        self._time_label.pack(side=tk.LEFT, padx=(10, 0))
+        self._time_label = tk.Label(
+            controls, text=_format_clock(0), width=ui_consts.REPLAY_TIME_LABEL_WIDTH
+        )
+        self._time_label.pack(side=tk.LEFT, padx=(ui_consts.SPACING_LG, 0))
 
         header = f"{saved.white_name} vs {saved.black_name}    Saved: {saved.saved_at}"
         if saved.winner:
             winner_name = ui_consts.COLOR_DISPLAY_NAMES.get(saved.winner, saved.winner)
             header += f"    Winner: {winner_name}"
-        tk.Label(self.window, text=header).pack(pady=(0, 8))
+        tk.Label(self.window, text=header).pack(pady=(0, ui_consts.SPACING_MD))
 
     def run(self) -> None:
         """Block until the replay window closes. Only for standalone use — when
@@ -398,12 +410,14 @@ class TkReplayWindow:
         if not self._playing and self.clock_ms >= self.director.duration_ms:
             self.clock_ms = 0
         self._playing = not self._playing
-        self._play_button.config(text="Pause" if self._playing else "Play")
+        self._play_button.config(
+            text=ui_consts.REPLAY_PAUSE_LABEL if self._playing else ui_consts.REPLAY_PLAY_LABEL
+        )
 
     def _restart(self) -> None:
         self.clock_ms = 0
         self._playing = True
-        self._play_button.config(text="Pause")
+        self._play_button.config(text=ui_consts.REPLAY_PAUSE_LABEL)
         self._refresh()
 
     def _on_scrub(self, value: str) -> None:
@@ -422,7 +436,9 @@ class TkReplayWindow:
         self.canvas_width = event.width
         self.canvas_height = event.height
         minimum = ui_consts.MIN_BOARD_DIMENSION_PX
-        available_width = max(minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * 2)
+        available_width = max(
+            minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * ui_consts.SIDE_PANEL_COUNT
+        )
         available_height = max(minimum, self.canvas_height - ui_consts.PANEL_TOP_HEIGHT)
         self.board_size = min(available_width, available_height)
         self.renderer.resize(self.board_size, self.board_size)
@@ -448,7 +464,7 @@ class TkReplayWindow:
             self.clock_ms = min(self.director.duration_ms, self.clock_ms + step)
             if self.clock_ms >= self.director.duration_ms:
                 self._playing = False
-                self._play_button.config(text="Play")
+                self._play_button.config(text=ui_consts.REPLAY_PLAY_LABEL)
             self._refresh()
         self._schedule_tick()
 

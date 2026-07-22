@@ -15,9 +15,12 @@ from client.ui import consts as ui_consts
 
 _LOGGER = logging.getLogger(__name__)
 
+_WINDOWS_PLATFORM = "win32"
+_FILE_MODE_READ_BINARY = "rb"
+
 # winsound is stdlib but Windows-only; other platforms get a silent no-op
 # rather than a new bundled audio dependency this project doesn't otherwise need.
-if sys.platform == "win32":
+if sys.platform == _WINDOWS_PLATFORM:
     import winsound
 else:
     winsound = None
@@ -67,7 +70,7 @@ class SoundPlayer:
     @staticmethod
     def _is_riff_wave(path: str) -> bool:
         try:
-            with open(path, "rb") as cue_file:
+            with open(path, _FILE_MODE_READ_BINARY) as cue_file:
                 return cue_file.read(len(_RIFF_MAGIC)) == _RIFF_MAGIC
         except OSError:
             return False

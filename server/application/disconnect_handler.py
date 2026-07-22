@@ -19,6 +19,15 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from server.application.dtos.frame_fields import (
+    FIELD_COUNTDOWN_SECONDS,
+    FIELD_REASON,
+    FIELD_SECONDS_REMAINING,
+    FIELD_TYPE,
+    FIELD_USERNAME,
+    FORFEIT_REASON_OPPONENT_TIMEOUT,
+    GAME_END_REASON_DISCONNECTION_TIMEOUT,
+)
 from server.application.dtos.network_frames import (
     MSG_COUNTDOWN_TICK,
     MSG_FORFEIT_VICTORY,
@@ -93,7 +102,7 @@ class DisconnectHandler:
         # Notify opponent of reconnection
         opponent = self._get_opponent(session)
         if opponent and opponent.connected:
-            await opponent.send({"type": MSG_OPPONENT_RECONNECTED, "username": session.username})
+            await opponent.send({FIELD_TYPE: MSG_OPPONENT_RECONNECTED, FIELD_USERNAME: session.username})
 
         return True
 
@@ -102,17 +111,17 @@ class DisconnectHandler:
             # Notify opponent of disconnection
             if opponent_session and opponent_session.connected:
                 await opponent_session.send({
-                    "type": MSG_OPPONENT_DISCONNECTED,
-                    "username": disconnected_session.username,
-                    "countdown_seconds": self._timeout_seconds,
+                    FIELD_TYPE: MSG_OPPONENT_DISCONNECTED,
+                    FIELD_USERNAME: disconnected_session.username,
+                    FIELD_COUNTDOWN_SECONDS: self._timeout_seconds,
                 })
 
             for sec_left in range(self._timeout_seconds, 0, -1):
                 await asyncio.sleep(1.0)
                 if opponent_session and opponent_session.connected:
                     await opponent_session.send({
-                        "type": MSG_COUNTDOWN_TICK,
-                        "seconds_remaining": sec_left - 1,
+                        FIELD_TYPE: MSG_COUNTDOWN_TICK,
+                        FIELD_SECONDS_REMAINING: sec_left - 1,
                     })
 
             # Timer expired -> technical forfeit
@@ -125,12 +134,12 @@ class DisconnectHandler:
             if self._game_room.service and self._game_room.service._state_repo:
                 state = self._game_room.service._state_repo.get_state()
                 winner_color = opponent_session.color if opponent_session else None
-                state.end_game("disconnection_timeout", winner=winner_color)
+                state.end_game(GAME_END_REASON_DISCONNECTION_TIMEOUT, winner=winner_color)
 
             if opponent_session and opponent_session.connected:
                 await opponent_session.send({
-                    "type": MSG_FORFEIT_VICTORY,
-                    "reason": "opponent_disconnected_timeout",
+                    FIELD_TYPE: MSG_FORFEIT_VICTORY,
+                    FIELD_REASON: FORFEIT_REASON_OPPONENT_TIMEOUT,
                 })
 
             if self._on_forfeit:

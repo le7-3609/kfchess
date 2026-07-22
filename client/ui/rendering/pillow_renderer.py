@@ -17,6 +17,12 @@ from shared.view.game_snapshot import GameSnapshot, PieceSnapshot
 from shared.view.piece_visual_state import PieceVisualState
 from shared.view.renderer import RendererInterface
 
+# Geometry helpers: halving centers a box inside a cell; an inset or margin
+# applied at both edges is paid twice; a circle's bounding box spans a diameter.
+_HALF = 2
+_BOTH_SIDES = 2
+_DIAMETER_PER_RADIUS = 2
+
 # Re-exported so callers can name the highlight colors without depending on
 # the constant registry directly.
 LEGAL_MOVE_CAPTURE_COLOR = ui_consts.LEGAL_MOVE_CAPTURE_COLOR
@@ -143,7 +149,7 @@ class PillowRenderer(RendererInterface):
         rect = self.geometry.cell_to_pixel(pos.row, pos.col)
         inset = ui_consts.SELECTION_INSET_PX
         img.draw_rect(
-            rect.x + inset, rect.y + inset, rect.width - 2 * inset, rect.height - 2 * inset,
+            rect.x + inset, rect.y + inset, rect.width - _BOTH_SIDES * inset, rect.height - _BOTH_SIDES * inset,
             ui_consts.SELECTION_COLOR, width=ui_consts.SELECTION_BORDER_WIDTH,
         )
 
@@ -156,10 +162,10 @@ class PillowRenderer(RendererInterface):
             )
             cell_w = rect.width
             cell_h = rect.height
-            cx = rect.x + cell_w / 2
-            cy = rect.y + cell_h / 2
+            cx = rect.x + cell_w / _HALF
+            cy = rect.y + cell_h / _HALF
             r = min(cell_w, cell_h) * ui_consts.LEGAL_MOVE_DOT_RADIUS_RATIO
-            img.fill_ellipse(round(cx - r), round(cy - r), round(2 * r), round(2 * r), color)
+            img.fill_ellipse(round(cx - r), round(cy - r), round(_DIAMETER_PER_RADIUS * r), round(_DIAMETER_PER_RADIUS * r), color)
 
     def _draw_castle_targets(self, img: Img, snapshot: GameSnapshot) -> None:
         for pos in snapshot.castle_targets:
@@ -180,8 +186,8 @@ class PillowRenderer(RendererInterface):
         size = round(min(cell_w, cell_h) * ui_consts.PIECE_SPRITE_SIZE_RATIO)
 
         lift = self._draw_state_effects(img, piece, x, y, cell_w, cell_h)
-        draw_x = x + (cell_w - size) / 2
-        draw_y = y + (cell_h - size) / 2 - lift
+        draw_x = x + (cell_w - size) / _HALF
+        draw_y = y + (cell_h - size) / _HALF - lift
 
         self._blit_sprite(img, piece, size, draw_x, draw_y)
 
@@ -211,8 +217,8 @@ class PillowRenderer(RendererInterface):
         """Draw the ground shadow of a jumping piece and return how far it has risen."""
         shadow_w = cell_w * ui_consts.JUMP_SHADOW_WIDTH_RATIO
         shadow_h = cell_h * ui_consts.JUMP_SHADOW_HEIGHT_RATIO
-        shadow_x = x + (cell_w - shadow_w) / 2
-        shadow_y = y + cell_h * ui_consts.JUMP_SHADOW_Y_RATIO - shadow_h / 2
+        shadow_x = x + (cell_w - shadow_w) / _HALF
+        shadow_y = y + cell_h * ui_consts.JUMP_SHADOW_Y_RATIO - shadow_h / _HALF
         img.fill_ellipse(
             round(shadow_x), round(shadow_y), round(shadow_w), round(shadow_h),
             ui_consts.JUMP_SHADOW_COLOR,
@@ -263,7 +269,7 @@ class PillowRenderer(RendererInterface):
         img.fill_rect(0, 0, img.get().width, img.get().height, ui_consts.GAME_OVER_OVERLAY_COLOR)
         text = _game_over_text(snapshot)
         img.put_text(
-            text, img.get().width // 2, img.get().height // 2,
+            text, img.get().width // _HALF, img.get().height // _HALF,
             self._game_over_font_size(img, text), ui_consts.GAME_OVER_TEXT_COLOR,
             anchor=ui_consts.TEXT_ANCHOR_MIDDLE_MIDDLE,
         )

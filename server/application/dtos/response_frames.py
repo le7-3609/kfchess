@@ -8,6 +8,24 @@ in already-mapped values.
 
 from typing import Any, Dict, Optional
 
+from server.application.dtos.frame_fields import (
+    FIELD_BLACK,
+    FIELD_COLOR,
+    FIELD_ELO,
+    FIELD_FROM,
+    FIELD_MESSAGE,
+    FIELD_OPPONENT,
+    FIELD_REASON,
+    FIELD_ROOM_ID,
+    FIELD_STATE,
+    FIELD_STATUS,
+    FIELD_TO,
+    FIELD_TYPE,
+    FIELD_USERNAME,
+    FIELD_WHITE,
+    FIELD_WINNER,
+    STATUS_OK,
+)
 from server.application.dtos.network_frames import (
     MSG_AUTH,
     MSG_ERROR,
@@ -20,15 +38,15 @@ from server.application.dtos.network_frames import (
 
 
 def build_move_message(from_sq: str, to_sq: str) -> Dict[str, Any]:
-    return {"type": MSG_MOVE, "from": from_sq, "to": to_sq}
+    return {FIELD_TYPE: MSG_MOVE, FIELD_FROM: from_sq, FIELD_TO: to_sq}
 
 
 def build_game_state_message(snapshot_data: Dict[str, Any]) -> Dict[str, Any]:
-    return {"type": MSG_GAME_STATE, "state": snapshot_data}
+    return {FIELD_TYPE: MSG_GAME_STATE, FIELD_STATE: snapshot_data}
 
 
 def build_error_message(message: str) -> Dict[str, Any]:
-    return {"type": MSG_ERROR, "message": message}
+    return {FIELD_TYPE: MSG_ERROR, FIELD_MESSAGE: message}
 
 
 def build_game_start_message(
@@ -39,18 +57,18 @@ def build_game_start_message(
     `room_id` is omitted entirely when absent rather than sent as null, so
     clients can treat its presence as "this seat belongs to a named room".
     """
-    message: Dict[str, Any] = {"type": MSG_GAME_START, "color": color, "opponent": opponent_name}
+    message: Dict[str, Any] = {FIELD_TYPE: MSG_GAME_START, FIELD_COLOR: color, FIELD_OPPONENT: opponent_name}
     if room_id is not None:
-        message["room_id"] = room_id
+        message[FIELD_ROOM_ID] = room_id
     return message
 
 
 def build_room_created_message(room_id: str) -> Dict[str, Any]:
-    return {"type": MSG_ROOM_CREATED, "room_id": room_id}
+    return {FIELD_TYPE: MSG_ROOM_CREATED, FIELD_ROOM_ID: room_id}
 
 
 def build_auth_success_message(username: str, elo: int) -> Dict[str, Any]:
-    return {"type": MSG_AUTH, "status": "ok", "username": username, "elo": elo}
+    return {FIELD_TYPE: MSG_AUTH, FIELD_STATUS: STATUS_OK, FIELD_USERNAME: username, FIELD_ELO: elo}
 
 
 def build_game_ended_message(
@@ -66,9 +84,9 @@ def build_game_ended_message(
     rated — a bot opponent, or no database configured — so clients can treat
     their presence as "this game affected your rating".
     """
-    message: Dict[str, Any] = {"type": MSG_GAME_END, "reason": reason, "winner": winner}
+    message: Dict[str, Any] = {FIELD_TYPE: MSG_GAME_END, FIELD_REASON: reason, FIELD_WINNER: winner}
     if white_rating is not None:
-        message["white"] = white_rating
+        message[FIELD_WHITE] = white_rating
     if black_rating is not None:
-        message["black"] = black_rating
+        message[FIELD_BLACK] = black_rating
     return message

@@ -19,6 +19,7 @@ is king capture. Game-over is handled by GameEngine, not RuleEngine.
 from dataclasses import dataclass
 from typing import List, Optional
 
+from shared.config import consts
 from shared.model.position import Position
 from shared.model.board import BoardInterface
 from shared.rules.path_checker import PathCheckerInterface, PathChecker
@@ -78,18 +79,18 @@ class RuleEngine:
         move-history state; it just forwards whatever the caller supplies.
         """
         if not board.is_valid_position(frm) or not board.is_valid_position(to):
-            return MoveValidation(False, "outside_board")
+            return MoveValidation(False, consts.MOVE_REJECT_OUTSIDE_BOARD)
 
         piece = board.get_piece(frm)
         if piece is None:
-            return MoveValidation(False, "empty_source")
+            return MoveValidation(False, consts.MOVE_REJECT_EMPTY_SOURCE)
 
         destination = board.get_piece(to)
         if destination is not None and destination.color == piece.color:
-            return MoveValidation(False, "friendly_destination")
+            return MoveValidation(False, consts.MOVE_REJECT_FRIENDLY_DESTINATION)
 
         validator = self._move_validator_factory.get_validator(piece.piece_type)
         if to not in validator.legal_destinations(board, piece, en_passant_targets):
-            return MoveValidation(False, "illegal_piece_move")
+            return MoveValidation(False, consts.MOVE_REJECT_ILLEGAL_PIECE_MOVE)
 
-        return MoveValidation(True, "ok")
+        return MoveValidation(True, consts.MOVE_OK)

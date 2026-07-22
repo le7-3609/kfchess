@@ -19,7 +19,13 @@ from typing import List, Optional, Protocol, Tuple
 import aiosqlite
 import bcrypt
 
+from shared.config.consts import FILE_ENCODING
+from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
+
 _LOGGER = logging.getLogger(__name__)
+
+DEFAULT_DB_PATH = "kfchess.db"
+DEFAULT_LEADERBOARD_LIMIT = 100
 
 
 class SavableMove(Protocol):
@@ -140,7 +146,7 @@ CREATE_INDEXES_SQL = (
 class Database:
     """Async SQLite persistence adapter."""
 
-    def __init__(self, db_path: str = "kfchess.db") -> None:
+    def __init__(self, db_path: str = DEFAULT_DB_PATH) -> None:
         self._db_path = db_path
         self._conn: Optional[aiosqlite.Connection] = None
 
@@ -175,16 +181,18 @@ class Database:
             raise RuntimeError("Database connection is not open. Call connect() first.")
         return self._conn
 
-    async def create_user(self, username: str, password_plain: str, initial_elo: int = 1200) -> Optional[int]:
+    async def create_user(
+        self, username: str, password_plain: str, initial_elo: int = DEFAULT_PLAYER_ELO
+    ) -> Optional[int]:
         """Hash password with bcrypt and insert a new user.
 
         Returns:
             user_id of created user, or None if username already exists.
         """
         conn = self._require_connection()
-        pw_bytes = password_plain.encode("utf-8")
+        pw_bytes = password_plain.encode(FILE_ENCODING)
         salt = bcrypt.gensalt()
-        pw_hash = bcrypt.hashpw(pw_bytes, salt).decode("utf-8")
+        pw_hash = bcrypt.hashpw(pw_bytes, salt).decode(FILE_ENCODING)
 
         try:
             cursor = await conn.execute(
@@ -213,8 +221,8 @@ class Database:
                 return None
 
             user_id, name, pw_hash, elo = row
-            pw_bytes = password_plain.encode("utf-8")
-            hash_bytes = pw_hash.encode("utf-8")
+            pw_bytes = password_plain.encode(FILE_ENCODING)
+            hash_bytes = pw_hash.encode(FILE_ENCODING)
 
             if bcrypt.checkpw(pw_bytes, hash_bytes):
                 return (user_id, name, elo)
@@ -230,7 +238,8 @@ class Database:
             row = await cursor.fetchone()
             if row is None:
                 return None
-            return (row[0], row[1], row[2])
+            user_id, name, elo = row
+            return (user_id, name, elo)
 
     async def update_elo(self, username: str, new_elo: int) -> bool:
         """Update a user's ELO rating atomically."""
@@ -419,7 +428,7 @@ class Database:
         ) as cursor:
             return [tuple(row) for row in await cursor.fetchall()]
 
-    async def get_leaderboard(self, limit: int = 100) -> List[Tuple]:
+    async def get_leaderboard(self, limit: int = DEFAULT_LEADERBOARD_LIMIT) -> List[Tuple]:
         """Top players by ELO, restricted to those with at least one game.
 
         The JOIN (not LEFT JOIN) excludes freshly-registered users who have

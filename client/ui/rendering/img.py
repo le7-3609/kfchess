@@ -15,13 +15,22 @@ blending them would cost the same and mean nothing.
 
 from PIL import Image, ImageDraw, ImageFont
 
+from client.ui.consts import COLOR_CHANNEL_MAX, IMAGE_MODE_RGBA, SPRITE_TRANSPARENT_RGBA
+
 _FONT_CACHE: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
 
-_TRANSPARENT = (0, 0, 0, 0)
+_TRANSPARENT = SPRITE_TRANSPARENT_RGBA
+
+_DEFAULT_FONT_FILE = "arial.ttf"
+# An (r, g, b, a) tuple; anything shorter carries no alpha channel.
+_RGBA_CHANNEL_COUNT = 4
+_ALPHA_CHANNEL_INDEX = 3
+# Pillow text anchor: left-ascender (top-left of the text box).
+_TEXT_ANCHOR_LEFT_ASCENDER = "la"
 
 
 def _is_opaque(color: tuple) -> bool:
-    return len(color) < 4 or color[3] >= 255
+    return len(color) < _RGBA_CHANNEL_COUNT or color[_ALPHA_CHANNEL_INDEX] >= COLOR_CHANNEL_MAX
 
 
 def _get_font(font_size: float) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -29,7 +38,7 @@ def _get_font(font_size: float) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     font = _FONT_CACHE.get(size)
     if font is None:
         try:
-            font = ImageFont.truetype("arial.ttf", size)
+            font = ImageFont.truetype(_DEFAULT_FONT_FILE, size)
         except OSError:
             font = ImageFont.load_default()
         _FONT_CACHE[size] = font
@@ -42,12 +51,12 @@ class Img:
     def __init__(self):
         self._img: Image.Image | None = None
 
-    def blank(self, width: int, height: int, color: tuple[int, int, int, int] = (0, 0, 0, 0)) -> "Img":
-        self._img = Image.new("RGBA", (width, height), color)
+    def blank(self, width: int, height: int, color: tuple[int, int, int, int] = _TRANSPARENT) -> "Img":
+        self._img = Image.new(IMAGE_MODE_RGBA, (width, height), color)
         return self
 
     def from_pil(self, image: Image.Image) -> "Img":
-        self._img = image.convert("RGBA")
+        self._img = image.convert(IMAGE_MODE_RGBA)
         return self
 
     def copy(self) -> "Img":
@@ -62,7 +71,7 @@ class Img:
             img = Image.open(path)
         except (OSError, FileNotFoundError) as e:
             raise ValueError(f"Cannot load image: {path}") from e
-        img = img.convert("RGBA")
+        img = img.convert(IMAGE_MODE_RGBA)
 
         if target_size is not None:
             tw, th = target_size
@@ -104,7 +113,7 @@ class Img:
         y: int,
         font_size: float,
         color: tuple[int, int, int, int],
-        anchor: str = "la",
+        anchor: str = _TEXT_ANCHOR_LEFT_ASCENDER,
     ) -> None:
         self._require_loaded()
         font = _get_font(font_size)
@@ -125,7 +134,7 @@ class Img:
         if _is_opaque(color):
             paint(ImageDraw.Draw(self._img), [x, y, x + w - 1, y + h - 1])
             return
-        layer = Image.new("RGBA", (w, h), _TRANSPARENT)
+        layer = Image.new(IMAGE_MODE_RGBA, (w, h), _TRANSPARENT)
         paint(ImageDraw.Draw(layer), [0, 0, w - 1, h - 1])
         self._composite(layer, x, y)
 
@@ -137,7 +146,7 @@ class Img:
         if _is_opaque(color):
             paint(ImageDraw.Draw(self._img))
             return
-        layer = Image.new("RGBA", self._img.size, _TRANSPARENT)
+        layer = Image.new(IMAGE_MODE_RGBA, self._img.size, _TRANSPARENT)
         paint(ImageDraw.Draw(layer))
         self._composite(layer, 0, 0)
 

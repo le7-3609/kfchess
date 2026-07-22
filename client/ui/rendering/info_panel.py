@@ -60,8 +60,12 @@ class InfoPanel:
 
         panel_width = ui_consts.SIDE_PANEL_WIDTH
         top_height = ui_consts.PANEL_TOP_HEIGHT
-        board_x = panel_width + (canvas_width - panel_width * 2 - board_size) // 2
-        board_y = top_height + (canvas_height - top_height - board_size) // 2
+        board_x = panel_width + (
+            canvas_width - panel_width * ui_consts.SIDE_PANEL_COUNT - board_size
+        ) // ui_consts.CENTERING_DIVISOR
+        board_y = top_height + (
+            canvas_height - top_height - board_size
+        ) // ui_consts.CENTERING_DIVISOR
 
         board_img.draw_on(img, board_x, board_y)
 
@@ -105,7 +109,9 @@ class InfoPanel:
     def _draw_moves_column(
         self, img: Img, x: int, name: str, score: Optional[int], rows: Tuple[str, ...]
     ) -> None:
-        self._draw_column_header(img, x + ui_consts.SIDE_PANEL_WIDTH // 2, name, score)
+        self._draw_column_header(
+            img, x + ui_consts.SIDE_PANEL_WIDTH // ui_consts.CENTERING_DIVISOR, name, score
+        )
 
         y = ui_consts.PANEL_TOP_HEIGHT
         for row_text in rows:

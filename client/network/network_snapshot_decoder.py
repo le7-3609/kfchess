@@ -7,6 +7,7 @@ Must not own: network I/O, GUI state, or game rules.
 
 from typing import Any, Dict
 
+from client.network import protocol
 from client.notation.algebraic_notation import parse_square
 from shared.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
 from shared.view.piece_visual_state import PieceVisualState
@@ -24,43 +25,44 @@ def decode_game_snapshot(state: Dict[str, Any]) -> GameSnapshot:
     """Rebuild a GameSnapshot from a decoded `game_state` message's `state` dict."""
     pieces = {
         parse_square(square): _decode_piece(piece_data)
-        for square, piece_data in state["pieces"].items()
+        for square, piece_data in state[protocol.FIELD_PIECES].items()
     }
-    selected_pos = parse_square(state["selected_pos"]) if state["selected_pos"] else None
+    selected_square = state[protocol.FIELD_SELECTED_POS]
+    selected_pos = parse_square(selected_square) if selected_square else None
 
     return GameSnapshot(
-        rows=state["rows"],
-        cols=state["cols"],
+        rows=state[protocol.FIELD_ROWS],
+        cols=state[protocol.FIELD_COLS],
         pieces=pieces,
         selected_pos=selected_pos,
-        legal_move_targets=tuple(parse_square(sq) for sq in state["legal_move_targets"]),
-        castle_targets=tuple(parse_square(sq) for sq in state["castle_targets"]),
-        active_movements=tuple(_decode_movement(m) for m in state["active_movements"]),
-        cooldown_positions=tuple(parse_square(sq) for sq in state["cooldown_positions"]),
-        clock_ms=state["clock_ms"],
-        game_over=state["game_over"],
-        game_over_reason=state["game_over_reason"],
-        winner=state["winner"],
+        legal_move_targets=tuple(parse_square(sq) for sq in state[protocol.FIELD_LEGAL_MOVE_TARGETS]),
+        castle_targets=tuple(parse_square(sq) for sq in state[protocol.FIELD_CASTLE_TARGETS]),
+        active_movements=tuple(_decode_movement(m) for m in state[protocol.FIELD_ACTIVE_MOVEMENTS]),
+        cooldown_positions=tuple(parse_square(sq) for sq in state[protocol.FIELD_COOLDOWN_POSITIONS]),
+        clock_ms=state[protocol.FIELD_CLOCK_MS],
+        game_over=state[protocol.FIELD_GAME_OVER],
+        game_over_reason=state[protocol.FIELD_GAME_OVER_REASON],
+        winner=state[protocol.FIELD_WINNER],
     )
 
 
 def _decode_piece(piece_data: Dict[str, Any]) -> PieceSnapshot:
     return PieceSnapshot(
-        color=piece_data["color"],
-        piece_type=piece_data["piece_type"],
-        has_moved=piece_data["has_moved"],
-        can_select=piece_data["can_select"],
-        can_move=piece_data["can_move"],
-        state=PieceVisualState[piece_data["state"]],
-        state_elapsed_millis=piece_data["state_elapsed_ms"],
-        state_duration_millis=piece_data["state_duration_ms"],
+        color=piece_data[protocol.FIELD_COLOR],
+        piece_type=piece_data[protocol.FIELD_PIECE_TYPE],
+        has_moved=piece_data[protocol.FIELD_HAS_MOVED],
+        can_select=piece_data[protocol.FIELD_CAN_SELECT],
+        can_move=piece_data[protocol.FIELD_CAN_MOVE],
+        state=PieceVisualState[piece_data[protocol.FIELD_STATE]],
+        state_elapsed_millis=piece_data[protocol.FIELD_STATE_ELAPSED_MS],
+        state_duration_millis=piece_data[protocol.FIELD_STATE_DURATION_MS],
     )
 
 
 def _decode_movement(movement_data: Dict[str, Any]) -> MovementSnapshot:
     placeholder_piece = PieceSnapshot(
-        color=movement_data["color"],
-        piece_type=movement_data["piece_type"],
+        color=movement_data[protocol.FIELD_COLOR],
+        piece_type=movement_data[protocol.FIELD_PIECE_TYPE],
         has_moved=False,
         can_select=False,
         can_move=False,
@@ -69,9 +71,9 @@ def _decode_movement(movement_data: Dict[str, Any]) -> MovementSnapshot:
         state_duration_millis=_UNTRANSMITTED_STATE_MS,
     )
     return MovementSnapshot(
-        frm=parse_square(movement_data["from"]),
-        to=parse_square(movement_data["to"]),
+        frm=parse_square(movement_data[protocol.FIELD_FROM]),
+        to=parse_square(movement_data[protocol.FIELD_TO]),
         piece=placeholder_piece,
-        start_ms=movement_data["start_ms"],
-        arrival_ms=movement_data["arrival_ms"],
+        start_ms=movement_data[protocol.FIELD_START_MS],
+        arrival_ms=movement_data[protocol.FIELD_ARRIVAL_MS],
     )

@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Optional
 
 from shared.config import consts
+from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
 
 _VALID_COLORS = frozenset({consts.COLOR_WHITE, consts.COLOR_BLACK})
 
@@ -25,7 +26,7 @@ class ConnectionState(Enum):
 class PlayerSession:
     """A player's identity and connection state, independent of transport."""
 
-    def __init__(self, username: str, user_id: int, elo: int = 1200) -> None:
+    def __init__(self, username: str, user_id: int, elo: int = DEFAULT_PLAYER_ELO) -> None:
         if not username or not username.strip():
             raise ValueError("username must not be empty")
 

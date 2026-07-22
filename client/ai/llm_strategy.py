@@ -34,6 +34,13 @@ from client.ai.providers import build_chat_client
 
 _LOGGER = logging.getLogger(__name__)
 
+# Prompt wording for each seat color.
+_COLOR_NAMES = {consts.COLOR_WHITE: "white", consts.COLOR_BLACK: "black"}
+
+# The model is asked to answer with a bare move number; the first integer in
+# its reply is taken as that choice.
+_MOVE_INDEX_PATTERN = re.compile(r"\d+")
+
 MAX_CONSECUTIVE_TRANSPORT_FAILURES = 3
 _EMPTY_SQUARE_TOKEN = ".."
 
@@ -154,7 +161,7 @@ class LlmMoveStrategy:
         self._start_worker(job)
 
     def _build_prompt(self, moves: List[Move], board: BoardInterface) -> str:
-        color_name = "white" if self._color == consts.COLOR_WHITE else "black"
+        color_name = _COLOR_NAMES[self._color]
         lines = [
             f"You play {color_name}. Board is {board.rows}x{board.cols}, row 0 at the top; "
             f"tokens are color+piece (e.g. wK = white king), {_EMPTY_SQUARE_TOKEN} is empty:",
@@ -186,7 +193,7 @@ class LlmMoveStrategy:
         """The 1-based index the model named, resolved against the request's move list."""
         if not reply:
             return None
-        match = re.search(r"\d+", reply)
+        match = _MOVE_INDEX_PATTERN.search(reply)
         if match is None:
             return None
         index = int(match.group()) - 1

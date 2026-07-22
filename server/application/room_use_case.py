@@ -14,6 +14,7 @@ from typing import Any, Dict
 from shared.model.game_state import Result
 
 from server.application.dtos import ERROR_ALREADY_SEATED
+from server.application.dtos.frame_fields import FIELD_ROOM_ID
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.domain.room.room_role import RoomRole
 from server.application.game_room import GameRoom
@@ -46,7 +47,7 @@ class RoomUseCase:
         know; the returned role only tells the caller which acknowledgement, if
         any, still belongs to the requester.
         """
-        room_id = msg.get("room_id")
+        room_id = msg.get(FIELD_ROOM_ID)
         if not room_id or not isinstance(room_id, str):
             return Result.fail("join_room requires a 'room_id' field")
 

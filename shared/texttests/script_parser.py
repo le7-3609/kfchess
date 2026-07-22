@@ -20,6 +20,20 @@ Must not own: movement rules, direct Board mutation, or duplicated game logic.
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from shared.config.consts import (
+    BOARD_ROW_SEPARATOR,
+    BOARD_SECTION_HEADER,
+    COMMANDS_SECTION_HEADER,
+    COMMENT_LINE_PREFIX,
+    EXPECTED_SECTION_HEADER,
+    FILE_ENCODING,
+)
+
+# Internal section tags used while walking the file, not part of the DSL.
+_SECTION_BOARD = "board"
+_SECTION_COMMANDS = "commands"
+_SECTION_EXPECTED = "expected"
+
 
 @dataclass
 class KfcScript:
@@ -40,7 +54,7 @@ class ScriptParser:
 
     def parse_file(self, path: str) -> KfcScript:
         """Read and parse the .kfc script at *path*."""
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding=FILE_ENCODING) as f:
             lines = f.readlines()
         return self.parse_lines(lines)
 
@@ -53,34 +67,34 @@ class ScriptParser:
             stripped = line.rstrip("\n").rstrip("\r")
             content = stripped.strip()
 
-            if not content or content.startswith("#"):
+            if not content or content.startswith(COMMENT_LINE_PREFIX):
                 continue  # Skip blank lines and comments.
 
-            if content.startswith("Board:"):
-                section = "board"
-            elif content.startswith("Commands:"):
-                section = "commands"
-            elif content.startswith("Expected:"):
-                section = "expected"
+            if content.startswith(BOARD_SECTION_HEADER):
+                section = _SECTION_BOARD
+            elif content.startswith(COMMANDS_SECTION_HEADER):
+                section = _SECTION_COMMANDS
+            elif content.startswith(EXPECTED_SECTION_HEADER):
+                section = _SECTION_EXPECTED
             else:
-                if section == "board":
+                if section == _SECTION_BOARD:
                     script.board_lines.append(content)
-                elif section == "commands":
+                elif section == _SECTION_COMMANDS:
                     script.commands.append(content)
-                elif section == "expected":
+                elif section == _SECTION_EXPECTED:
                     if script.expected_output is None:
-                        script.expected_output = content + "\n"
+                        script.expected_output = content + BOARD_ROW_SEPARATOR
                     else:
-                        script.expected_output += content + "\n"
+                        script.expected_output += content + BOARD_ROW_SEPARATOR
 
         return script
 
     def to_input_lines(self, script: KfcScript) -> List[str]:
         """Convert a KfcScript back to the flat input format expected by the engine."""
-        lines: List[str] = ["Board:\n"]
+        lines: List[str] = [BOARD_SECTION_HEADER + BOARD_ROW_SEPARATOR]
         for row in script.board_lines:
-            lines.append(row + "\n")
-        lines.append("Commands:\n")
+            lines.append(row + BOARD_ROW_SEPARATOR)
+        lines.append(COMMANDS_SECTION_HEADER + BOARD_ROW_SEPARATOR)
         for cmd in script.commands:
-            lines.append(cmd + "\n")
+            lines.append(cmd + BOARD_ROW_SEPARATOR)
         return lines

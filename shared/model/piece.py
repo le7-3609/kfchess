@@ -11,6 +11,9 @@ from uuid import UUID, uuid4
 
 from shared.config import consts
 
+# How many hex digits of the piece UUID __repr__ shows — enough to tell twins
+# apart in debug output without flooding it.
+_REPR_ID_PREFIX_LENGTH = 8
 
 
 class PieceStateInterface(ABC):
@@ -171,7 +174,7 @@ class TextPiece(PieceInterface):
         return f"{self._color}{self._piece_type}"
 
     def __repr__(self) -> str:
-        return f"TextPiece({self._color}, {self._piece_type}, {str(self._piece_id)[:8]})"
+        return f"TextPiece({self._color}, {self._piece_type}, {str(self._piece_id)[:_REPR_ID_PREFIX_LENGTH]})"
 
     def __eq__(self, other: object) -> bool:
         """Compare identity, not appearance.

@@ -57,7 +57,7 @@ def show_load_history_dialog(
         return
 
     picker = tk.Toplevel(parent)
-    picker.title("Load History")
+    picker.title(ui_consts.HISTORY_PICKER_TITLE)
     picker.transient(parent)
 
     listbox = _build_saves_listbox(picker, saves)
@@ -71,16 +71,22 @@ def show_load_history_dialog(
         TkReplayWindow(parent, service.load_saved_game(chosen), renderer_factory())
 
     _build_picker_buttons(picker, on_open)
-    listbox.bind("<Double-Button-1>", lambda event: on_open())
+    listbox.bind(ui_consts.EVENT_DOUBLE_CLICK, lambda event: on_open())
 
 
 def _build_saves_listbox(picker: tk.Toplevel, saves) -> tk.Listbox:
     """Fill *picker* with a labelled list of *saves*, preselecting the first."""
-    tk.Label(picker, text="Select a saved game:").pack(padx=10, pady=(10, 0))
-    listbox = tk.Listbox(picker, width=50, height=min(15, len(saves)))
+    tk.Label(picker, text="Select a saved game:").pack(
+        padx=ui_consts.SPACING_LG, pady=(ui_consts.SPACING_LG, 0)
+    )
+    listbox = tk.Listbox(
+        picker,
+        width=ui_consts.HISTORY_LISTBOX_WIDTH,
+        height=min(ui_consts.HISTORY_LISTBOX_MAX_ROWS, len(saves)),
+    )
     for name in saves:
         listbox.insert(tk.END, name)
-    listbox.pack(padx=10, pady=10)
+    listbox.pack(padx=ui_consts.SPACING_LG, pady=ui_consts.SPACING_LG)
     listbox.selection_set(0)
     return listbox
 
@@ -88,6 +94,10 @@ def _build_saves_listbox(picker: tk.Toplevel, saves) -> tk.Listbox:
 def _build_picker_buttons(picker: tk.Toplevel, on_open: Callable[[], None]) -> None:
     """Add the Play/Cancel row to *picker*."""
     button_row = tk.Frame(picker)
-    button_row.pack(pady=(0, 10))
-    tk.Button(button_row, text="Play", command=on_open).pack(side=tk.LEFT, padx=5)
-    tk.Button(button_row, text="Cancel", command=picker.destroy).pack(side=tk.LEFT, padx=5)
+    button_row.pack(pady=(0, ui_consts.SPACING_LG))
+    tk.Button(button_row, text="Play", command=on_open).pack(
+        side=tk.LEFT, padx=ui_consts.SPACING_SM
+    )
+    tk.Button(button_row, text="Cancel", command=picker.destroy).pack(
+        side=tk.LEFT, padx=ui_consts.SPACING_SM
+    )

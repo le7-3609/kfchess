@@ -79,6 +79,7 @@ def _window(controller=None) -> GameWindow:
     window._scores = {consts.COLOR_WHITE: 0, consts.COLOR_BLACK: 0}
     window._capture_flashes = []
     window._sound_player = MagicMock()
+    window._poll_id = None
     return window
 
 

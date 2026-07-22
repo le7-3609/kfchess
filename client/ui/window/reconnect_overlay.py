@@ -7,6 +7,12 @@ knowledge of the network layer beyond the plain strings it is told to show.
 import tkinter as tk
 from typing import Callable, Optional
 
+from client.ui import consts as ui_consts
+
+_WINDOW_TITLE = "Connection"
+_MESSAGE_PAD_X = 24
+_MESSAGE_PAD_Y = 16
+
 
 class ReconnectOverlay:
     """Owns a lazily-created, modal Toplevel that reports connection status.
@@ -36,8 +42,8 @@ class ReconnectOverlay:
         window = self._ensure_window()
         self._message_label.config(text=message)
         self._close_button.config(command=on_close)
-        self._close_button.pack(pady=(0, 12))
-        window.protocol("WM_DELETE_WINDOW", on_close)
+        self._close_button.pack(pady=(0, ui_consts.SPACING_XL))
+        window.protocol(ui_consts.WM_DELETE_WINDOW_PROTOCOL, on_close)
         self._center(window)
 
     def hide(self) -> None:
@@ -54,11 +60,18 @@ class ReconnectOverlay:
             return self._window
 
         window = tk.Toplevel(self._parent)
-        window.title("Connection")
+        window.title(_WINDOW_TITLE)
         window.resizable(False, False)
-        window.protocol("WM_DELETE_WINDOW", lambda: None)  # no dismiss while recovery is possible
+        # no dismiss while recovery is possible
+        window.protocol(ui_consts.WM_DELETE_WINDOW_PROTOCOL, lambda: None)
 
-        self._message_label = tk.Label(window, text="", padx=24, pady=16, justify="center")
+        self._message_label = tk.Label(
+            window,
+            text="",
+            padx=_MESSAGE_PAD_X,
+            pady=_MESSAGE_PAD_Y,
+            justify=ui_consts.ANCHOR_CENTER,
+        )
         self._message_label.pack()
         self._close_button = tk.Button(window, text="Close")
 
@@ -70,6 +83,10 @@ class ReconnectOverlay:
     def _center(self, window: tk.Toplevel) -> None:
         self._parent.update_idletasks()
         window.update_idletasks()
-        x = self._parent.winfo_rootx() + (self._parent.winfo_width() - window.winfo_reqwidth()) // 2
-        y = self._parent.winfo_rooty() + (self._parent.winfo_height() - window.winfo_reqheight()) // 2
+        x = self._parent.winfo_rootx() + (
+            self._parent.winfo_width() - window.winfo_reqwidth()
+        ) // ui_consts.CENTERING_DIVISOR
+        y = self._parent.winfo_rooty() + (
+            self._parent.winfo_height() - window.winfo_reqheight()
+        ) // ui_consts.CENTERING_DIVISOR
         window.geometry(f"+{max(x, 0)}+{max(y, 0)}")

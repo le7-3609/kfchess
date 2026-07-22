@@ -13,8 +13,15 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
+from shared.config.consts import FILE_ENCODING
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_FILE = _REPO_ROOT / ".env"
+
+# .env line syntax.
+_COMMENT_PREFIX = "#"
+_KEY_VALUE_SEPARATOR = "="
+_VALUE_QUOTE_CHARS = "'\""
 
 
 def parse_env_file(path: Path) -> Dict[str, str]:
@@ -27,12 +34,12 @@ def parse_env_file(path: Path) -> Dict[str, str]:
     if not path.is_file():
         return {}
     values: Dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in path.read_text(encoding=FILE_ENCODING).splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+        if not line or line.startswith(_COMMENT_PREFIX) or _KEY_VALUE_SEPARATOR not in line:
             continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip().strip("'\"")
+        key, _, value = line.partition(_KEY_VALUE_SEPARATOR)
+        values[key.strip()] = value.strip().strip(_VALUE_QUOTE_CHARS)
     return values
 
 

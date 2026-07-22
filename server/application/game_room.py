@@ -40,14 +40,23 @@ from server.domain.room.game_room import (
 )
 from server.domain.room.room_role import RoomRole
 from server.domain.player.player_interface import DEFAULT_BOT_USERNAME, BotPlayerAdapter
+from server.application.dtos.frame_fields import (
+    FIELD_ELO_CHANGE,
+    FIELD_NEW_ELO,
+    GAME_END_REASON_DISCONNECTION_TIMEOUT,
+)
 from server.application.dtos.response_frames import build_game_ended_message, build_game_state_message
 from server.application.dtos.protocol_mapper import AlgebraicParser, SnapshotSerializer
 
-_DISCONNECT_FORFEIT_REASON = "disconnection_timeout"
+_DISCONNECT_FORFEIT_REASON = GAME_END_REASON_DISCONNECTION_TIMEOUT
 
 # Stored `result` for a game that ended because a player ran out the
 # reconnection countdown, distinct from the wire-frame reason above.
 _FORFEIT_RESULT = "timeout"
+
+# Duck-typed send hooks a recipient may expose, probed in this order.
+_ATTR_SEND = "send"
+_ATTR_SEND_MESSAGE = "send_message"
 
 
 def _rating_delta(session: Any, new_elo: int) -> Dict[str, int]:
@@ -56,7 +65,7 @@ def _rating_delta(session: Any, new_elo: int) -> Dict[str, int]:
     Must be read before *session*'s own `.elo` is overwritten with *new_elo*,
     since the change is computed against whatever `.elo` still holds.
     """
-    return {"new_elo": new_elo, "elo_change": new_elo - session.elo}
+    return {FIELD_NEW_ELO: new_elo, FIELD_ELO_CHANGE: new_elo - session.elo}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -614,9 +623,9 @@ class GameRoom:
 
         for rec in recipients:
             try:
-                if hasattr(rec, "send"):
+                if hasattr(rec, _ATTR_SEND):
                     await rec.send(msg)
-                elif hasattr(rec, "send_message"):
+                elif hasattr(rec, _ATTR_SEND_MESSAGE):
                     await rec.send_message(msg)
             except Exception as exc:
                 _LOGGER.warning("Failed state broadcast in room %s: %s", self._domain.room_id, exc)

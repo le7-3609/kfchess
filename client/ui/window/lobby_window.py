@@ -28,6 +28,7 @@ from client.auth.cli_auth import UserCredentials
 from client.controllers.game_controller import IGameController
 from client.controllers.local_game_controller import build_bot_controller, build_hotseat_controller
 from client.controllers.network_game_controller import NetworkGameController
+from client.network import protocol
 from client.network.network_client import NetworkClient
 from client.ui import consts as ui_consts
 from client.ui.preferences.board_themes import get_theme as get_board_theme
@@ -54,7 +55,7 @@ class LobbyWindow:
 
         self.root = tk.Tk()
         self.root.title(f"{ui_consts.WINDOW_TITLE} — Home Screen")
-        self.root.geometry("460x380")
+        self.root.geometry(ui_consts.LOBBY_GEOMETRY)
         self.root.resizable(False, False)
 
         self._network_client: Optional[NetworkClient] = None
@@ -66,23 +67,23 @@ class LobbyWindow:
         self._build_ui()
 
     def _build_ui(self) -> None:
-        main_frame = ttk.Frame(self.root, padding="20 20 20 20")
+        main_frame = ttk.Frame(self.root, padding=ui_consts.LOBBY_FRAME_PADDING)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         title_label = ttk.Label(
             main_frame,
             text="KungFu Chess",
-            font=("Helvetica", 20, "bold"),
+            font=(ui_consts.UI_FONT_FAMILY, ui_consts.TITLE_FONT_SIZE, ui_consts.FONT_WEIGHT_BOLD),
         )
-        title_label.pack(pady=(0, 5))
+        title_label.pack(pady=(0, ui_consts.SPACING_SM))
 
         user_info = f"Player: {self.credentials.username}  |  ELO: {self.credentials.elo}"
         info_label = ttk.Label(
             main_frame,
             text=user_info,
-            font=("Helvetica", 11),
+            font=(ui_consts.UI_FONT_FAMILY, ui_consts.BODY_FONT_SIZE),
         )
-        info_label.pack(pady=(0, 20))
+        info_label.pack(pady=(0, ui_consts.SPACING_SECTION))
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.BOTH, expand=True)
@@ -92,28 +93,28 @@ class LobbyWindow:
             text="⚔️ Play (Matchmaking)",
             command=self._on_play_clicked,
         )
-        play_btn.pack(fill=tk.X, pady=8, ipady=6)
+        play_btn.pack(fill=tk.X, pady=ui_consts.LOBBY_BUTTON_PAD_Y, ipady=ui_consts.LOBBY_BUTTON_IPAD_Y)
 
         room_btn = ttk.Button(
             btn_frame,
             text="🚪 Room (Create / Join)",
             command=self._on_room_clicked,
         )
-        room_btn.pack(fill=tk.X, pady=8, ipady=6)
+        room_btn.pack(fill=tk.X, pady=ui_consts.LOBBY_BUTTON_PAD_Y, ipady=ui_consts.LOBBY_BUTTON_IPAD_Y)
 
         offline_btn = ttk.Button(
             btn_frame,
             text="💻 Offline (Local / vs Bot)",
             command=self._on_offline_clicked,
         )
-        offline_btn.pack(fill=tk.X, pady=8, ipady=6)
+        offline_btn.pack(fill=tk.X, pady=ui_consts.LOBBY_BUTTON_PAD_Y, ipady=ui_consts.LOBBY_BUTTON_IPAD_Y)
 
         exit_btn = ttk.Button(
             btn_frame,
             text="Exit",
             command=self.root.destroy,
         )
-        exit_btn.pack(fill=tk.X, pady=8, ipady=4)
+        exit_btn.pack(fill=tk.X, pady=ui_consts.LOBBY_BUTTON_PAD_Y, ipady=ui_consts.EXIT_BUTTON_IPAD_Y)
 
     def run(self) -> None:
         self.root.mainloop()
@@ -135,7 +136,7 @@ class LobbyWindow:
     # --- Matchmaking Flow ("Play") ---
 
     def _on_play_clicked(self) -> None:
-        client = self._start_client(action="play")
+        client = self._start_client(action=protocol.MSG_TYPE_PLAY)
         self._message_queue = queue.Queue()
         client.start(on_message_callback=self._message_queue.put)
 
@@ -146,8 +147,8 @@ class LobbyWindow:
 
     def _show_search_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title("Matchmaking")
-        dialog.geometry("340x160")
+        dialog.title(ui_consts.MATCHMAKING_DIALOG_TITLE)
+        dialog.geometry(ui_consts.MATCHMAKING_DIALOG_GEOMETRY)
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -156,18 +157,18 @@ class LobbyWindow:
 
         lbl = ttk.Label(
             dialog,
-            text=f"Searching for an opponent\n(ELO ±100 range)...",
-            font=("Helvetica", 11),
+            text="Searching for an opponent\n(ELO ±100 range)...",
+            font=(ui_consts.UI_FONT_FAMILY, ui_consts.BODY_FONT_SIZE),
             justify=tk.CENTER,
         )
-        lbl.pack(pady=(20, 15))
+        lbl.pack(pady=(ui_consts.SPACING_SECTION, ui_consts.SPACING_XXL))
 
         cancel_btn = ttk.Button(
             dialog,
             text="Cancel Search",
             command=self._cancel_search,
         )
-        cancel_btn.pack(pady=5)
+        cancel_btn.pack(pady=ui_consts.SPACING_SM)
 
     def _cancel_search(self) -> None:
         self._is_searching = False
@@ -189,78 +190,88 @@ class LobbyWindow:
             except queue.Empty:
                 break
             
-            msg_type = msg.get("type")
-            if msg_type == "game_start":
+            msg_type = msg.get(protocol.FIELD_TYPE)
+            if msg_type == protocol.MSG_TYPE_GAME_START:
                 self._is_searching = False
                 if self._search_dialog:
                     self._search_dialog.destroy()
                     self._search_dialog = None
                 self._launch_online_game(self._network_client, msg)
                 return
-            elif msg_type == "error":
+            elif msg_type == protocol.MSG_TYPE_ERROR:
                 self._cancel_search()
-                messagebox.showinfo("Matchmaking", msg.get("message", "Search timed out."))
+                messagebox.showinfo(
+                    ui_consts.MATCHMAKING_DIALOG_TITLE,
+                    msg.get(protocol.FIELD_MESSAGE, "Search timed out."),
+                )
                 return
 
-        # 60-second client-side fallback timeout check
-        if time.time() - self._search_start_time >= 60.0:
+        if time.time() - self._search_start_time >= ui_consts.MATCHMAKING_TIMEOUT_SECONDS:
             self._cancel_search()
             messagebox.showinfo(
-                "Matchmaking",
+                ui_consts.MATCHMAKING_DIALOG_TITLE,
                 "Could not find an opponent within 1 minute. Please try again later.",
             )
             return
 
-        self.root.after(200, self._poll_matchmaking_queue)
+        self.root.after(ui_consts.LOBBY_POLL_INTERVAL_MS, self._poll_matchmaking_queue)
 
     # --- Room Dialog Flow ("Room") ---
 
     def _on_room_clicked(self) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title("Room")
-        dialog.geometry("360x200")
+        dialog.title(ui_consts.ROOM_DIALOG_TITLE)
+        dialog.geometry(ui_consts.ROOM_DIALOG_GEOMETRY)
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        lbl = ttk.Label(dialog, text="Room ID:", font=("Helvetica", 11))
-        lbl.pack(pady=(15, 5))
+        lbl = ttk.Label(
+            dialog, text="Room ID:", font=(ui_consts.UI_FONT_FAMILY, ui_consts.BODY_FONT_SIZE)
+        )
+        lbl.pack(pady=(ui_consts.SPACING_XXL, ui_consts.SPACING_SM))
 
-        room_entry = ttk.Entry(dialog, font=("Helvetica", 12), justify=tk.CENTER)
-        room_entry.pack(pady=5, ipadx=10, ipady=3)
+        room_entry = ttk.Entry(
+            dialog, font=(ui_consts.UI_FONT_FAMILY, ui_consts.ENTRY_FONT_SIZE), justify=tk.CENTER
+        )
+        room_entry.pack(
+            pady=ui_consts.SPACING_SM,
+            ipadx=ui_consts.ROOM_ENTRY_IPAD_X,
+            ipady=ui_consts.SPACING_XS,
+        )
         room_entry.focus_set()
 
         btn_box = ttk.Frame(dialog)
-        btn_box.pack(pady=15)
+        btn_box.pack(pady=ui_consts.SPACING_XXL)
 
         create_btn = ttk.Button(
             btn_box,
             text="Create",
-            command=lambda: self._handle_room_action(dialog, "create_room", None),
+            command=lambda: self._handle_room_action(dialog, protocol.MSG_TYPE_CREATE_ROOM, None),
         )
-        create_btn.pack(side=tk.LEFT, padx=5)
+        create_btn.pack(side=tk.LEFT, padx=ui_consts.SPACING_SM)
 
         join_btn = ttk.Button(
             btn_box,
             text="Join",
             command=lambda: self._handle_room_action(
-                dialog, "join_room", room_entry.get().strip().upper()
+                dialog, protocol.MSG_TYPE_JOIN_ROOM, room_entry.get().strip().upper()
             ),
         )
-        join_btn.pack(side=tk.LEFT, padx=5)
+        join_btn.pack(side=tk.LEFT, padx=ui_consts.SPACING_SM)
 
         cancel_btn = ttk.Button(
             btn_box,
             text="Cancel",
             command=dialog.destroy,
         )
-        cancel_btn.pack(side=tk.LEFT, padx=5)
+        cancel_btn.pack(side=tk.LEFT, padx=ui_consts.SPACING_SM)
 
     def _handle_room_action(
         self, dialog: tk.Toplevel, action: str, room_id: Optional[str]
     ) -> None:
-        if action == "join_room" and not room_id:
-            messagebox.showwarning("Room", "Please enter a Room ID to join.")
+        if action == protocol.MSG_TYPE_JOIN_ROOM and not room_id:
+            messagebox.showwarning(ui_consts.ROOM_DIALOG_TITLE, "Please enter a Room ID to join.")
             return
 
         dialog.destroy()
@@ -277,45 +288,54 @@ class LobbyWindow:
             except queue.Empty:
                 break
 
-            msg_type = msg.get("type")
-            if msg_type in ("game_start", "room_created"):
+            msg_type = msg.get(protocol.FIELD_TYPE)
+            if msg_type in (protocol.MSG_TYPE_GAME_START, protocol.MSG_TYPE_ROOM_CREATED):
                 self._launch_online_game(self._network_client, msg)
                 return
-            elif msg_type == "error":
-                messagebox.showerror("Room Error", msg.get("message", "Failed to process room action."))
+            elif msg_type == protocol.MSG_TYPE_ERROR:
+                messagebox.showerror(
+                    "Room Error",
+                    msg.get(protocol.FIELD_MESSAGE, "Failed to process room action."),
+                )
                 if self._network_client:
                     self._network_client.stop()
                     self._network_client = None
                 return
 
-        self.root.after(200, self._poll_room_start)
+        self.root.after(ui_consts.LOBBY_POLL_INTERVAL_MS, self._poll_room_start)
 
     # --- Offline Flow ---
 
     def _on_offline_clicked(self) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title("Offline Game")
-        dialog.geometry("420x440")
+        dialog.title(ui_consts.OFFLINE_DIALOG_TITLE)
+        dialog.geometry(ui_consts.OFFLINE_DIALOG_GEOMETRY)
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
 
         ttk.Label(
-            dialog, text="Play without a server", font=("Helvetica", 12, "bold")
-        ).pack(pady=(18, 8))
+            dialog,
+            text="Play without a server",
+            font=(
+                ui_consts.UI_FONT_FAMILY,
+                ui_consts.SECTION_TITLE_FONT_SIZE,
+                ui_consts.FONT_WEIGHT_BOLD,
+            ),
+        ).pack(pady=(ui_consts.SPACING_TITLE, ui_consts.SPACING_MD))
 
         ttk.Button(
             dialog,
             text="👥 Two Players (same machine)",
             command=lambda: self._start_offline_game(dialog, self._build_hotseat_controller),
-        ).pack(fill=tk.X, padx=20, pady=(0, 12))
+        ).pack(fill=tk.X, padx=ui_consts.SPACING_SECTION, pady=(0, ui_consts.SPACING_XL))
 
         self._build_bot_setup_panel(dialog)
 
     def _build_bot_setup_panel(self, dialog: tk.Toplevel) -> None:
         """The vs-bot configuration: opponent strength, speed, and which side to take."""
-        panel = ttk.LabelFrame(dialog, text="🤖 Play vs Bot", padding="12 8 12 12")
-        panel.pack(fill=tk.X, padx=20, pady=(0, 12))
+        panel = ttk.LabelFrame(dialog, text="🤖 Play vs Bot", padding=ui_consts.BOT_PANEL_PADDING)
+        panel.pack(fill=tk.X, padx=ui_consts.SPACING_SECTION, pady=(0, ui_consts.SPACING_XL))
 
         llm_provider = active_provider()
         llm_available = load_api_key(llm_provider) is not None
@@ -338,7 +358,7 @@ class LobbyWindow:
                     f"{llm_provider.label} needs {llm_provider.api_key_var} in .env "
                     "(see .env.example)"
                 ),
-                foreground="gray",
+                foreground=ui_consts.DISABLED_TEXT_COLOR,
             ).pack(anchor=tk.W)
 
         speed_var = tk.StringVar(value=ui_consts.DEFAULT_BOT_SPEED_PRESET)
@@ -354,7 +374,10 @@ class LobbyWindow:
             panel,
             "Play as:",
             color_var,
-            ((consts.COLOR_WHITE, "White"), (consts.COLOR_BLACK, "Black")),
+            (
+                (consts.COLOR_WHITE, ui_consts.COLOR_DISPLAY_NAMES[consts.COLOR_WHITE]),
+                (consts.COLOR_BLACK, ui_consts.COLOR_DISPLAY_NAMES[consts.COLOR_BLACK]),
+            ),
         )
 
         ttk.Button(
@@ -366,17 +389,17 @@ class LobbyWindow:
                     color_var.get(), difficulty_var.get(), speed_var.get()
                 ),
             ),
-        ).pack(fill=tk.X, pady=(10, 0))
+        ).pack(fill=tk.X, pady=(ui_consts.SPACING_LG, 0))
 
     def _build_radio_row(self, parent, label, variable, options, disabled_values=()) -> None:
         row = ttk.Frame(parent)
-        row.pack(fill=tk.X, pady=3)
-        ttk.Label(row, text=label, width=10).pack(side=tk.LEFT)
+        row.pack(fill=tk.X, pady=ui_consts.SPACING_XS)
+        ttk.Label(row, text=label, width=ui_consts.RADIO_LABEL_WIDTH).pack(side=tk.LEFT)
         for value, text in options:
             button = ttk.Radiobutton(row, text=text, value=value, variable=variable)
             if value in disabled_values:
-                button.state(["disabled"])
-            button.pack(side=tk.LEFT, padx=4)
+                button.state([ui_consts.WIDGET_STATE_DISABLED])
+            button.pack(side=tk.LEFT, padx=ui_consts.RADIO_BUTTON_PAD_X)
 
     def _start_offline_game(self, dialog: tk.Toplevel, controller_factory) -> None:
         dialog.destroy()
@@ -452,7 +475,9 @@ class LobbyWindow:
             assets_dir=self.assets_dir,
             settings_store=self.settings_store,
         )
-        game_win.root.protocol("WM_DELETE_WINDOW", lambda: self._on_game_window_closed(game_win))
+        game_win.root.protocol(
+            ui_consts.WM_DELETE_WINDOW_PROTOCOL, lambda: self._on_game_window_closed(game_win)
+        )
         game_win.run()
 
     def _build_renderer(self) -> PillowRenderer:

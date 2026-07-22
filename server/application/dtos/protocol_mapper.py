@@ -13,6 +13,13 @@ from shared.config import consts
 from shared.model.position import Position
 from shared.view.game_snapshot import GameSnapshot
 
+from server.application.dtos import frame_fields as ff
+
+# A square identifier is exactly file letter + rank digit, e.g. "e2".
+_SQUARE_TOKEN_LENGTH = 2
+# Attribute probed to render enum-like piece states by name.
+_ATTR_NAME = "name"
+
 
 class AlgebraicParser:
     """Translates algebraic square notation ("e2", "a1") directly to Position structs.
@@ -28,7 +35,7 @@ class AlgebraicParser:
         Raises:
             ValueError: If square is malformed or out of board bounds.
         """
-        if not isinstance(square, str) or len(square) != 2:
+        if not isinstance(square, str) or len(square) != _SQUARE_TOKEN_LENGTH:
             raise ValueError(f"Invalid square notation: {square!r}")
 
         file_char = square[0].lower()
@@ -78,25 +85,25 @@ class SnapshotSerializer:
         for pos, piece_snap in snapshot.pieces.items():
             sq_str = AlgebraicParser.format_square(pos)
             pieces_dict[sq_str] = {
-                "color": piece_snap.color,
-                "piece_type": piece_snap.piece_type,
-                "has_moved": piece_snap.has_moved,
-                "can_select": piece_snap.can_select,
-                "can_move": piece_snap.can_move,
-                "state": piece_snap.state.name if hasattr(piece_snap.state, "name") else str(piece_snap.state),
-                "state_elapsed_ms": piece_snap.state_elapsed_millis,
-                "state_duration_ms": piece_snap.state_duration_millis,
+                ff.FIELD_COLOR: piece_snap.color,
+                ff.FIELD_PIECE_TYPE: piece_snap.piece_type,
+                ff.FIELD_HAS_MOVED: piece_snap.has_moved,
+                ff.FIELD_CAN_SELECT: piece_snap.can_select,
+                ff.FIELD_CAN_MOVE: piece_snap.can_move,
+                ff.FIELD_STATE: piece_snap.state.name if hasattr(piece_snap.state, _ATTR_NAME) else str(piece_snap.state),
+                ff.FIELD_STATE_ELAPSED_MS: piece_snap.state_elapsed_millis,
+                ff.FIELD_STATE_DURATION_MS: piece_snap.state_duration_millis,
             }
 
         movements_list: List[Dict[str, Any]] = []
         for m in snapshot.active_movements:
             movements_list.append({
-                "from": AlgebraicParser.format_square(m.frm),
-                "to": AlgebraicParser.format_square(m.to),
-                "color": m.piece.color,
-                "piece_type": m.piece.piece_type,
-                "start_ms": m.start_ms,
-                "arrival_ms": m.arrival_ms,
+                ff.FIELD_FROM: AlgebraicParser.format_square(m.frm),
+                ff.FIELD_TO: AlgebraicParser.format_square(m.to),
+                ff.FIELD_COLOR: m.piece.color,
+                ff.FIELD_PIECE_TYPE: m.piece.piece_type,
+                ff.FIELD_START_MS: m.start_ms,
+                ff.FIELD_ARRIVAL_MS: m.arrival_ms,
             })
 
         cooldowns_list = [AlgebraicParser.format_square(p) for p in snapshot.cooldown_positions]
@@ -106,18 +113,18 @@ class SnapshotSerializer:
         selected = AlgebraicParser.format_square(snapshot.selected_pos) if snapshot.selected_pos else None
 
         return {
-            "rows": snapshot.rows,
-            "cols": snapshot.cols,
-            "pieces": pieces_dict,
-            "selected_pos": selected,
-            "legal_move_targets": legal_targets,
-            "castle_targets": castle_targets,
-            "active_movements": movements_list,
-            "cooldown_positions": cooldowns_list,
-            "clock_ms": snapshot.clock_ms,
-            "game_over": snapshot.game_over,
-            "game_over_reason": snapshot.game_over_reason,
-            "winner": snapshot.winner,
+            ff.FIELD_ROWS: snapshot.rows,
+            ff.FIELD_COLS: snapshot.cols,
+            ff.FIELD_PIECES: pieces_dict,
+            ff.FIELD_SELECTED_POS: selected,
+            ff.FIELD_LEGAL_MOVE_TARGETS: legal_targets,
+            ff.FIELD_CASTLE_TARGETS: castle_targets,
+            ff.FIELD_ACTIVE_MOVEMENTS: movements_list,
+            ff.FIELD_COOLDOWN_POSITIONS: cooldowns_list,
+            ff.FIELD_CLOCK_MS: snapshot.clock_ms,
+            ff.FIELD_GAME_OVER: snapshot.game_over,
+            ff.FIELD_GAME_OVER_REASON: snapshot.game_over_reason,
+            ff.FIELD_WINNER: snapshot.winner,
         }
 
 
@@ -132,7 +139,7 @@ def parse_client_message(raw_json: str) -> Dict[str, Any]:
     except Exception as exc:
         raise ValueError(f"Invalid JSON payload: {exc}") from exc
 
-    if not isinstance(data, dict) or "type" not in data:
+    if not isinstance(data, dict) or ff.FIELD_TYPE not in data:
         raise ValueError("Payload must be a JSON object containing a 'type' field")
 
     return data

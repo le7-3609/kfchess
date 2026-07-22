@@ -11,9 +11,14 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
+from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
 from server.domain.session.player_session import ConnectionState, PlayerSession as DomainPlayerSession
 
 _LOGGER = logging.getLogger(__name__)
+
+# Socket-liveness attributes probed across websockets library versions.
+_ATTR_CLOSE_CODE = "close_code"
+_ATTR_OPEN = "open"
 
 
 def is_socket_open(websocket: Any) -> bool:
@@ -28,9 +33,9 @@ def is_socket_open(websocket: Any) -> bool:
     """
     if websocket is None:
         return False
-    if getattr(websocket, "close_code", None) is not None:
+    if getattr(websocket, _ATTR_CLOSE_CODE, None) is not None:
         return False
-    return getattr(websocket, "open", True)
+    return getattr(websocket, _ATTR_OPEN, True)
 
 
 class PlayerSession:
@@ -41,7 +46,7 @@ class PlayerSession:
         websocket: Any,
         username: str,
         user_id: int,
-        elo: int = 1200,
+        elo: int = DEFAULT_PLAYER_ELO,
     ) -> None:
         self._websocket = websocket
         self._domain = DomainPlayerSession(username=username, user_id=user_id, elo=elo)
