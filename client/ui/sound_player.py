@@ -30,15 +30,42 @@ class SoundPlayer:
         self._sounds_dir = (
             os.path.join(assets_dir, ui_consts.SOUNDS_DIR_NAME) if assets_dir else None
         )
+        self._move_loop_playing = False
 
-    def play_move(self) -> None:
-        self._play(ui_consts.SOUND_FILE_MOVE)
+    def start_move_loop(self) -> None:
+        """Start looping the move sound if not already playing."""
+        if self._move_loop_playing:
+            return
+        self._play_loop(ui_consts.SOUND_FILE_MOVE)
+        self._move_loop_playing = True
+
+    def stop_move_sound(self) -> None:
+        """Stop the move sound loop immediately."""
+        if not self._move_loop_playing:
+            return
+        if self._sounds_dir is None or winsound is None:
+            return
+        try:
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except OSError:
+            _LOGGER.warning("Could not stop sound")
+        self._move_loop_playing = False
 
     def play_win(self) -> None:
         self._play(ui_consts.SOUND_FILE_WIN)
 
     def play_lose(self) -> None:
         self._play(ui_consts.SOUND_FILE_LOSE)
+
+    def _play_loop(self, file_name: str) -> None:
+        """Play a sound in a loop asynchronously."""
+        if self._sounds_dir is None or winsound is None:
+            return
+        path = os.path.join(self._sounds_dir, file_name)
+        try:
+            winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+        except OSError:
+            _LOGGER.warning("Could not play sound %s", path)
 
     def _play(self, file_name: str) -> None:
         if self._sounds_dir is None or winsound is None:

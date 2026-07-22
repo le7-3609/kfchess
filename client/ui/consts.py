@@ -43,6 +43,11 @@ COLOR_BANNER_NAMES = {COLOR_WHITE: "WHITE", COLOR_BLACK: "BLACK"}
 SPEED_PRESETS_MS = {"Fast": 600, "Normal": 1000, "Slow": 1600}
 COOLDOWN_PRESETS_MS = {"Fast": 600, "Normal": 1000, "Slow": 1600}
 
+# How long the bot waits between moves (simulation-clock ms). Ordered slow to
+# fast so the lobby renders the presets in that order.
+BOT_SPEED_PRESETS_MS = {"Slow": 2000, "Normal": 1000, "Fast": 500, "Blitz": 250}
+DEFAULT_BOT_SPEED_PRESET = "Normal"
+
 CAPTURE_FLASH_MS = 450
 CAPTURE_FLASH_COLOR = (255, 70, 40)
 CAPTURE_FLASH_MAX_ALPHA = 170

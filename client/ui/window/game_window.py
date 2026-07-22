@@ -115,11 +115,13 @@ class GameWindow(GameControllerListener):
         self.root.mainloop()
 
     def close(self) -> None:
+        if hasattr(self, '_poll_id'):
+            self.root.after_cancel(self._poll_id)
         self.controller.leave()
         self.root.destroy()
 
     def _schedule_poll(self) -> None:
-        self.root.after(self.controller.poll_interval_ms, self._poll)
+        self._poll_id = self.root.after(self.controller.poll_interval_ms, self._poll)
 
     def _poll(self) -> None:
         """Let the controller deliver whatever the match produced, then reschedule."""
@@ -141,7 +143,6 @@ class GameWindow(GameControllerListener):
 
     def on_move_recorded(self, entry: MoveLogEntry) -> None:
         self._moves.append(entry)
-        self._sound_player.play_move()
 
     def on_score_changed(self, white_score: int, black_score: int) -> None:
         self._scores = {consts.COLOR_WHITE: white_score, consts.COLOR_BLACK: black_score}
@@ -453,6 +454,8 @@ class GameWindow(GameControllerListener):
         if self._pending_source is not None:
             snapshot = replace(snapshot, selected_pos=Position(*self._pending_source))
 
+        self._update_movement_sound(snapshot)
+
         self.renderer.draw(snapshot)
         board_img = self.renderer.get_image()
         self._draw_capture_flashes(board_img, snapshot.clock_ms)
@@ -466,6 +469,13 @@ class GameWindow(GameControllerListener):
             black_score=self._scores[consts.COLOR_BLACK],
         )
         self.view.show(composed)
+
+    def _update_movement_sound(self, snapshot: GameSnapshot) -> None:
+        """Manage the movement sound loop based on active movements."""
+        if snapshot.active_movements:
+            self._sound_player.start_move_loop()
+        else:
+            self._sound_player.stop_move_sound()
 
     def _draw_capture_flashes(self, board_img: Img, clock_ms: int) -> None:
         """Paint and age the capture markers collected by on_capture.

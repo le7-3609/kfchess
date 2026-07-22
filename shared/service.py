@@ -133,8 +133,15 @@ class GameService:
         return Result.ok(None)
 
     def advance_clock(self, ms: int) -> Result:
-        """Advance the simulation clock and resolve pending motions."""
+        """Advance the simulation clock, resolve pending motions, then let the bot act.
+
+        Driving the bot from the clock (not only from human commands) is what
+        lets a paced bot move while the human sits idle. The pacer gates this
+        cheaply: on a tick that is too soon to move it returns before any
+        rules work runs, so polling every advance_clock costs almost nothing.
+        """
         self._engine.advance_clock(ms)
+        self._trigger_bot_reaction_if_active()
         return Result.ok(None)
 
     def update_preferences(self, ms_per_square: int, cooldown_ms: int) -> Result:

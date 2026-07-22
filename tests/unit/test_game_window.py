@@ -153,12 +153,66 @@ def test_recorded_moves_and_scores_accumulate_for_the_next_render():
     assert window._capture_flashes[0].pos == Position(4, 4)
 
 
-def test_a_recorded_move_plays_the_move_sound():
+def test_a_recorded_move_does_not_play_sound_by_itself():
+    """Sound is driven by active_movements in the snapshot, not by the move log."""
     window = _window()
 
     window.on_move_recorded(MoveLogEntry(color=consts.COLOR_WHITE, notation="Pe2-e4", time_ms=1))
 
-    window._sound_player.play_move.assert_called_once()
+    window._sound_player.start_move_loop.assert_not_called()
+
+
+def test_refresh_starts_move_sound_when_active_movements_present():
+    """_refresh -> _update_movement_sound starts the loop when pieces are moving."""
+    from shared.view.game_snapshot import MovementSnapshot, PieceSnapshot
+    from shared.view.piece_visual_state import PieceVisualState
+    window = _window()
+    dummy_piece = PieceSnapshot(
+        color="white",
+        piece_type="pawn",
+        has_moved=False,
+        can_select=False,
+        can_move=False,
+        state=PieceVisualState.MOVE,
+        state_elapsed_millis=0,
+        state_duration_millis=500,
+    )
+    moving_snapshot = GameSnapshot(
+        rows=8,
+        cols=8,
+        pieces={},
+        selected_pos=None,
+        legal_move_targets=(),
+        castle_targets=(),
+        active_movements=(MovementSnapshot(
+            frm=Position(1, 0),
+            to=Position(3, 0),
+            piece=dummy_piece,
+            start_ms=0,
+            arrival_ms=500,
+        ),),
+        cooldown_positions=(),
+        clock_ms=250,
+        game_over=False,
+        game_over_reason=None,
+        winner=None,
+    )
+    window._latest_snapshot = moving_snapshot
+
+    window._refresh()
+
+    window._sound_player.start_move_loop.assert_called_once()
+
+
+def test_refresh_stops_move_sound_when_no_active_movements():
+    """_refresh -> _update_movement_sound stops the loop when no pieces are moving."""
+    window = _window()
+    # Snapshot with no active movements (default _empty_snapshot)
+    window._latest_snapshot = _empty_snapshot()
+
+    window._refresh()
+
+    window._sound_player.stop_move_sound.assert_called_once()
 
 
 @pytest.mark.parametrize(

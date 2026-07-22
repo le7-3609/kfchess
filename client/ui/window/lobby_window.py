@@ -20,6 +20,10 @@ from tkinter import messagebox, ttk
 from typing import Any, Dict, Optional
 
 from shared.config import consts
+from shared.config.bot_profile import BotDifficulty, BotProfile
+from shared.input.bot_strategy import BotStrategyInterface
+from client.ai.llm_strategy import build_llm_strategy
+from client.ai.providers import active_provider, load_api_key
 from client.auth.cli_auth import UserCredentials
 from client.controllers.game_controller import IGameController
 from client.controllers.local_game_controller import build_bot_controller, build_hotseat_controller
@@ -291,25 +295,88 @@ class LobbyWindow:
     def _on_offline_clicked(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("Offline Game")
-        dialog.geometry("360x200")
+        dialog.geometry("420x440")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
 
         ttk.Label(
             dialog, text="Play without a server", font=("Helvetica", 12, "bold")
-        ).pack(pady=(18, 12))
+        ).pack(pady=(18, 8))
 
-        for label, build in (
-            ("👥 Two Players (same machine)", self._build_hotseat_controller),
-            ("🤖 Play as White vs Bot", self._build_white_vs_bot_controller),
-            ("🤖 Play as Black vs Bot", self._build_black_vs_bot_controller),
-        ):
-            ttk.Button(
+        ttk.Button(
+            dialog,
+            text="👥 Two Players (same machine)",
+            command=lambda: self._start_offline_game(dialog, self._build_hotseat_controller),
+        ).pack(fill=tk.X, padx=20, pady=(0, 12))
+
+        self._build_bot_setup_panel(dialog)
+
+    def _build_bot_setup_panel(self, dialog: tk.Toplevel) -> None:
+        """The vs-bot configuration: opponent strength, speed, and which side to take."""
+        panel = ttk.LabelFrame(dialog, text="🤖 Play vs Bot", padding="12 8 12 12")
+        panel.pack(fill=tk.X, padx=20, pady=(0, 12))
+
+        llm_provider = active_provider()
+        llm_available = load_api_key(llm_provider) is not None
+        difficulty_var = tk.StringVar(value=BotDifficulty.GREEDY.value)
+        self._build_radio_row(
+            panel,
+            "Difficulty:",
+            difficulty_var,
+            (
+                (BotDifficulty.GREEDY.value, "Greedy"),
+                (BotDifficulty.RANDOM.value, "Random"),
+                (BotDifficulty.LLM.value, llm_provider.label),
+            ),
+            disabled_values=() if llm_available else (BotDifficulty.LLM.value,),
+        )
+        if not llm_available:
+            ttk.Label(
+                panel,
+                text=(
+                    f"{llm_provider.label} needs {llm_provider.api_key_var} in .env "
+                    "(see .env.example)"
+                ),
+                foreground="gray",
+            ).pack(anchor=tk.W)
+
+        speed_var = tk.StringVar(value=ui_consts.DEFAULT_BOT_SPEED_PRESET)
+        self._build_radio_row(
+            panel,
+            "Bot speed:",
+            speed_var,
+            tuple((name, name) for name in ui_consts.BOT_SPEED_PRESETS_MS),
+        )
+
+        color_var = tk.StringVar(value=consts.COLOR_WHITE)
+        self._build_radio_row(
+            panel,
+            "Play as:",
+            color_var,
+            ((consts.COLOR_WHITE, "White"), (consts.COLOR_BLACK, "Black")),
+        )
+
+        ttk.Button(
+            panel,
+            text="Start vs Bot",
+            command=lambda: self._start_offline_game(
                 dialog,
-                text=label,
-                command=lambda dlg=dialog, factory=build: self._start_offline_game(dlg, factory),
-            ).pack(fill=tk.X, padx=20, pady=3)
+                lambda: self._build_bot_controller(
+                    color_var.get(), difficulty_var.get(), speed_var.get()
+                ),
+            ),
+        ).pack(fill=tk.X, pady=(10, 0))
+
+    def _build_radio_row(self, parent, label, variable, options, disabled_values=()) -> None:
+        row = ttk.Frame(parent)
+        row.pack(fill=tk.X, pady=3)
+        ttk.Label(row, text=label, width=10).pack(side=tk.LEFT)
+        for value, text in options:
+            button = ttk.Radiobutton(row, text=text, value=value, variable=variable)
+            if value in disabled_values:
+                button.state(["disabled"])
+            button.pack(side=tk.LEFT, padx=4)
 
     def _start_offline_game(self, dialog: tk.Toplevel, controller_factory) -> None:
         dialog.destroy()
@@ -319,17 +386,30 @@ class LobbyWindow:
         settings = self.settings_store.load()
         return build_hotseat_controller(settings.speed_level_ms, settings.cooldown_level_ms)
 
-    def _build_white_vs_bot_controller(self) -> IGameController:
-        return self._build_bot_controller(consts.COLOR_WHITE)
-
-    def _build_black_vs_bot_controller(self) -> IGameController:
-        return self._build_bot_controller(consts.COLOR_BLACK)
-
-    def _build_bot_controller(self, player_color: str) -> IGameController:
+    def _build_bot_controller(
+        self, player_color: str, difficulty: str, speed_preset: str
+    ) -> IGameController:
         settings = self.settings_store.load()
-        return build_bot_controller(
-            player_color, settings.speed_level_ms, settings.cooldown_level_ms
+        bot_difficulty = BotDifficulty(difficulty)
+        profile = BotProfile(
+            difficulty=bot_difficulty,
+            move_interval_ms=ui_consts.BOT_SPEED_PRESETS_MS[speed_preset],
         )
+        return build_bot_controller(
+            player_color,
+            settings.speed_level_ms,
+            settings.cooldown_level_ms,
+            bot_profile=profile,
+            bot_strategy=self._build_bot_strategy(bot_difficulty, player_color),
+        )
+
+    def _build_bot_strategy(
+        self, difficulty: BotDifficulty, player_color: str
+    ) -> Optional[BotStrategyInterface]:
+        """Strategies shared/ cannot compose itself — today only the LLM one."""
+        if difficulty is not BotDifficulty.LLM:
+            return None
+        return build_llm_strategy(consts.opponent_color(player_color))
 
     # --- Shared launch path ---
 

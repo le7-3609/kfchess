@@ -1,35 +1,95 @@
-"""Bot construction — builds a RandomBotInputSource and wires it into a GameService.
+"""Bot construction — builds a bot input source and wires it into a GameService.
 
-Kept separate from bootstrap.py so the composition root does not need to
-know about bot-specific configuration details; callers that want a bot
-(e.g. the CLI entry point) call build_bot_service() here instead of
+Kept separate from bootstrap.py so the composition root does not need to know
+about bot-specific configuration details; callers that want a bot (e.g. the CLI
+entry point, the offline lobby) call build_bot_service() here instead of
 bootstrap.build_realtime_service().
+
+Two seams live here:
+  - build_random_bot() — the unpaced, random source the *server* seats. The
+    server drives cadence itself with BotDriver, so it must not be paced here.
+  - build_bot_service() — the offline path. It builds the strategy the profile
+    names, then wraps it in PacedBotInputSource so the local clock-driven loop
+    moves the bot at a human pace.
+
+An LLM strategy needs the network, which shared/ may not import, so the client
+constructs that strategy and passes it in via *strategy*; GREEDY and RANDOM are
+resolved here from the profile's difficulty.
 """
 
+from typing import Optional
+
 from shared.config.game_config import GameConfig
+from shared.config.bot_profile import BotDifficulty, BotProfile
 from shared.realtime.real_time_arbiter import ChebyshevDistanceDuration
 from shared.rules.rule_engine import ThreatValidator, EndgameValidator
 from shared.io.replay import ReplayWriter, ReplayEngineDecorator
-from shared.input.bot import RandomBotInputSource
+from shared.input.bot import PacedBotInputSource, RandomBotInputSource, StrategyBotInputSource
+from shared.input.bot_strategy import (
+    BotStrategyInterface,
+    GreedyCaptureStrategy,
+    RandomMoveStrategy,
+)
 from shared.bootstrap import build_core, CoreComponents
 from shared.service import GameService
 
 
-def build_random_bot(color: str, core: CoreComponents, config: GameConfig) -> RandomBotInputSource:
+def _build_endgame_validator(core: CoreComponents, config: GameConfig) -> EndgameValidator:
     threat_validator = ThreatValidator(core.move_validator_factory, core.path_checker, config)
-    endgame_validator = EndgameValidator(
+    return EndgameValidator(
         move_validator_factory=core.move_validator_factory,
         path_checker=core.path_checker,
         movement_manager=core.arbiter,
         threat_validator=threat_validator,
         config=config,
     )
+
+
+def _strategy_for(difficulty: BotDifficulty) -> BotStrategyInterface:
+    """Resolve the self-contained strategies shared/ can build on its own.
+
+    LLM is intentionally absent: it needs a network client the client layer
+    owns, so callers wanting it pass the strategy into build_bot_service.
+    """
+    if difficulty == BotDifficulty.RANDOM:
+        return RandomMoveStrategy()
+    if difficulty == BotDifficulty.GREEDY:
+        return GreedyCaptureStrategy()
+    raise ValueError(
+        f"{difficulty} cannot be built inside shared; pass an explicit strategy instead"
+    )
+
+
+def build_random_bot(color: str, core: CoreComponents, config: GameConfig) -> RandomBotInputSource:
+    """An unpaced random bot for callers that pace it themselves (the server)."""
     return RandomBotInputSource(
         color=color,
         board_repo=core.board_repo,
         state_repo=core.state_repo,
-        endgame_validator=endgame_validator,
+        endgame_validator=_build_endgame_validator(core, config),
+        arbiter=core.arbiter,
     )
+
+
+def build_paced_bot(
+    color: str,
+    core: CoreComponents,
+    config: GameConfig,
+    profile: BotProfile,
+    strategy: Optional[BotStrategyInterface] = None,
+) -> PacedBotInputSource:
+    """Build the profile's strategy (or use the one supplied) and pace it on the game clock."""
+    if strategy is None:
+        strategy = _strategy_for(profile.difficulty)
+    inner = StrategyBotInputSource(
+        color=color,
+        board_repo=core.board_repo,
+        state_repo=core.state_repo,
+        endgame_validator=_build_endgame_validator(core, config),
+        strategy=strategy,
+        arbiter=core.arbiter,
+    )
+    return PacedBotInputSource(inner, core.state_repo, profile.move_interval_ms)
 
 
 def build_bot_service(
@@ -38,15 +98,19 @@ def build_bot_service(
     ms_per_square: int = None,
     replay_file: str = None,
     require_kings: bool = True,
+    profile: BotProfile = None,
+    strategy: BotStrategyInterface = None,
 ) -> GameService:
     if config is None:
         config = GameConfig()
     if ms_per_square is None:
         ms_per_square = config.ms_per_square
     config.ms_per_square = ms_per_square
+    if profile is None:
+        profile = BotProfile()
 
     core = build_core(config, require_kings, ChebyshevDistanceDuration(ms_per_square=ms_per_square))
-    bot = build_random_bot(bot_color, core, config)
+    bot = build_paced_bot(bot_color, core, config, profile, strategy)
 
     engine = core.engine
     if replay_file:

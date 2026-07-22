@@ -18,6 +18,8 @@ from typing import Callable, Dict, List, Optional, Type
 from shared.bootstrap import build_realtime_service
 from shared.bot_factory import build_bot_service
 from shared.config import consts
+from shared.config.bot_profile import BotProfile
+from shared.input.bot_strategy import BotStrategyInterface
 from shared.events import (
     Event,
     GameEndedEvent,
@@ -299,11 +301,24 @@ def build_hotseat_controller(ms_per_square: int, cooldown_ms: int) -> LocalGameC
 
 
 def build_bot_controller(
-    player_color: str, ms_per_square: int, cooldown_ms: int
+    player_color: str,
+    ms_per_square: int,
+    cooldown_ms: int,
+    bot_profile: Optional[BotProfile] = None,
+    bot_strategy: Optional[BotStrategyInterface] = None,
 ) -> LocalGameController:
-    """A single-player match: the human takes *player_color*, the bot the other seat."""
-    bot_color = consts.COLOR_BLACK if player_color == consts.COLOR_WHITE else consts.COLOR_WHITE
-    service = build_bot_service(bot_color=bot_color, ms_per_square=ms_per_square)
+    """A single-player match: the human takes *player_color*, the bot the other seat.
+
+    *bot_profile* selects the bot's difficulty and move cadence; *bot_strategy*
+    lets the client inject a strategy shared/ cannot build itself (the LLM one).
+    """
+    bot_color = consts.opponent_color(player_color)
+    service = build_bot_service(
+        bot_color=bot_color,
+        ms_per_square=ms_per_square,
+        profile=bot_profile,
+        strategy=bot_strategy,
+    )
     service.update_preferences(ms_per_square, cooldown_ms)
     return LocalGameController(
         service=service,

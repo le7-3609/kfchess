@@ -19,18 +19,20 @@ def fake_winsound(monkeypatch):
     stub = MagicMock()
     stub.SND_FILENAME = 1
     stub.SND_ASYNC = 2
+    stub.SND_LOOP = 8
+    stub.SND_PURGE = 64
     monkeypatch.setattr(sound_player_module, "winsound", stub)
     return stub
 
 
-def test_play_move_plays_the_move_file_from_the_sounds_subfolder(fake_winsound):
+def test_start_move_loop_plays_the_move_file_in_loop(fake_winsound):
     player = SoundPlayer("assets")
 
-    player.play_move()
+    player.start_move_loop()
 
     expected_path = os.path.join("assets", ui_consts.SOUNDS_DIR_NAME, ui_consts.SOUND_FILE_MOVE)
     fake_winsound.PlaySound.assert_called_once_with(
-        expected_path, fake_winsound.SND_FILENAME | fake_winsound.SND_ASYNC
+        expected_path, fake_winsound.SND_FILENAME | fake_winsound.SND_ASYNC | fake_winsound.SND_LOOP
     )
 
 
@@ -48,7 +50,7 @@ def test_play_win_and_play_lose_use_their_own_files(fake_winsound):
 def test_no_assets_dir_never_touches_the_platform_player(fake_winsound):
     player = SoundPlayer(None)
 
-    player.play_move()
+    player.start_move_loop()
 
     fake_winsound.PlaySound.assert_not_called()
 
@@ -57,11 +59,31 @@ def test_unavailable_platform_player_is_a_silent_no_op(monkeypatch):
     monkeypatch.setattr(sound_player_module, "winsound", None)
     player = SoundPlayer("assets")
 
-    player.play_move()  # must not raise
+    player.start_move_loop()  # must not raise
 
 
 def test_a_platform_playback_failure_is_swallowed(fake_winsound):
     fake_winsound.PlaySound.side_effect = OSError("no audio device")
     player = SoundPlayer("assets")
 
-    player.play_move()  # must not raise
+    player.start_move_loop()  # must not raise
+
+
+def test_stop_move_sound_stops_playback(fake_winsound):
+    player = SoundPlayer("assets")
+    player.start_move_loop()
+    fake_winsound.PlaySound.reset_mock()
+
+    player.stop_move_sound()
+
+    fake_winsound.PlaySound.assert_called_once_with(None, fake_winsound.SND_PURGE)
+
+
+def test_start_move_loop_does_not_restart_if_already_playing(fake_winsound):
+    player = SoundPlayer("assets")
+    player.start_move_loop()
+    fake_winsound.PlaySound.reset_mock()
+
+    player.start_move_loop()
+
+    fake_winsound.PlaySound.assert_not_called()

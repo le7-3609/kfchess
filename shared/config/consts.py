@@ -44,6 +44,11 @@ COLOR_WHITE = "w"
 COLOR_BLACK = "b"
 ALL_COLORS = (COLOR_WHITE, COLOR_BLACK)
 
+
+def opponent_color(color: str) -> str:
+    """The other seat's colour — the seat pairing is written down only here."""
+    return COLOR_BLACK if color == COLOR_WHITE else COLOR_WHITE
+
 # --------------------------------------------------------------------------
 # Board geometry and player setup defaults
 # --------------------------------------------------------------------------
@@ -137,6 +142,22 @@ PIECE_VALUES = {
     PIECE_KING: 0,
 }
 STARTING_SCORE = 0
+
+# --------------------------------------------------------------------------
+# Bot behaviour
+# --------------------------------------------------------------------------
+# How long a paced bot waits between moves, on the simulation clock, when no
+# profile overrides it. The pacer reads the game clock, never wall time.
+DEFAULT_BOT_MOVE_INTERVAL_MS = 1000
+# A greedy bot values capturing the enemy king above any material gain, since
+# that capture wins the game outright (PIECE_VALUES scores the king at 0 for
+# material totals, which is the opposite of what move selection wants).
+BOT_KING_CAPTURE_VALUE = 1000
+# When a paced bot's turn comes up but it produces no command — an LLM reply
+# still in flight, or a position with no legal move yet — re-asking on every
+# advance_clock tick would rerun the legal-move scan inside the 16ms render
+# budget. The pacer instead polls the wait at this coarser beat.
+BOT_EMPTY_RETRY_MS = 250
 
 # --------------------------------------------------------------------------
 # Text DSL: board blocks, commands, tokens
