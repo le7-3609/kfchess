@@ -11,7 +11,7 @@ Must not own: authentication policy (AuthUseCase), pairing and seating
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 try:
     import websockets
@@ -95,6 +95,21 @@ class KFChessServer:
         self._game = GameSessionUseCase(
             room_manager=self._room_manager, matchmaker=self._matchmaker
         )
+
+        # Frame-type dispatch table, declared once. A new lobby action means a
+        # new row here rather than another branch in a growing if/elif chain.
+        # Every handler takes (session, msg) so they share one call shape, even
+        # where the message body is unused.
+        self._message_handlers: Dict[
+            str, Callable[[PlayerSession, Dict[str, Any]], Awaitable[None]]
+        ] = {
+            MSG_PLAY: lambda session, msg: self._handle_play(session),
+            MSG_CANCEL_SEARCH: lambda session, msg: self._handle_cancel_search(session),
+            MSG_CREATE_ROOM: lambda session, msg: self._handle_create_room(session),
+            MSG_JOIN_ROOM: self._handle_join_room,
+            MSG_MOVE: self._handle_move,
+            MSG_PING: self._handle_ping,
+        }
 
     @property
     def host(self) -> str:
@@ -299,6 +314,9 @@ class KFChessServer:
     async def _handle_move(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
         await self._reply_on_failure(session, await self._game.submit_move(session, msg))
 
+    async def _handle_ping(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
+        await session.send({"type": MSG_PONG})
+
     async def _handle_reconnect_handshake(
         self, websocket: Any, handshake: Dict[str, Any], authenticated_username: str
     ) -> Optional[PlayerSession]:
@@ -343,18 +361,8 @@ class KFChessServer:
         loop, so a lobby action means the same thing whenever it arrives.
         """
         msg_type = msg.get("type")
-
-        if msg_type == MSG_PLAY:
-            await self._handle_play(session)
-        elif msg_type == MSG_CANCEL_SEARCH:
-            await self._handle_cancel_search(session)
-        elif msg_type == MSG_CREATE_ROOM:
-            await self._handle_create_room(session)
-        elif msg_type == MSG_JOIN_ROOM:
-            await self._handle_join_room(session, msg)
-        elif msg_type == MSG_MOVE:
-            await self._handle_move(session, msg)
-        elif msg_type == MSG_PING:
-            await session.send({"type": MSG_PONG})
-        else:
+        handler = self._message_handlers.get(msg_type)
+        if handler is None:
             await session.send(build_error_message(f"Unhandled message type: {msg_type!r}"))
+            return
+        await handler(session, msg)

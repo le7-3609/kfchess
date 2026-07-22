@@ -10,7 +10,7 @@ and socket write.
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 from shared.events import (
     Event,
@@ -27,6 +27,74 @@ from shared.events import (
 from server.application.dtos.protocol_mapper import AlgebraicParser
 
 _LOGGER = logging.getLogger(__name__)
+
+# Maps a domain event type onto the wire frame it becomes. Declared once so
+# adding an event means adding a row here, not another branch in a growing
+# isinstance chain. Every builder takes the event and returns a plain dict.
+_EVENT_SERIALIZERS: Dict[type, Callable[[Event], Dict[str, Any]]] = {
+    GameStartedEvent: lambda event: {
+        "type": "event_game_started",
+        "rows": event.rows,
+        "cols": event.cols,
+        "at_ms": event.at_ms,
+    },
+    MoveStartedEvent: lambda event: {
+        "type": "event_move_started",
+        "color": event.color,
+        "piece_type": event.piece_type,
+        "from": AlgebraicParser.format_square(event.frm),
+        "to": AlgebraicParser.format_square(event.to),
+        "arrival_ms": event.arrival_ms,
+        "at_ms": event.at_ms,
+    },
+    PieceMovedEvent: lambda event: {
+        "type": "event_piece_moved",
+        "color": event.color,
+        "piece_type": event.piece_type,
+        "from": AlgebraicParser.format_square(event.frm),
+        "to": AlgebraicParser.format_square(event.to),
+        "was_capture": event.was_capture,
+        "at_ms": event.at_ms,
+    },
+    PieceCapturedEvent: lambda event: {
+        "type": "event_piece_captured",
+        "color": event.color,
+        "piece_type": event.piece_type,
+        "pos": AlgebraicParser.format_square(event.pos),
+        "captor_color": event.captor_color,
+        "captor_piece_type": event.captor_piece_type,
+        "at_ms": event.at_ms,
+    },
+    MoveAbortedEvent: lambda event: {
+        "type": "event_move_aborted",
+        "color": event.color,
+        "piece_type": event.piece_type,
+        "from": AlgebraicParser.format_square(event.frm),
+        "stopped_at": AlgebraicParser.format_square(event.stopped_at),
+        "reason": event.reason,
+        "at_ms": event.at_ms,
+    },
+    PiecePromotedEvent: lambda event: {
+        "type": "event_piece_promoted",
+        "color": event.color,
+        "from_piece_type": event.from_piece_type,
+        "to_piece_type": event.to_piece_type,
+        "pos": AlgebraicParser.format_square(event.pos),
+        "at_ms": event.at_ms,
+    },
+    ScoreUpdatedEvent: lambda event: {
+        "type": "event_score_updated",
+        "white_score": event.white_score,
+        "black_score": event.black_score,
+        "at_ms": event.at_ms,
+    },
+    GameEndedEvent: lambda event: {
+        "type": "event_game_ended",
+        "reason": event.reason,
+        "winner": event.winner,
+        "at_ms": event.at_ms,
+    },
+}
 
 
 class NetworkBroadcastObserver(Observer):
@@ -66,74 +134,5 @@ class NetworkBroadcastObserver(Observer):
                 _LOGGER.warning("Broadcast send failed for recipient %r: %s", recipient, exc)
 
     def _serialize_event(self, event: Event) -> Optional[Dict[str, Any]]:
-        if isinstance(event, GameStartedEvent):
-            return {
-                "type": "event_game_started",
-                "rows": event.rows,
-                "cols": event.cols,
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, MoveStartedEvent):
-            return {
-                "type": "event_move_started",
-                "color": event.color,
-                "piece_type": event.piece_type,
-                "from": AlgebraicParser.format_square(event.frm),
-                "to": AlgebraicParser.format_square(event.to),
-                "arrival_ms": event.arrival_ms,
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, PieceMovedEvent):
-            return {
-                "type": "event_piece_moved",
-                "color": event.color,
-                "piece_type": event.piece_type,
-                "from": AlgebraicParser.format_square(event.frm),
-                "to": AlgebraicParser.format_square(event.to),
-                "was_capture": event.was_capture,
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, PieceCapturedEvent):
-            return {
-                "type": "event_piece_captured",
-                "color": event.color,
-                "piece_type": event.piece_type,
-                "pos": AlgebraicParser.format_square(event.pos),
-                "captor_color": event.captor_color,
-                "captor_piece_type": event.captor_piece_type,
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, MoveAbortedEvent):
-            return {
-                "type": "event_move_aborted",
-                "color": event.color,
-                "piece_type": event.piece_type,
-                "from": AlgebraicParser.format_square(event.frm),
-                "stopped_at": AlgebraicParser.format_square(event.stopped_at),
-                "reason": event.reason,
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, PiecePromotedEvent):
-            return {
-                "type": "event_piece_promoted",
-                "color": event.color,
-                "from_piece_type": event.from_piece_type,
-                "to_piece_type": event.to_piece_type,
-                "pos": AlgebraicParser.format_square(event.pos),
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, ScoreUpdatedEvent):
-            return {
-                "type": "event_score_updated",
-                "white_score": event.white_score,
-                "black_score": event.black_score,
-                "at_ms": event.at_ms,
-            }
-        elif isinstance(event, GameEndedEvent):
-            return {
-                "type": "event_game_ended",
-                "reason": event.reason,
-                "winner": event.winner,
-                "at_ms": event.at_ms,
-            }
-        return None
+        serializer = _EVENT_SERIALIZERS.get(type(event))
+        return serializer(event) if serializer is not None else None

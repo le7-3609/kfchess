@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from server.infrastructure.database.database import Database
+from server.application.game_persistence_service import GamePersistenceService
 from server.application.game_room import GameRoom
 from server.domain.room.room_role import RoomRole
 
@@ -46,9 +47,16 @@ class RoomManager:
         self,
         database: Optional[Database] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        persistence_service: Optional[GamePersistenceService] = None,
     ) -> None:
         self._database = database
         self._loop = loop
+        # Built once and shared by every room so each finished game is saved
+        # through the same connection; defaults from the database when omitted
+        # so callers that only pass a database still get history persistence.
+        self._persistence_service = persistence_service or (
+            GamePersistenceService(database) if database is not None else None
+        )
         self._rooms: Dict[str, GameRoom] = {}
         self._session_rooms: Dict[Any, str] = {}
 
@@ -70,6 +78,7 @@ class RoomManager:
             room_id=room_id,
             loop=self._loop,
             database=self._database,
+            persistence_service=self._persistence_service,
             on_room_expired=self._reap_room,
         )
         room.add_player(creator_session)

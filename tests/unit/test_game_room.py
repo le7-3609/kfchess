@@ -39,10 +39,15 @@ class MockSession:
 class MockDatabase:
     def __init__(self):
         self.elo_updates = {}
+        self.saved_games = []
 
     async def update_elo(self, username: str, new_elo: int) -> bool:
         self.elo_updates[username] = new_elo
         return True
+
+    async def save_completed_game(self, game, moves) -> int:
+        self.saved_games.append((game, list(moves)))
+        return len(self.saved_games)
 
 
 def _seated_room(**kwargs):
@@ -332,7 +337,15 @@ async def test_natural_game_end_settles_elo_and_reaps_the_room_via_room_manager(
     assert black.elo == db.elo_updates["Bob"]
     assert rm.get_room(room_id) is None
     assert room.state == RoomState.FINISHED
-    assert room.state == RoomState.FINISHED
+
+    # The finished game was persisted, capturing pre-game ratings and the winner.
+    assert len(db.saved_games) == 1
+    saved_game, _ = db.saved_games[0]
+    assert saved_game.room_id == room_id
+    assert saved_game.result == "checkmate"
+    assert saved_game.winner_id == white.user_id
+    assert saved_game.white_elo_before == 1200
+    assert saved_game.white_elo_after == db.elo_updates["Alice"]
 
 
 @pytest.mark.asyncio

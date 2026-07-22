@@ -11,7 +11,8 @@ aggregate this class composes.
 import asyncio
 import inspect
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from shared.bot_factory import build_random_bot
 from shared.config import consts
@@ -19,6 +20,8 @@ from shared.events import Event, GameEndedEvent, Observer
 from shared.model.game_state import Result
 from shared.runtime.async_runner import AsyncGameRunner
 from server.application.broadcast_observer import NetworkBroadcastObserver
+from server.application.game_persistence_service import GamePersistenceService
+from server.application.game_result import GameResult, PersistedMove, persisted_moves_from_log
 from server.infrastructure.database.database import Database
 from server.infrastructure.services.bot_driver import (
     DEFAULT_BOT_MOVE_INTERVAL_SECONDS,
@@ -30,6 +33,7 @@ from server.application.disconnect_handler import (
 )
 from server.domain.room.game_room import (
     ForfeitOutcome,
+    GameEndOutcome,
     GameRoom as DomainGameRoom,
     RoomState,
 )
@@ -39,6 +43,10 @@ from server.application.dtos.response_frames import build_game_ended_message, bu
 from server.application.dtos.protocol_mapper import AlgebraicParser, SnapshotSerializer
 
 _DISCONNECT_FORFEIT_REASON = "disconnection_timeout"
+
+# Stored `result` for a game that ended because a player ran out the
+# reconnection countdown, distinct from the wire-frame reason above.
+_FORFEIT_RESULT = "timeout"
 
 
 def _rating_delta(session: Any, new_elo: int) -> Dict[str, int]:
@@ -83,12 +91,18 @@ class GameRoom:
         room_id: str,
         loop: Optional[asyncio.AbstractEventLoop] = None,
         database: Optional[Database] = None,
+        persistence_service: Optional[GamePersistenceService] = None,
         disconnect_timeout_seconds: int = DEFAULT_DISCONNECT_TIMEOUT_SECONDS,
         on_room_expired: Optional[RoomExpiredCallback] = None,
     ) -> None:
         self._domain = DomainGameRoom(room_id=room_id)
         self._loop = loop
         self._database = database
+        self._persistence_service = persistence_service
+        # Wall-clock instant the game became playable, stamped when the engine
+        # is wired. Paired with game-end wall time to bound a saved game in real
+        # time (the simulation clock only measures elapsed play, not calendar).
+        self._started_at: Optional[datetime] = None
 
         self._core: Optional[Any] = None
         self._runner: Optional[AsyncGameRunner] = None
@@ -215,6 +229,10 @@ class GameRoom:
                 _rating_delta(black_session, black_new_elo),
             )
 
+            # Persist while sessions still hold their pre-game ELO, before the
+            # overwrite below turns before-values into after-values.
+            await self._persist_forfeit(outcome, white_session, white_new_elo, black_session, black_new_elo)
+
             await self._database.update_elo(outcome.winner_session.username, outcome.new_winner_elo)
             await self._database.update_elo(outcome.loser_session.username, outcome.new_loser_elo)
             outcome.winner_session.elo = outcome.new_winner_elo
@@ -281,10 +299,90 @@ class GameRoom:
             _rating_delta(outcome.black_session, outcome.new_black_elo),
         )
 
+        # Persist while sessions still hold their pre-game ELO, before the
+        # overwrite below turns before-values into after-values.
+        await self._persist_natural_end(outcome, reason, winner_color)
+
         await self._database.update_elo(outcome.white_session.username, outcome.new_white_elo)
         await self._database.update_elo(outcome.black_session.username, outcome.new_black_elo)
         outcome.white_session.elo = outcome.new_white_elo
         outcome.black_session.elo = outcome.new_black_elo
+
+    async def _persist_natural_end(
+        self, outcome: GameEndOutcome, reason: str, winner_color: Optional[str]
+    ) -> None:
+        """Save a game that ended on its own merits, if persistence is wired.
+
+        Runs while both sessions still hold their pre-game rating, so
+        `.elo` supplies the before-values and the outcome's new ratings the
+        after-values.
+        """
+        if self._persistence_service is None:
+            return
+        game_result = GameResult(
+            room_id=self.room_id,
+            white_player_id=outcome.white_session.user_id,
+            black_player_id=outcome.black_session.user_id,
+            winner_id=self._winner_id_for(outcome.white_session, outcome.black_session, winner_color),
+            result=reason,
+            white_elo_before=outcome.white_session.elo,
+            white_elo_after=outcome.new_white_elo,
+            black_elo_before=outcome.black_session.elo,
+            black_elo_after=outcome.new_black_elo,
+            started_at=self._started_at or datetime.now(timezone.utc),
+            ended_at=datetime.now(timezone.utc),
+            moves=self._collect_persisted_moves(),
+        )
+        await self._persistence_service.persist_game(game_result)
+
+    async def _persist_forfeit(
+        self,
+        outcome: ForfeitOutcome,
+        white_session: Any,
+        white_new_elo: int,
+        black_session: Any,
+        black_new_elo: int,
+    ) -> None:
+        """Save a game ended by disconnection timeout, if persistence is wired.
+
+        The seat framing is already resolved by the caller; the winner comes
+        from the forfeit outcome so a draw is impossible on this path.
+        """
+        if self._persistence_service is None:
+            return
+        game_result = GameResult(
+            room_id=self.room_id,
+            white_player_id=white_session.user_id,
+            black_player_id=black_session.user_id,
+            winner_id=outcome.winner_session.user_id,
+            result=_FORFEIT_RESULT,
+            white_elo_before=white_session.elo,
+            white_elo_after=white_new_elo,
+            black_elo_before=black_session.elo,
+            black_elo_after=black_new_elo,
+            started_at=self._started_at or datetime.now(timezone.utc),
+            ended_at=datetime.now(timezone.utc),
+            moves=self._collect_persisted_moves(),
+        )
+        await self._persistence_service.persist_game(game_result)
+
+    @staticmethod
+    def _winner_id_for(
+        white_session: Any, black_session: Any, winner_color: Optional[str]
+    ) -> Optional[int]:
+        """Map a winning color onto the winning seat's user id, or None for a draw."""
+        if winner_color == consts.COLOR_WHITE:
+            return white_session.user_id
+        if winner_color == consts.COLOR_BLACK:
+            return black_session.user_id
+        return None
+
+    def _collect_persisted_moves(self) -> List[PersistedMove]:
+        """Decompose this game's move log into database-ready move rows."""
+        service = self._domain.service
+        if service is None:
+            return []
+        return persisted_moves_from_log(service.get_moves())
 
     async def _broadcast_game_ended(
         self,
@@ -412,6 +510,7 @@ class GameRoom:
 
     def _wire_infrastructure_after_init(self) -> None:
         """Attach network broadcast and the tick runner once the room's game initializes."""
+        self._started_at = datetime.now(timezone.utc)
         core = self._domain.core
         self._core = core
         core.event_bus.subscribe(self._lifecycle_observer, GameEndedEvent)

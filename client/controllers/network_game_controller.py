@@ -104,6 +104,20 @@ class NetworkGameController(IGameController):
             _MSG_TYPE_ERROR: self._on_error,
         }
 
+        # Connection-status → notice builder, declared once so a new status is a
+        # new row rather than another elif. Each builder turns a status frame
+        # into the GameNotice it should raise.
+        self._status_notices: Dict[str, Callable[[Dict[str, Any]], GameNotice]] = {
+            STATUS_DISCONNECTED: lambda message: GameNotice(
+                NoticeLevel.TRANSIENT, _DISCONNECTED_MESSAGE
+            ),
+            STATUS_RECONNECTING: self._reconnecting_notice,
+            STATUS_CONNECTED: lambda message: GameNotice.cleared(),
+            STATUS_RECONNECT_FAILED: lambda message: GameNotice(
+                NoticeLevel.TERMINAL, _RECONNECT_FAILED_MESSAGE
+            ),
+        }
+
     @property
     def poll_interval_ms(self) -> int:
         return ui_consts.NETWORK_POLL_MS
@@ -281,23 +295,18 @@ class NetworkGameController(IGameController):
 
     def _on_connection_status(self, message: Dict[str, Any]) -> None:
         """Turn NetworkClient's synthetic status frames into notices."""
-        status = message.get("status")
-        if status == STATUS_DISCONNECTED:
-            self._listener.on_notice(GameNotice(NoticeLevel.TRANSIENT, _DISCONNECTED_MESSAGE))
-        elif status == STATUS_RECONNECTING:
-            attempt = message.get("attempt")
-            delay_seconds = message.get("delay_seconds", 0.0)
-            self._listener.on_notice(
-                GameNotice(
-                    NoticeLevel.TRANSIENT,
-                    f"Connection lost. Reconnecting… "
-                    f"(attempt {attempt}, retrying in {delay_seconds:.0f}s)",
-                )
-            )
-        elif status == STATUS_CONNECTED:
-            self._listener.on_notice(GameNotice.cleared())
-        elif status == STATUS_RECONNECT_FAILED:
-            self._listener.on_notice(GameNotice(NoticeLevel.TERMINAL, _RECONNECT_FAILED_MESSAGE))
+        builder = self._status_notices.get(message.get("status"))
+        if builder is not None:
+            self._listener.on_notice(builder(message))
+
+    def _reconnecting_notice(self, message: Dict[str, Any]) -> GameNotice:
+        attempt = message.get("attempt")
+        delay_seconds = message.get("delay_seconds", 0.0)
+        return GameNotice(
+            NoticeLevel.TRANSIENT,
+            f"Connection lost. Reconnecting… "
+            f"(attempt {attempt}, retrying in {delay_seconds:.0f}s)",
+        )
 
     def _on_error(self, message: Dict[str, Any]) -> None:
         _LOGGER.warning("Server error: %s", message.get("message"))

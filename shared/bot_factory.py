@@ -17,7 +17,7 @@ constructs that strategy and passes it in via *strategy*; GREEDY and RANDOM are
 resolved here from the profile's difficulty.
 """
 
-from typing import Optional
+from typing import Callable, Dict, Optional
 
 from shared.config.game_config import GameConfig
 from shared.config.bot_profile import BotDifficulty, BotProfile
@@ -45,19 +45,24 @@ def _build_endgame_validator(core: CoreComponents, config: GameConfig) -> Endgam
     )
 
 
-def _strategy_for(difficulty: BotDifficulty) -> BotStrategyInterface:
-    """Resolve the self-contained strategies shared/ can build on its own.
+# The difficulties shared/ can compose on its own, each mapped to the strategy
+# constructor that builds it. Declared once so adding a self-contained strategy
+# is one entry, not another branch. LLM is intentionally absent: it needs a
+# network client the client layer owns, so callers pass that strategy in.
+_STRATEGY_BUILDERS: Dict[BotDifficulty, Callable[[], BotStrategyInterface]] = {
+    BotDifficulty.RANDOM: RandomMoveStrategy,
+    BotDifficulty.GREEDY: GreedyCaptureStrategy,
+}
 
-    LLM is intentionally absent: it needs a network client the client layer
-    owns, so callers wanting it pass the strategy into build_bot_service.
-    """
-    if difficulty == BotDifficulty.RANDOM:
-        return RandomMoveStrategy()
-    if difficulty == BotDifficulty.GREEDY:
-        return GreedyCaptureStrategy()
-    raise ValueError(
-        f"{difficulty} cannot be built inside shared; pass an explicit strategy instead"
-    )
+
+def _strategy_for(difficulty: BotDifficulty) -> BotStrategyInterface:
+    """Resolve the self-contained strategies shared/ can build on its own."""
+    builder = _STRATEGY_BUILDERS.get(difficulty)
+    if builder is None:
+        raise ValueError(
+            f"{difficulty} cannot be built inside shared; pass an explicit strategy instead"
+        )
+    return builder()
 
 
 def build_random_bot(color: str, core: CoreComponents, config: GameConfig) -> RandomBotInputSource:
