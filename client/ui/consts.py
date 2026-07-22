@@ -166,8 +166,7 @@ SPRITE_TRANSPARENT_RGBA = (0, 0, 0, 0)
 # Sound cues
 # --------------------------------------------------------------------------
 SOUNDS_DIR_NAME = "sounds"
-SOUND_FILE_MOVE = "move.wav"
-SOUND_FILE_WIN = "TADA.WAV"
+SOUND_FILE_WIN = "tada.wav"
 SOUND_FILE_LOSE = "fail.wav"
 
 # --------------------------------------------------------------------------

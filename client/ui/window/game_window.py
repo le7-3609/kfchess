@@ -454,8 +454,6 @@ class GameWindow(GameControllerListener):
         if self._pending_source is not None:
             snapshot = replace(snapshot, selected_pos=Position(*self._pending_source))
 
-        self._update_movement_sound(snapshot)
-
         self.renderer.draw(snapshot)
         board_img = self.renderer.get_image()
         self._draw_capture_flashes(board_img, snapshot.clock_ms)
@@ -469,13 +467,6 @@ class GameWindow(GameControllerListener):
             black_score=self._scores[consts.COLOR_BLACK],
         )
         self.view.show(composed)
-
-    def _update_movement_sound(self, snapshot: GameSnapshot) -> None:
-        """Manage the movement sound loop based on active movements."""
-        if snapshot.active_movements:
-            self._sound_player.start_move_loop()
-        else:
-            self._sound_player.stop_move_sound()
 
     def _draw_capture_flashes(self, board_img: Img, clock_ms: int) -> None:
         """Paint and age the capture markers collected by on_capture.
