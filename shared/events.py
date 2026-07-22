@@ -92,6 +92,12 @@ class PieceCapturedEvent(Event):
     Friendly fire is possible in real-time chess, so the captor's color is not
     necessarily the opponent's — subscribers that score material must compare
     *color* against *captor_color* rather than assume.
+
+    *captor_frm*/*captor_to* are the capturing movement's own endpoints. They
+    are the only reliable link back to the captor's move: a collision capture
+    happens mid-transit at neither endpoint, and en passant strikes the
+    bypassed pawn's square rather than the captor's destination, so *pos*
+    alone cannot identify which move took the piece.
     """
 
     color: str
@@ -99,6 +105,8 @@ class PieceCapturedEvent(Event):
     pos: Position
     captor_color: str
     captor_piece_type: str
+    captor_frm: Position
+    captor_to: Position
 
 
 @dataclass(frozen=True)

@@ -92,6 +92,8 @@ def test_events_are_buffered_until_poll_and_delivered_before_the_snapshot(starte
             piece_type="P",
             captor_color="w",
             captor_piece_type="P",
+            captor_frm=Position(5, 3),
+            captor_to=Position(4, 4),
         ))
     controller.poll()
 

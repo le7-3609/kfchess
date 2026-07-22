@@ -30,6 +30,7 @@ def _captured(at_ms: int = 0) -> PieceCapturedEvent:
     return PieceCapturedEvent(
         at_ms=at_ms, color="b", piece_type="P", pos=Position(0, 1),
         captor_color="w", captor_piece_type="R",
+        captor_frm=Position(0, 0), captor_to=Position(0, 1),
     )
 
 

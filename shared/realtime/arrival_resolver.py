@@ -105,7 +105,7 @@ class ArrivalResolver:
             state.selected_pos = None
         # Reported at mov.to, the square the arriving piece was struck on —
         # it never got to occupy it, but that is where the clash is visible.
-        self._announce_capture(state, mov.piece, mov.to, airborne_mov.piece, t)
+        self._announce_capture(state, mov.piece, mov.to, airborne_mov, t)
         return True
 
     def _resolve_normal_arrival(
@@ -175,8 +175,15 @@ class ArrivalResolver:
         self._enter_cooldown(state, mov.piece, t)
         self._announce_abort(mov, stuck_pos, ABORT_REASON_PATH_BLOCKED, t)
 
-    def _announce_capture(self, state: GameState, victim, pos: Position, captor, t: int) -> None:
-        """Publish *victim*'s capture by *captor*, ending the game if it was a king."""
+    def _announce_capture(self, state: GameState, victim, pos: Position, captor_mov: Movement, t: int) -> None:
+        """Publish *victim*'s capture by *captor_mov*'s piece, ending the game if it was a king.
+
+        Takes the captor's Movement rather than its piece so the movement's
+        endpoints ride on the event — persistence attributes the capture to the
+        capturing move by them, since *pos* is not always the captor's
+        destination (en passant strikes the bypassed pawn's square).
+        """
+        captor = captor_mov.piece
         self._event_bus.publish(PieceCapturedEvent(
             at_ms=t,
             color=victim.color,
@@ -184,6 +191,8 @@ class ArrivalResolver:
             pos=pos,
             captor_color=captor.color,
             captor_piece_type=captor.piece_type,
+            captor_frm=captor_mov.frm,
+            captor_to=captor_mov.to,
         ))
         if victim.piece_type in self._config.king_pieces:
             self._announce_game_end(state, consts.GAME_OVER_KING_CAPTURED, captor.color, t)
@@ -242,7 +251,7 @@ class ArrivalResolver:
 
         if state.selected_pos == mov.to:
             state.selected_pos = None
-        self._announce_capture(state, target_piece, mov.to, mov.piece, t)
+        self._announce_capture(state, target_piece, mov.to, mov, t)
         self._remove_piece_from_play(state, target_piece, arriving, movements)
         return target_piece.color != mov.piece.color
 
@@ -263,7 +272,7 @@ class ArrivalResolver:
                 continue
             captured_piece = board.get_piece(ep.capture_pos)
             if captured_piece:
-                self._announce_capture(state, captured_piece, ep.capture_pos, mov.piece, t)
+                self._announce_capture(state, captured_piece, ep.capture_pos, mov, t)
                 self._remove_piece_from_play(state, captured_piece, arriving, movements)
             board.set_piece(ep.capture_pos, None)
             state.en_passant_targets.remove(ep)
