@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from shared.model.game_state import Result
 
+from server.application.dtos.frame_fields import FIELD_FROM, FIELD_TO
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.application.room_manager import RoomManager
 
@@ -28,8 +29,8 @@ class GameSessionUseCase:
 
     async def submit_move(self, session: Any, msg: Dict[str, Any]) -> Result[None, str]:
         """Route a move frame to the sender's room."""
-        from_sq = msg.get("from")
-        to_sq = msg.get("to")
+        from_sq = msg.get(FIELD_FROM)
+        to_sq = msg.get(FIELD_TO)
         if not from_sq or not to_sq:
             return Result.fail("Move message requires 'from' and 'to' fields")
 

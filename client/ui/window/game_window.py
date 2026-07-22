@@ -93,10 +93,11 @@ class GameWindow(GameControllerListener):
         self._scores: Dict[str, int] = self._blank_scores()
         self._capture_flashes: List[_CaptureFlash] = []
         self._sound_player = SoundPlayer(assets_dir)
+        self._poll_id: Optional[str] = None
 
         self.root = tk.Tk()
         self.root.title(title)
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.protocol(ui_consts.WM_DELETE_WINDOW_PROTOCOL, self.close)
 
         self._overlay = ReconnectOverlay(self.root)
 
@@ -115,7 +116,7 @@ class GameWindow(GameControllerListener):
         self.root.mainloop()
 
     def close(self) -> None:
-        if hasattr(self, '_poll_id'):
+        if self._poll_id is not None:
             self.root.after_cancel(self._poll_id)
         self.controller.leave()
         self.root.destroy()
@@ -212,8 +213,10 @@ class GameWindow(GameControllerListener):
         """Build the menu bar, offering only what this controller can honour."""
         menu_bar = tk.Menu(self.root)
         if self.controller.history is not None:
-            menu_bar.add_cascade(label="Game", menu=self._build_game_menu(menu_bar))
-        menu_bar.add_cascade(label="Settings", menu=self._build_settings_menu(menu_bar))
+            menu_bar.add_cascade(label=ui_consts.MENU_LABEL_GAME, menu=self._build_game_menu(menu_bar))
+        menu_bar.add_cascade(
+            label=ui_consts.MENU_LABEL_SETTINGS, menu=self._build_settings_menu(menu_bar)
+        )
         self.root.config(menu=menu_bar)
 
     def _build_game_menu(self, menu_bar: tk.Menu) -> tk.Menu:
@@ -269,21 +272,21 @@ class GameWindow(GameControllerListener):
 
     def _build_canvas(self, board_size: int) -> None:
         """Create the canvas, its image view, and the click/resize bindings."""
-        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * 2 + board_size
+        self.canvas_width = ui_consts.SIDE_PANEL_WIDTH * ui_consts.SIDE_PANEL_COUNT + board_size
         self.canvas_height = ui_consts.PANEL_TOP_HEIGHT + board_size
         self.canvas = tk.Canvas(
             self.root, width=self.canvas_width, height=self.canvas_height, highlightthickness=0
         )
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        canvas_image_id = self.canvas.create_image(0, 0, anchor="nw")
+        canvas_image_id = self.canvas.create_image(0, 0, anchor=ui_consts.ANCHOR_NORTH_WEST)
         self.view = TkImageView(self.canvas, canvas_image_id)
         self.renderer.resize(board_size, board_size)
 
-        self.canvas.bind("<Configure>", self._on_resize)
-        self.canvas.bind("<Button-1>", self._on_left_click)
+        self.canvas.bind(ui_consts.EVENT_CONFIGURE, self._on_resize)
+        self.canvas.bind(ui_consts.EVENT_LEFT_CLICK, self._on_left_click)
         if self.controller.supports_jump:
-            self.canvas.bind("<Button-3>", self._on_right_click)
+            self.canvas.bind(ui_consts.EVENT_RIGHT_CLICK, self._on_right_click)
 
     # ------------------------------------------------------------------
     # Settings actions
@@ -349,8 +352,12 @@ class GameWindow(GameControllerListener):
     def _canvas_to_cell(self, event_x: int, event_y: int) -> Optional[Tuple[int, int]]:
         panel_width = ui_consts.SIDE_PANEL_WIDTH
         top_height = ui_consts.PANEL_TOP_HEIGHT
-        board_x_offset = panel_width + (self.canvas_width - panel_width * 2 - self.board_size) // 2
-        board_y_offset = top_height + (self.canvas_height - top_height - self.board_size) // 2
+        board_x_offset = panel_width + (
+            self.canvas_width - panel_width * ui_consts.SIDE_PANEL_COUNT - self.board_size
+        ) // ui_consts.CENTERING_DIVISOR
+        board_y_offset = top_height + (
+            self.canvas_height - top_height - self.board_size
+        ) // ui_consts.CENTERING_DIVISOR
 
         board_x = event_x - board_x_offset
         board_y = event_y - board_y_offset
@@ -436,7 +443,9 @@ class GameWindow(GameControllerListener):
         self.canvas_height = event.height
 
         minimum = ui_consts.MIN_BOARD_DIMENSION_PX
-        available_board_w = max(minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * 2)
+        available_board_w = max(
+            minimum, self.canvas_width - ui_consts.SIDE_PANEL_WIDTH * ui_consts.SIDE_PANEL_COUNT
+        )
         available_board_h = max(minimum, self.canvas_height - ui_consts.PANEL_TOP_HEIGHT)
         self.board_size = min(available_board_w, available_board_h)
 
@@ -454,8 +463,6 @@ class GameWindow(GameControllerListener):
         if self._pending_source is not None:
             snapshot = replace(snapshot, selected_pos=Position(*self._pending_source))
 
-        self._update_movement_sound(snapshot)
-
         self.renderer.draw(snapshot)
         board_img = self.renderer.get_image()
         self._draw_capture_flashes(board_img, snapshot.clock_ms)
@@ -469,13 +476,6 @@ class GameWindow(GameControllerListener):
             black_score=self._scores[consts.COLOR_BLACK],
         )
         self.view.show(composed)
-
-    def _update_movement_sound(self, snapshot: GameSnapshot) -> None:
-        """Manage the movement sound loop based on active movements."""
-        if snapshot.active_movements:
-            self._sound_player.start_move_loop()
-        else:
-            self._sound_player.stop_move_sound()
 
     def _draw_capture_flashes(self, board_img: Img, clock_ms: int) -> None:
         """Paint and age the capture markers collected by on_capture.

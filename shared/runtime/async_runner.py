@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, List, Optional
 
+from shared.config.consts import MS_PER_SECOND
 from shared.engine.game_engine import GameEngine
 from shared.engine.input_commands import GameCommand, WaitCommand
 
@@ -138,7 +139,7 @@ class AsyncGameRunner:
         """
         now = self._time_fn()
         last = self._last_tick_time if self._last_tick_time is not None else now
-        elapsed_ms = max(0, int((now - last) * 1000))
+        elapsed_ms = max(0, int((now - last) * MS_PER_SECOND))
         self._last_tick_time = now
 
         self._drain_commands()

@@ -12,7 +12,7 @@ database, which yields tuples, and the HTTP API, which wants named values.
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from server.infrastructure.database.database import Database
+from server.infrastructure.database.database import DEFAULT_LEADERBOARD_LIMIT, Database
 
 
 @dataclass(frozen=True)
@@ -81,10 +81,13 @@ class GameQueryService:
         move_rows = await self._database.get_moves(game_id)
         return self._replay_from_rows(game_row, move_rows)
 
-    async def get_leaderboard(self, limit: int = 100) -> List[LeaderboardRow]:
+    async def get_leaderboard(self, limit: int = DEFAULT_LEADERBOARD_LIMIT) -> List[LeaderboardRow]:
         """Top players by ELO as DTOs, highest first."""
         rows = await self._database.get_leaderboard(limit)
-        return [LeaderboardRow(username=r[0], elo=r[1], total_games=r[2], wins=r[3]) for r in rows]
+        return [
+            LeaderboardRow(username=username, elo=elo, total_games=total_games, wins=wins)
+            for username, elo, total_games, wins in rows
+        ]
 
     @staticmethod
     def _replay_from_rows(game_row: Tuple, move_rows: List[Tuple]) -> GameReplay:
@@ -113,14 +116,17 @@ class GameQueryService:
             ended_at=ended_at,
             moves=[
                 ReplayMove(
-                    move_number=m[0],
-                    from_square=m[1],
-                    to_square=m[2],
-                    piece_type=m[3],
-                    piece_color=m[4],
-                    captured_piece=m[5],
-                    timestamp=m[6],
+                    move_number=move_number,
+                    from_square=from_square,
+                    to_square=to_square,
+                    piece_type=piece_type,
+                    piece_color=piece_color,
+                    captured_piece=captured_piece,
+                    timestamp=timestamp,
                 )
-                for m in move_rows
+                for (
+                    move_number, from_square, to_square,
+                    piece_type, piece_color, captured_piece, timestamp,
+                ) in move_rows
             ],
         )

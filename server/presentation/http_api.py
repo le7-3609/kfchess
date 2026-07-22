@@ -22,33 +22,71 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_HTTP_HOST = "localhost"
 DEFAULT_HTTP_PORT = 8080
 
+# Routes. The {game_id} placeholder name must match _parse_game_id's lookup.
+_PATH_PARAM_GAME_ID = "game_id"
+ROUTE_GAME = "/api/games/{game_id}"
+ROUTE_GAME_PGN = "/api/games/{game_id}/pgn"
+ROUTE_LEADERBOARD = "/api/leaderboard"
+
+PGN_CONTENT_TYPE = "application/x-chess-pgn"
+_HEADER_CONTENT_DISPOSITION = "Content-Disposition"
+
+# Replay JSON body keys.
+_KEY_GAME = "game"
+_KEY_MOVES = "moves"
+_KEY_GAME_ID = "game_id"
+_KEY_ROOM_ID = "room_id"
+_KEY_WHITE_USERNAME = "white_username"
+_KEY_BLACK_USERNAME = "black_username"
+_KEY_WINNER_ID = "winner_id"
+_KEY_RESULT = "result"
+_KEY_WHITE_ELO_BEFORE = "white_elo_before"
+_KEY_WHITE_ELO_AFTER = "white_elo_after"
+_KEY_BLACK_ELO_BEFORE = "black_elo_before"
+_KEY_BLACK_ELO_AFTER = "black_elo_after"
+_KEY_STARTED_AT = "started_at"
+_KEY_ENDED_AT = "ended_at"
+_KEY_MOVE_NUMBER = "move_number"
+_KEY_FROM = "from"
+_KEY_TO = "to"
+_KEY_PIECE = "piece"
+_KEY_COLOR = "color"
+_KEY_CAPTURED_PIECE = "captured_piece"
+_KEY_TIMESTAMP = "timestamp"
+
+# Leaderboard JSON body keys.
+_KEY_USERNAME = "username"
+_KEY_ELO = "elo"
+_KEY_TOTAL_GAMES = "total_games"
+_KEY_WINS = "wins"
+
 
 def _replay_to_dict(replay: GameReplay) -> Dict[str, Any]:
     """Shape a GameReplay DTO into the replay JSON body."""
     return {
-        "game": {
-            "game_id": replay.game_id,
-            "room_id": replay.room_id,
-            "white_username": replay.white_username,
-            "black_username": replay.black_username,
-            "winner_id": replay.winner_id,
-            "result": replay.result,
-            "white_elo_before": replay.white_elo_before,
-            "white_elo_after": replay.white_elo_after,
-            "black_elo_before": replay.black_elo_before,
-            "black_elo_after": replay.black_elo_after,
-            "started_at": replay.started_at,
-            "ended_at": replay.ended_at,
+        _KEY_GAME: {
+            _KEY_GAME_ID: replay.game_id,
+            _KEY_ROOM_ID: replay.room_id,
+            _KEY_WHITE_USERNAME: replay.white_username,
+            _KEY_BLACK_USERNAME: replay.black_username,
+            _KEY_WINNER_ID: replay.winner_id,
+            _KEY_RESULT: replay.result,
+            _KEY_WHITE_ELO_BEFORE: replay.white_elo_before,
+            _KEY_WHITE_ELO_AFTER: replay.white_elo_after,
+            _KEY_BLACK_ELO_BEFORE: replay.black_elo_before,
+            _KEY_BLACK_ELO_AFTER: replay.black_elo_after,
+            _KEY_STARTED_AT: replay.started_at,
+            _KEY_ENDED_AT: replay.ended_at,
         },
-        "moves": [
+        _KEY_MOVES: [
             {
-                "move_number": move.move_number,
-                "from": move.from_square,
-                "to": move.to_square,
-                "piece": move.piece_type,
-                "color": move.piece_color,
-                "captured_piece": move.captured_piece,
-                "timestamp": move.timestamp,
+                _KEY_MOVE_NUMBER: move.move_number,
+                _KEY_FROM: move.from_square,
+                _KEY_TO: move.to_square,
+                _KEY_PIECE: move.piece_type,
+                _KEY_COLOR: move.piece_color,
+                _KEY_CAPTURED_PIECE: move.captured_piece,
+                _KEY_TIMESTAMP: move.timestamp,
             }
             for move in replay.moves
         ],
@@ -57,7 +95,7 @@ def _replay_to_dict(replay: GameReplay) -> Dict[str, Any]:
 
 def _parse_game_id(request: web.Request) -> int:
     """Validate the {game_id} path segment, failing fast with 400 if non-integer."""
-    raw = request.match_info["game_id"]
+    raw = request.match_info[_PATH_PARAM_GAME_ID]
     try:
         return int(raw)
     except ValueError:
@@ -77,9 +115,9 @@ class HttpApi:
 
     def build_app(self) -> web.Application:
         app = web.Application()
-        app.router.add_get("/api/games/{game_id}", self.get_game)
-        app.router.add_get("/api/games/{game_id}/pgn", self.get_game_pgn)
-        app.router.add_get("/api/leaderboard", self.get_leaderboard)
+        app.router.add_get(ROUTE_GAME, self.get_game)
+        app.router.add_get(ROUTE_GAME_PGN, self.get_game_pgn)
+        app.router.add_get(ROUTE_LEADERBOARD, self.get_leaderboard)
         return app
 
     async def get_game(self, request: web.Request) -> web.Response:
@@ -96,14 +134,19 @@ class HttpApi:
             raise web.HTTPNotFound(reason=f"No game with id {game_id}")
         return web.Response(
             text=to_pgn(replay),
-            content_type="application/x-chess-pgn",
-            headers={"Content-Disposition": f'attachment; filename="{replay.room_id}.pgn"'},
+            content_type=PGN_CONTENT_TYPE,
+            headers={_HEADER_CONTENT_DISPOSITION: f'attachment; filename="{replay.room_id}.pgn"'},
         )
 
     async def get_leaderboard(self, request: web.Request) -> web.Response:
         rows = await self._query_service.get_leaderboard()
         body = [
-            {"username": row.username, "elo": row.elo, "total_games": row.total_games, "wins": row.wins}
+            {
+                _KEY_USERNAME: row.username,
+                _KEY_ELO: row.elo,
+                _KEY_TOTAL_GAMES: row.total_games,
+                _KEY_WINS: row.wins,
+            }
             for row in rows
         ]
         return web.json_response(body)

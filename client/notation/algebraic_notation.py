@@ -13,6 +13,9 @@ client side of the wire boundary rather than importing it.
 from shared.config import consts
 from shared.model.position import Position
 
+# A square identifier is exactly file letter + rank digit, e.g. "e2".
+_SQUARE_TOKEN_LENGTH = 2
+
 
 def parse_square(square: str) -> Position:
     """Parse an algebraic square identifier like 'e2' into a Position.
@@ -20,7 +23,7 @@ def parse_square(square: str) -> Position:
     Raises:
         ValueError: If square is malformed or out of board bounds.
     """
-    if not isinstance(square, str) or len(square) != 2:
+    if not isinstance(square, str) or len(square) != _SQUARE_TOKEN_LENGTH:
         raise ValueError(f"Invalid square notation: {square!r}")
 
     file_char = square[0].lower()

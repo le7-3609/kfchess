@@ -7,6 +7,8 @@ Must not own: game rules, board mutation, input parsing, or timing.
 
 from dataclasses import dataclass
 
+from client.ui.consts import CENTERING_DIVISOR
+
 
 @dataclass
 class Rectangle:
@@ -30,8 +32,8 @@ class BoardGeometry:
 
     def resize(self, panel_width: int, panel_height: int) -> None:
         self.board_size = min(panel_width, panel_height)
-        self.origin_x = (panel_width - self.board_size) // 2
-        self.origin_y = (panel_height - self.board_size) // 2
+        self.origin_x = (panel_width - self.board_size) // CENTERING_DIVISOR
+        self.origin_y = (panel_height - self.board_size) // CENTERING_DIVISOR
 
     def get_cell_width(self) -> float:
         return self.board_size / self.cols

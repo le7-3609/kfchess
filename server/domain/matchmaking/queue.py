@@ -21,6 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_MAX_ELO_DIFF = 100
 DEFAULT_QUEUE_TIMEOUT_SECONDS = 60.0
+_PLAYERS_PER_MATCH = 2
 
 
 @dataclass
@@ -93,7 +94,7 @@ class MatchmakingQueue:
         preventing double-matching during coroutine context switches.
         """
         async with self._lock:
-            if len(self._queue) < 2:
+            if len(self._queue) < _PLAYERS_PER_MATCH:
                 return None
 
             # Already in join order: entries are only ever appended, so scanning

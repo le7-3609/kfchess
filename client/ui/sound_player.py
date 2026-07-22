@@ -1,7 +1,7 @@
-"""SoundPlayer — fires the match's short audio cues (Layer 6 / client UI).
+"""SoundPlayer — fires the match's ending audio cues (Layer 6 / client UI).
 
-Owns: locating the `.wav` cue files under the assets folder and asking the
-platform to play one without blocking the Tk loop.
+Owns: locating the `.wav` cue files under the assets folder, validating they
+are playable, and asking the platform to play one without blocking the Tk loop.
 Must not own: deciding *when* a cue is warranted — that judgment belongs to
 GameWindow, which knows the domain event it is reacting to.
 """
@@ -15,12 +15,17 @@ from client.ui import consts as ui_consts
 
 _LOGGER = logging.getLogger(__name__)
 
+_WINDOWS_PLATFORM = "win32"
+_FILE_MODE_READ_BINARY = "rb"
+
 # winsound is stdlib but Windows-only; other platforms get a silent no-op
 # rather than a new bundled audio dependency this project doesn't otherwise need.
-if sys.platform == "win32":
+if sys.platform == _WINDOWS_PLATFORM:
     import winsound
 else:
     winsound = None
+
+_RIFF_MAGIC = b"RIFF"
 
 
 class SoundPlayer:
@@ -30,26 +35,6 @@ class SoundPlayer:
         self._sounds_dir = (
             os.path.join(assets_dir, ui_consts.SOUNDS_DIR_NAME) if assets_dir else None
         )
-        self._move_loop_playing = False
-
-    def start_move_loop(self) -> None:
-        """Start looping the move sound if not already playing."""
-        if self._move_loop_playing:
-            return
-        self._play_loop(ui_consts.SOUND_FILE_MOVE)
-        self._move_loop_playing = True
-
-    def stop_move_sound(self) -> None:
-        """Stop the move sound loop immediately."""
-        if not self._move_loop_playing:
-            return
-        if self._sounds_dir is None or winsound is None:
-            return
-        try:
-            winsound.PlaySound(None, winsound.SND_PURGE)
-        except OSError:
-            _LOGGER.warning("Could not stop sound")
-        self._move_loop_playing = False
 
     def play_win(self) -> None:
         self._play(ui_consts.SOUND_FILE_WIN)
@@ -57,21 +42,35 @@ class SoundPlayer:
     def play_lose(self) -> None:
         self._play(ui_consts.SOUND_FILE_LOSE)
 
-    def _play_loop(self, file_name: str) -> None:
-        """Play a sound in a loop asynchronously."""
-        if self._sounds_dir is None or winsound is None:
+    def _play(self, file_name: str) -> None:
+        path = self._resolve_playable(file_name)
+        if path is None:
             return
-        path = os.path.join(self._sounds_dir, file_name)
+        flags = winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT
         try:
-            winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
+            winsound.PlaySound(path, flags)
         except OSError:
             _LOGGER.warning("Could not play sound %s", path)
 
-    def _play(self, file_name: str) -> None:
+    def _resolve_playable(self, file_name: str) -> Optional[str]:
+        """Return the cue's full path, or None if it cannot be played.
+
+        winsound substitutes the Windows default error chime for any file it
+        cannot decode; validating existence and the RIFF header here (plus
+        SND_NODEFAULT at play time) keeps a bad asset silent instead of noisy.
+        """
         if self._sounds_dir is None or winsound is None:
-            return
+            return None
         path = os.path.join(self._sounds_dir, file_name)
+        if not self._is_riff_wave(path):
+            _LOGGER.warning("Sound cue %s is missing or not a WAV file; skipping", path)
+            return None
+        return path
+
+    @staticmethod
+    def _is_riff_wave(path: str) -> bool:
         try:
-            winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            with open(path, _FILE_MODE_READ_BINARY) as cue_file:
+                return cue_file.read(len(_RIFF_MAGIC)) == _RIFF_MAGIC
         except OSError:
-            _LOGGER.warning("Could not play sound %s", path)
+            return False

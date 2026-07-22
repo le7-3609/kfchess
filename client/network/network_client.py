@@ -21,16 +21,27 @@ from typing import Any, Callable, Dict, Optional
 
 import websockets
 
-_LOGGER = logging.getLogger(__name__)
+from client.network.protocol import (
+    AUTH_ACTION_LOGIN,
+    FIELD_ACTION,
+    FIELD_FROM,
+    FIELD_PASSWORD,
+    FIELD_ROOM_ID,
+    FIELD_STATUS,
+    FIELD_TO,
+    FIELD_TYPE,
+    FIELD_USERNAME,
+    MSG_TYPE_AUTH,
+    MSG_TYPE_CANCEL_SEARCH,
+    MSG_TYPE_CREATE_ROOM,
+    MSG_TYPE_ERROR,
+    MSG_TYPE_JOIN_ROOM,
+    MSG_TYPE_MOVE,
+    MSG_TYPE_PLAY,
+    MSG_TYPE_RECONNECT,
+)
 
-# Wire protocol vocabulary (mirrors server/application/dtos; client must not import server).
-_MSG_TYPE_AUTH = "auth"
-_MSG_TYPE_ERROR = "error"
-_MSG_TYPE_PLAY = "play"
-_MSG_TYPE_MOVE = "move"
-_MSG_TYPE_CANCEL_SEARCH = "cancel_search"
-_MSG_TYPE_RECONNECT = "reconnect"
-_AUTH_ACTION_LOGIN = "login"
+_LOGGER = logging.getLogger(__name__)
 
 # Client-internal signal, synthesized locally and pushed through the same
 # on_message_callback seam as wire frames — it is never sent to or received
@@ -40,6 +51,10 @@ STATUS_DISCONNECTED = "disconnected"
 STATUS_RECONNECTING = "reconnecting"
 STATUS_CONNECTED = "connected"
 STATUS_RECONNECT_FAILED = "reconnect_failed"
+
+# Extra fields the reconnecting status frame carries.
+FIELD_ATTEMPT = "attempt"
+FIELD_DELAY_SECONDS = "delay_seconds"
 
 _THREAD_NAME = "NetworkClient-EventLoop"
 _SHUTDOWN_TIMEOUT_SECONDS = 5.0
@@ -73,7 +88,7 @@ class NetworkClient:
         server_url: str,
         username: str,
         password: str,
-        initial_action: str = _MSG_TYPE_PLAY,
+        initial_action: str = MSG_TYPE_PLAY,
         room_id: Optional[str] = None,
     ) -> None:
         self._server_url = server_url
@@ -155,7 +170,7 @@ class NetworkClient:
             _LOGGER.warning("Dropping move %s->%s; network loop is not running", from_square, to_square)
             return
 
-        payload = {"type": _MSG_TYPE_MOVE, "from": from_square, "to": to_square}
+        payload = {FIELD_TYPE: MSG_TYPE_MOVE, FIELD_FROM: from_square, FIELD_TO: to_square}
         asyncio.run_coroutine_threadsafe(self._send(payload), self._loop)
 
     def send_cancel_search(self) -> None:
@@ -168,7 +183,7 @@ class NetworkClient:
             _LOGGER.warning("Dropping cancel_search; network loop is not running")
             return
 
-        payload = {"type": _MSG_TYPE_CANCEL_SEARCH}
+        payload = {FIELD_TYPE: MSG_TYPE_CANCEL_SEARCH}
         asyncio.run_coroutine_threadsafe(self._send(payload), self._loop)
 
     def _run_event_loop(self) -> None:
@@ -195,10 +210,10 @@ class NetworkClient:
         window; a failure on the very first attempt has no session to recover,
         so it is logged and left to end the task, as before.
         """
-        if await self._open_session(_MSG_TYPE_PLAY):
+        if await self._open_session(MSG_TYPE_PLAY):
             return
         while await self._reconnect_loop():
-            if await self._open_session(_MSG_TYPE_RECONNECT):
+            if await self._open_session(MSG_TYPE_RECONNECT):
                 return
 
     async def _open_session(self, handshake_type: str) -> bool:
@@ -218,9 +233,9 @@ class NetworkClient:
                 if self._closing:
                     return True
                 if not await self._authenticate(connection):
-                    return handshake_type == _MSG_TYPE_PLAY
+                    return handshake_type == MSG_TYPE_PLAY
                 await connection.send(json.dumps(self._build_handshake(handshake_type)))
-                if handshake_type == _MSG_TYPE_RECONNECT:
+                if handshake_type == MSG_TYPE_RECONNECT:
                     self._on_reconnected()
                 await self._listen(connection)
                 return True
@@ -228,7 +243,7 @@ class NetworkClient:
             self._handle_disconnect(exc)
             return False
         except (OSError, websockets.exceptions.WebSocketException) as exc:
-            if handshake_type == _MSG_TYPE_PLAY:
+            if handshake_type == MSG_TYPE_PLAY:
                 _LOGGER.error("[%s] failed to connect to %s: %s", self._username, self._server_url, exc)
                 return True
             _LOGGER.warning("[%s] reconnect attempt to %s failed: %s", self._username, self._server_url, exc)
@@ -252,27 +267,27 @@ class NetworkClient:
             _LOGGER.error("[%s] malformed auth reply from server", self._username)
             return False
 
-        if not isinstance(reply, dict) or reply.get("type") == _MSG_TYPE_ERROR:
+        if not isinstance(reply, dict) or reply.get(FIELD_TYPE) == MSG_TYPE_ERROR:
             _LOGGER.error("[%s] re-authentication failed: %s", self._username, reply)
             return False
         return True
 
     def _build_auth_frame(self) -> Dict[str, Any]:
         return {
-            "type": _MSG_TYPE_AUTH,
-            "action": _AUTH_ACTION_LOGIN,
-            "username": self._username,
-            "password": self._password,
+            FIELD_TYPE: MSG_TYPE_AUTH,
+            FIELD_ACTION: AUTH_ACTION_LOGIN,
+            FIELD_USERNAME: self._username,
+            FIELD_PASSWORD: self._password,
         }
 
     def _build_handshake(self, handshake_type: str) -> Dict[str, Any]:
-        if handshake_type == _MSG_TYPE_RECONNECT:
-            return {"type": _MSG_TYPE_RECONNECT, "username": self._username}
-        if self._initial_action == "create_room":
-            return {"type": "create_room"}
-        if self._initial_action == "join_room":
-            return {"type": "join_room", "room_id": self._room_id}
-        return {"type": _MSG_TYPE_PLAY}
+        if handshake_type == MSG_TYPE_RECONNECT:
+            return {FIELD_TYPE: MSG_TYPE_RECONNECT, FIELD_USERNAME: self._username}
+        if self._initial_action == MSG_TYPE_CREATE_ROOM:
+            return {FIELD_TYPE: MSG_TYPE_CREATE_ROOM}
+        if self._initial_action == MSG_TYPE_JOIN_ROOM:
+            return {FIELD_TYPE: MSG_TYPE_JOIN_ROOM, FIELD_ROOM_ID: self._room_id}
+        return {FIELD_TYPE: MSG_TYPE_PLAY}
 
     def _on_reconnected(self) -> None:
         self._reconnect_attempt = 0
@@ -302,7 +317,10 @@ class NetworkClient:
             _INITIAL_BACKOFF_SECONDS * (_BACKOFF_MULTIPLIER ** (self._reconnect_attempt - 1)),
             _MAX_BACKOFF_SECONDS,
         )
-        self._emit_status(STATUS_RECONNECTING, attempt=self._reconnect_attempt, delay_seconds=delay)
+        self._emit_status(
+            STATUS_RECONNECTING,
+            {FIELD_ATTEMPT: self._reconnect_attempt, FIELD_DELAY_SECONDS: delay},
+        )
         await asyncio.sleep(delay)
         self._reconnect_elapsed_seconds += delay
         return True
@@ -334,10 +352,10 @@ class NetworkClient:
 
         self._publish(message)
 
-    def _emit_status(self, status: str, **fields: Any) -> None:
+    def _emit_status(self, status: str, extra_fields: Optional[Dict[str, Any]] = None) -> None:
         """Publish a synthetic connection-status update alongside real wire frames."""
-        message: Dict[str, Any] = {"type": MSG_TYPE_CONNECTION_STATUS, "status": status}
-        message.update(fields)
+        message: Dict[str, Any] = {FIELD_TYPE: MSG_TYPE_CONNECTION_STATUS, FIELD_STATUS: status}
+        message.update(extra_fields or {})
         self._publish(message)
 
     def _publish(self, message: Dict[str, Any]) -> None:

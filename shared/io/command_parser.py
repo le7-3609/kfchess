@@ -12,6 +12,18 @@ script format stops here.
 
 from typing import List
 
+from shared.config import consts
+from shared.config.consts import (
+    CELL_COMMAND_ARG_COUNT,
+    COMMAND_CLICK,
+    COMMAND_MOVE,
+    COMMAND_PRINT_BOARD,
+    COMMAND_RIGHT_CLICK,
+    COMMAND_WAIT,
+    COMMENT_LINE_PREFIX,
+    PRINT_TARGET_BOARD,
+    WAIT_COMMAND_ARG_COUNT,
+)
 from shared.engine.input_commands import (
     ClickCommand,
     GameCommand,
@@ -29,7 +41,7 @@ class CommandParseException(Exception):
 
 def _is_command_line(line: str) -> bool:
     stripped = line.strip()
-    return bool(stripped) and not stripped.startswith("#")
+    return bool(stripped) and not stripped.startswith(COMMENT_LINE_PREFIX)
 
 
 class TextCommandParser:
@@ -77,20 +89,20 @@ class TextCommandParser:
     @staticmethod
     def _build_command(keyword: str, args: List[str]) -> GameCommand:
         match keyword:
-            case "click":
+            case consts.COMMAND_CLICK:
                 return ClickCommand(pos=TextCommandParser._parse_cell_args(keyword, args))
-            case "right_click":
+            case consts.COMMAND_RIGHT_CLICK:
                 return RightClickCommand(pos=TextCommandParser._parse_cell_args(keyword, args))
-            case "wait":
+            case consts.COMMAND_WAIT:
                 return WaitCommand(ms=TextCommandParser._parse_duration_args(args))
-            case "print":
+            case consts.COMMAND_PRINT:
                 return TextCommandParser._build_print_command(args)
             case _:
                 raise CommandParseException(f"Unknown command: {keyword!r}")
 
     @staticmethod
     def _parse_cell_args(keyword: str, args: List[str]) -> Position:
-        if len(args) != 2:
+        if len(args) != CELL_COMMAND_ARG_COUNT:
             raise CommandParseException(
                 f"{keyword!r} expects 'row col', got {len(args)} argument(s)"
             )
@@ -98,15 +110,15 @@ class TextCommandParser:
 
     @staticmethod
     def _parse_duration_args(args: List[str]) -> int:
-        if len(args) != 1:
+        if len(args) != WAIT_COMMAND_ARG_COUNT:
             raise CommandParseException(
-                f"'wait' expects 'ms', got {len(args)} argument(s)"
+                f"'{COMMAND_WAIT}' expects 'ms', got {len(args)} argument(s)"
             )
         return int(args[0])
 
     @staticmethod
     def _build_print_command(args: List[str]) -> PrintBoardCommand:
-        if [arg.lower() for arg in args] != ["board"]:
+        if [arg.lower() for arg in args] != [PRINT_TARGET_BOARD]:
             raise CommandParseException(f"Invalid print target: {' '.join(args)!r}")
         return PrintBoardCommand()
 
@@ -124,15 +136,15 @@ class TextCommandFormatter:
         """Render *command* as the DSL line that parses back into it."""
         match command:
             case ClickCommand(pos):
-                return f"click {pos.row} {pos.col}"
+                return f"{COMMAND_CLICK} {pos.row} {pos.col}"
             case RequestMoveCommand(source, target):
-                return f"move {source.row} {source.col} {target.row} {target.col}"
+                return f"{COMMAND_MOVE} {source.row} {source.col} {target.row} {target.col}"
             case RightClickCommand(pos):
-                return f"right_click {pos.row} {pos.col}"
+                return f"{COMMAND_RIGHT_CLICK} {pos.row} {pos.col}"
             case WaitCommand(ms):
-                return f"wait {ms}"
+                return f"{COMMAND_WAIT} {ms}"
             case PrintBoardCommand():
-                return "print board"
+                return COMMAND_PRINT_BOARD
             case _:
                 raise CommandParseException(
                     f"Cannot format unsupported command: {type(command).__name__}"

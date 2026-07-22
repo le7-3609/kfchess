@@ -71,6 +71,10 @@ class GameService:
         self._history_store = history_store
         self._event_bus = event_bus
 
+        # Re-entrancy guard: a bot command executed here can publish events
+        # that would otherwise re-trigger the bot within the same reaction.
+        self._in_bot_reaction = False
+
         self._snapshot_builder: Optional[SnapshotBuilder] = None
         if arbiter is not None:
             self._snapshot_builder = SnapshotBuilder(engine=engine, arbiter=arbiter, config=self._config)
@@ -283,7 +287,7 @@ class GameService:
         player.promotion_rank = promotion_rank
 
     def _trigger_bot_reaction_if_active(self) -> None:
-        if getattr(self, "_in_bot_reaction", False):
+        if self._in_bot_reaction:
             return
         if self._bot and not self._state_repo.get_state().game_over:
             self._in_bot_reaction = True

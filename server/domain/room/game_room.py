@@ -30,6 +30,13 @@ from server.domain.room.room_role import RoomRole
 
 _LOGGER = logging.getLogger(__name__)
 
+# Duck-typed session attributes probed with getattr — a session object may be
+# a human seat, a bot adapter, or a test double.
+_ATTR_IS_BOT = "is_bot"
+_ATTR_USERNAME = "username"
+_UNKNOWN_USERNAME_LABEL = "?"
+_EMPTY_SQUARE_LABEL = "empty"
+
 
 class RoomState(Enum):
     WAITING = "waiting"
@@ -193,8 +200,8 @@ class GameRoom:
         if opponent_session is None:
             return None
 
-        involves_bot = getattr(disconnected_session, "is_bot", False) or getattr(
-            opponent_session, "is_bot", False
+        involves_bot = getattr(disconnected_session, _ATTR_IS_BOT, False) or getattr(
+            opponent_session, _ATTR_IS_BOT, False
         )
         if involves_bot:
             return None
@@ -225,7 +232,7 @@ class GameRoom:
         if white is None or black is None:
             return None
 
-        if getattr(white, "is_bot", False) or getattr(black, "is_bot", False):
+        if getattr(white, _ATTR_IS_BOT, False) or getattr(black, _ATTR_IS_BOT, False):
             return None
 
         if winner_color is None:
@@ -278,7 +285,7 @@ class GameRoom:
         if session is not self._white_player and session is not self._black_player:
             _LOGGER.warning(
                 "Non-player session %s attempted to move in room %s",
-                getattr(session, "username", "?"), self._room_id,
+                getattr(session, _ATTR_USERNAME, _UNKNOWN_USERNAME_LABEL), self._room_id,
             )
             return Result.fail("Spectators cannot submit moves")
 
@@ -296,7 +303,7 @@ class GameRoom:
         if piece is None or piece.color != session.color:
             _LOGGER.warning(
                 "Player %s (%s) attempted to move piece at %s (%s)",
-                session.username, session.color, from_sq, piece.color if piece else "empty"
+                session.username, session.color, from_sq, piece.color if piece else _EMPTY_SQUARE_LABEL
             )
             return Result.fail(f"No piece of your color at {from_sq}")
 

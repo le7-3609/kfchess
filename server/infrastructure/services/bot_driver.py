@@ -21,6 +21,7 @@ from shared.engine.input_commands import GameCommand
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BOT_MOVE_INTERVAL_SECONDS = 1.0
+DEFAULT_BOT_NAME = "bot"
 
 
 class BotDriver:
@@ -32,7 +33,7 @@ class BotDriver:
         submit_command: Callable[[GameCommand], "asyncio.Future"],
         is_game_over: Callable[[], bool],
         move_interval_seconds: float = DEFAULT_BOT_MOVE_INTERVAL_SECONDS,
-        bot_name: str = "bot",
+        bot_name: str = DEFAULT_BOT_NAME,
     ) -> None:
         if move_interval_seconds <= 0:
             raise ValueError("move_interval_seconds must be positive")

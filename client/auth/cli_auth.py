@@ -15,15 +15,22 @@ from typing import Any, Callable, Dict, NoReturn
 
 import websockets
 
+from client.network.protocol import (
+    AUTH_ACTION_LOGIN,
+    AUTH_ACTION_REGISTER,
+    FIELD_ACTION,
+    FIELD_ELO,
+    FIELD_MESSAGE,
+    FIELD_PASSWORD,
+    FIELD_TYPE,
+    FIELD_USERNAME,
+    MSG_TYPE_AUTH,
+    MSG_TYPE_ERROR,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 AUTH_TIMEOUT_SECONDS = 10.0
-
-# Wire protocol vocabulary (mirrors server/application/dtos; client must not import server).
-_MSG_TYPE_AUTH = "auth"
-_MSG_TYPE_ERROR = "error"
-_ACTION_LOGIN = "login"
-_ACTION_REGISTER = "register"
 
 _MENU = """
 ==================================
@@ -33,7 +40,7 @@ _MENU = """
   [2] Register
 """
 
-_MENU_ACTIONS: Dict[str, str] = {"1": _ACTION_LOGIN, "2": _ACTION_REGISTER}
+_MENU_ACTIONS: Dict[str, str] = {"1": AUTH_ACTION_LOGIN, "2": AUTH_ACTION_REGISTER}
 
 
 @dataclass(frozen=True)
@@ -90,10 +97,10 @@ def _build_auth_frame(credentials: UserCredentials) -> str:
     """Serialize credentials into the JSON auth frame the server expects."""
     return json.dumps(
         {
-            "type": _MSG_TYPE_AUTH,
-            "action": credentials.action,
-            "username": credentials.username,
-            "password": credentials.password,
+            FIELD_TYPE: MSG_TYPE_AUTH,
+            FIELD_ACTION: credentials.action,
+            FIELD_USERNAME: credentials.username,
+            FIELD_PASSWORD: credentials.password,
         }
     )
 
@@ -109,7 +116,7 @@ def _decode_response(raw_frame: str | bytes) -> Dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"server sent invalid JSON: {exc}") from exc
 
-    if not isinstance(message, dict) or "type" not in message:
+    if not isinstance(message, dict) or FIELD_TYPE not in message:
         raise ValueError("server frame is missing the 'type' field")
     return message
 
@@ -150,9 +157,9 @@ async def prompt_authentication(server_url: str) -> UserCredentials:
     except ValueError as exc:
         _fail(f"Malformed server response: {exc}")
 
-    if response.get("type") == _MSG_TYPE_ERROR:
-        _fail(f"Authentication failed: {response.get('message', 'unknown error')}")
+    if response.get(FIELD_TYPE) == MSG_TYPE_ERROR:
+        _fail(f"Authentication failed: {response.get(FIELD_MESSAGE, 'unknown error')}")
 
-    credentials = replace(credentials, elo=response.get("elo", 0))
+    credentials = replace(credentials, elo=response.get(FIELD_ELO, 0))
     print(f"\nWelcome, {credentials.username}! Authentication successful. (ELO: {credentials.elo})")
     return credentials

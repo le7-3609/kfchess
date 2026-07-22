@@ -122,6 +122,15 @@ GAME_OVER_THREEFOLD_REPETITION = "threefold_repetition"
 GAME_OVER_FIFTY_MOVE_RULE = "fifty_move_rule"
 
 # --------------------------------------------------------------------------
+# Move validation verdicts (carried by MoveValidation.reason)
+# --------------------------------------------------------------------------
+MOVE_OK = "ok"
+MOVE_REJECT_OUTSIDE_BOARD = "outside_board"
+MOVE_REJECT_EMPTY_SOURCE = "empty_source"
+MOVE_REJECT_FRIENDLY_DESTINATION = "friendly_destination"
+MOVE_REJECT_ILLEGAL_PIECE_MOVE = "illegal_piece_move"
+
+# --------------------------------------------------------------------------
 # Move-abort reasons (carried by MoveAbortedEvent)
 # --------------------------------------------------------------------------
 ABORT_REASON_FRIENDLY_COLLISION = "friendly_collision"
@@ -164,14 +173,21 @@ BOT_EMPTY_RETRY_MS = 250
 # --------------------------------------------------------------------------
 BOARD_SECTION_HEADER = "Board:"
 COMMANDS_SECTION_HEADER = "Commands:"
+EXPECTED_SECTION_HEADER = "Expected:"
 
 COMMAND_CLICK = "click"
 COMMAND_RIGHT_CLICK = "right_click"
 COMMAND_WAIT = "wait"
-COMMAND_PRINT_BOARD = "print board"
+COMMAND_MOVE = "move"
+COMMAND_PRINT = "print"
+PRINT_TARGET_BOARD = "board"
+COMMAND_PRINT_BOARD = COMMAND_PRINT + " " + PRINT_TARGET_BOARD
+COMMENT_LINE_PREFIX = "#"
 
 CLICK_COMMAND_PART_COUNT = 3
 WAIT_COMMAND_PART_COUNT = 2
+CELL_COMMAND_ARG_COUNT = 2
+WAIT_COMMAND_ARG_COUNT = 1
 
 EMPTY_SQUARE_TOKEN = "."
 PIECE_TOKEN_LENGTH = 2
@@ -229,7 +245,9 @@ DEFAULT_SAVE_NAME = "game"
 FILE_ENCODING = "utf-8"
 FILE_MODE_READ = "r"
 FILE_MODE_WRITE = "w"
+FILE_MODE_APPEND = "a"
 JSON_INDENT = 2
+LINE_SEPARATOR = "\n"
 
 SAVE_KEY_NAME = "saveName"
 SAVE_KEY_WHITE_NAME = "whiteName"

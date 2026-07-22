@@ -12,11 +12,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from server.application.auth_service import AuthService
 from server.application.game_query_service import GameQueryService
-from server.infrastructure.database.database import Database
+from server.infrastructure.database.database import DEFAULT_DB_PATH, Database
 from server.presentation.http_api import DEFAULT_HTTP_PORT, HttpApiServer
 from server.presentation.ws_server import DEFAULT_HOST, DEFAULT_PORT, KFChessServer
 
-DEFAULT_DB_PATH = "kfchess.db"
+ARG_HOST = "--host"
+ARG_PORT = "--port"
+ARG_HTTP_PORT = "--http-port"
+ARG_DB_PATH = "--db-path"
+ARG_LOG_LEVEL = "--log-level"
+
+DEFAULT_LOG_LEVEL = "INFO"
+LOG_LEVEL_CHOICES = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 async def _async_main(args: argparse.Namespace) -> None:
@@ -42,11 +49,11 @@ async def _async_main(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="KungFu Chess multiplayer server")
-    parser.add_argument("--host", default=DEFAULT_HOST, help="Bind address")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="WebSocket bind port")
-    parser.add_argument("--http-port", type=int, default=DEFAULT_HTTP_PORT, help="HTTP API bind port")
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="SQLite database file path")
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(ARG_HOST, default=DEFAULT_HOST, help="Bind address")
+    parser.add_argument(ARG_PORT, type=int, default=DEFAULT_PORT, help="WebSocket bind port")
+    parser.add_argument(ARG_HTTP_PORT, type=int, default=DEFAULT_HTTP_PORT, help="HTTP API bind port")
+    parser.add_argument(ARG_DB_PATH, default=DEFAULT_DB_PATH, help="SQLite database file path")
+    parser.add_argument(ARG_LOG_LEVEL, default=DEFAULT_LOG_LEVEL, choices=LOG_LEVEL_CHOICES)
     args = parser.parse_args()
 
     logging.basicConfig(

@@ -29,7 +29,10 @@ from client.controllers.game_controller import (
     IGameController,
     NoticeLevel,
 )
+from client.network import protocol
 from client.network.network_client import (
+    FIELD_ATTEMPT,
+    FIELD_DELAY_SECONDS,
     MSG_TYPE_CONNECTION_STATUS,
     NetworkClient,
     STATUS_CONNECTED,
@@ -43,21 +46,6 @@ from client.ui import consts as ui_consts
 
 _LOGGER = logging.getLogger(__name__)
 
-# Wire protocol vocabulary (mirrors server/application/dtos; client must not import server).
-_MSG_TYPE_GAME_STATE = "game_state"
-_MSG_TYPE_GAME_START = "game_start"
-_MSG_TYPE_ROOM_CREATED = "room_created"
-_MSG_TYPE_ERROR = "error"
-_MSG_TYPE_OPPONENT_DISCONNECTED = "opponent_disconnected"
-_MSG_TYPE_COUNTDOWN_TICK = "countdown_tick"
-_MSG_TYPE_OPPONENT_RECONNECTED = "opponent_reconnected"
-_MSG_TYPE_FORFEIT_VICTORY = "forfeit_victory"
-_MSG_TYPE_GAME_END = "game_end"
-_MSG_TYPE_EVENT_PIECE_MOVED = "event_piece_moved"
-_MSG_TYPE_EVENT_SCORE_UPDATED = "event_score_updated"
-_MSG_TYPE_EVENT_PIECE_CAPTURED = "event_piece_captured"
-
-_GAME_END_REASON_DISCONNECTION_TIMEOUT = "disconnection_timeout"
 _VIEWER_COLOR = "viewer"
 
 _PLACEHOLDER_OPPONENT_NAME = "Waiting for opponent..."
@@ -69,7 +57,10 @@ _DEFAULT_OPPONENT_LABEL = "Your opponent"
 # Maps this seat's "w"/"b" color onto the game_end frame's white/black rating
 # keys — the frame speaks in seat names, the rest of the client in the terser
 # color codes.
-_RATING_KEY_BY_COLOR = {consts.COLOR_WHITE: "white", consts.COLOR_BLACK: "black"}
+_RATING_KEY_BY_COLOR = {
+    consts.COLOR_WHITE: protocol.FIELD_WHITE,
+    consts.COLOR_BLACK: protocol.FIELD_BLACK,
+}
 
 
 class NetworkGameController(IGameController):
@@ -89,19 +80,19 @@ class NetworkGameController(IGameController):
         self._disconnected_opponent_name: Optional[str] = None
 
         self._handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {
-            _MSG_TYPE_GAME_STATE: self._on_game_state,
-            _MSG_TYPE_GAME_START: self._on_game_start,
-            _MSG_TYPE_ROOM_CREATED: self._on_room_created,
-            _MSG_TYPE_EVENT_PIECE_MOVED: self._on_piece_moved,
-            _MSG_TYPE_EVENT_SCORE_UPDATED: self._on_score_updated,
-            _MSG_TYPE_EVENT_PIECE_CAPTURED: self._on_piece_captured,
-            _MSG_TYPE_OPPONENT_DISCONNECTED: self._on_opponent_disconnected,
-            _MSG_TYPE_COUNTDOWN_TICK: self._on_countdown_tick,
-            _MSG_TYPE_OPPONENT_RECONNECTED: self._on_opponent_reconnected,
-            _MSG_TYPE_FORFEIT_VICTORY: self._on_forfeit_victory,
-            _MSG_TYPE_GAME_END: self._on_game_end,
+            protocol.MSG_TYPE_GAME_STATE: self._on_game_state,
+            protocol.MSG_TYPE_GAME_START: self._on_game_start,
+            protocol.MSG_TYPE_ROOM_CREATED: self._on_room_created,
+            protocol.MSG_TYPE_EVENT_PIECE_MOVED: self._on_piece_moved,
+            protocol.MSG_TYPE_EVENT_SCORE_UPDATED: self._on_score_updated,
+            protocol.MSG_TYPE_EVENT_PIECE_CAPTURED: self._on_piece_captured,
+            protocol.MSG_TYPE_OPPONENT_DISCONNECTED: self._on_opponent_disconnected,
+            protocol.MSG_TYPE_COUNTDOWN_TICK: self._on_countdown_tick,
+            protocol.MSG_TYPE_OPPONENT_RECONNECTED: self._on_opponent_reconnected,
+            protocol.MSG_TYPE_FORFEIT_VICTORY: self._on_forfeit_victory,
+            protocol.MSG_TYPE_GAME_END: self._on_game_end,
             MSG_TYPE_CONNECTION_STATUS: self._on_connection_status,
-            _MSG_TYPE_ERROR: self._on_error,
+            protocol.MSG_TYPE_ERROR: self._on_error,
         }
 
         # Connection-status → notice builder, declared once so a new status is a
@@ -167,24 +158,24 @@ class NetworkGameController(IGameController):
         self._listener = None
 
     def _dispatch(self, message: Dict[str, Any]) -> None:
-        handler = self._handlers.get(message.get("type"))
+        handler = self._handlers.get(message.get(protocol.FIELD_TYPE))
         if handler is not None and self._listener is not None:
             handler(message)
 
     def _on_game_state(self, message: Dict[str, Any]) -> None:
-        state = message.get("state")
+        state = message.get(protocol.FIELD_STATE)
         if state is None:
             return
         self._listener.on_snapshot(decode_game_snapshot(state))
 
     def _on_game_start(self, message: Dict[str, Any]) -> None:
-        self._assigned_color = message.get("color")
+        self._assigned_color = message.get(protocol.FIELD_COLOR)
         self._is_viewer = self._assigned_color == _VIEWER_COLOR
-        self._room_id = message.get("room_id")
+        self._room_id = message.get(protocol.FIELD_ROOM_ID)
         self._listener.on_session_started(
             GameSessionInfo(
                 assigned_color=None if self._is_viewer else self._assigned_color,
-                opponent_name=message.get("opponent") or _PLACEHOLDER_OPPONENT_NAME,
+                opponent_name=message.get(protocol.FIELD_OPPONENT) or _PLACEHOLDER_OPPONENT_NAME,
                 room_id=self._room_id,
                 is_viewer=self._is_viewer,
             )
@@ -197,7 +188,7 @@ class NetworkGameController(IGameController):
         needs the room id to pass on — hence a placeholder opponent plus a
         notice that stands until `game_start` supersedes it.
         """
-        self._room_id = message.get("room_id")
+        self._room_id = message.get(protocol.FIELD_ROOM_ID)
         self._listener.on_session_started(
             GameSessionInfo(
                 assigned_color=None,
@@ -214,34 +205,36 @@ class NetworkGameController(IGameController):
 
     def _on_piece_moved(self, message: Dict[str, Any]) -> None:
         notation = (
-            f"{message['piece_type']}{message['from']}"
-            f"{consts.NOTATION_MOVE_SEPARATOR}{message['to']}"
+            f"{message[protocol.FIELD_PIECE_TYPE]}{message[protocol.FIELD_FROM]}"
+            f"{consts.NOTATION_MOVE_SEPARATOR}{message[protocol.FIELD_TO]}"
         )
         self._listener.on_move_recorded(
             MoveLogEntry(
-                color=message["color"],
+                color=message[protocol.FIELD_COLOR],
                 notation=notation,
-                time_ms=message.get("at_ms", 0),
+                time_ms=message.get(protocol.FIELD_AT_MS, 0),
             )
         )
 
     def _on_score_updated(self, message: Dict[str, Any]) -> None:
         self._listener.on_score_changed(
-            message.get("white_score", consts.STARTING_SCORE),
-            message.get("black_score", consts.STARTING_SCORE),
+            message.get(protocol.FIELD_WHITE_SCORE, consts.STARTING_SCORE),
+            message.get(protocol.FIELD_BLACK_SCORE, consts.STARTING_SCORE),
         )
 
     def _on_piece_captured(self, message: Dict[str, Any]) -> None:
-        square = message.get("pos")
+        square = message.get(protocol.FIELD_POS)
         if square:
-            self._listener.on_capture(parse_square(square), message.get("at_ms", 0))
+            self._listener.on_capture(parse_square(square), message.get(protocol.FIELD_AT_MS, 0))
 
     def _on_opponent_disconnected(self, message: Dict[str, Any]) -> None:
-        self._disconnected_opponent_name = message.get("username") or _DEFAULT_OPPONENT_LABEL
-        self._show_disconnect_countdown(message.get("countdown_seconds", 0))
+        self._disconnected_opponent_name = (
+            message.get(protocol.FIELD_USERNAME) or _DEFAULT_OPPONENT_LABEL
+        )
+        self._show_disconnect_countdown(message.get(protocol.FIELD_COUNTDOWN_SECONDS, 0))
 
     def _on_countdown_tick(self, message: Dict[str, Any]) -> None:
-        self._show_disconnect_countdown(message.get("seconds_remaining", 0))
+        self._show_disconnect_countdown(message.get(protocol.FIELD_SECONDS_REMAINING, 0))
 
     def _show_disconnect_countdown(self, seconds_remaining: int) -> None:
         name = self._disconnected_opponent_name or _DEFAULT_OPPONENT_LABEL
@@ -270,20 +263,23 @@ class NetworkGameController(IGameController):
         supersedes that notice rather than fighting it.
         """
         self._disconnected_opponent_name = None
-        winner = message.get("winner")
-        text = self._describe_game_end(message.get("reason", ""), winner)
+        winner = message.get(protocol.FIELD_WINNER)
+        text = self._describe_game_end(message.get(protocol.FIELD_REASON, ""), winner)
         outcome = None if winner is None else winner == self._assigned_color
 
         rating_key = _RATING_KEY_BY_COLOR.get(self._assigned_color)
         rating = message.get(rating_key) if rating_key else None
         if rating is not None:
-            text += f"\nNew rating: {rating['new_elo']} ({rating['elo_change']:+d})"
+            text += (
+                f"\nNew rating: {rating[protocol.FIELD_NEW_ELO]}"
+                f" ({rating[protocol.FIELD_ELO_CHANGE]:+d})"
+            )
 
         self._listener.on_notice(GameNotice(NoticeLevel.TERMINAL, text, outcome))
 
     def _describe_game_end(self, reason: str, winner: Optional[str]) -> str:
         won = winner is not None and winner == self._assigned_color
-        if reason == _GAME_END_REASON_DISCONNECTION_TIMEOUT:
+        if reason == protocol.GAME_END_REASON_DISCONNECTION_TIMEOUT:
             return (
                 "Your opponent forfeited by disconnecting — you win!"
                 if won
@@ -295,13 +291,13 @@ class NetworkGameController(IGameController):
 
     def _on_connection_status(self, message: Dict[str, Any]) -> None:
         """Turn NetworkClient's synthetic status frames into notices."""
-        builder = self._status_notices.get(message.get("status"))
+        builder = self._status_notices.get(message.get(protocol.FIELD_STATUS))
         if builder is not None:
             self._listener.on_notice(builder(message))
 
     def _reconnecting_notice(self, message: Dict[str, Any]) -> GameNotice:
-        attempt = message.get("attempt")
-        delay_seconds = message.get("delay_seconds", 0.0)
+        attempt = message.get(FIELD_ATTEMPT)
+        delay_seconds = message.get(FIELD_DELAY_SECONDS, 0.0)
         return GameNotice(
             NoticeLevel.TRANSIENT,
             f"Connection lost. Reconnecting… "
@@ -309,4 +305,4 @@ class NetworkGameController(IGameController):
         )
 
     def _on_error(self, message: Dict[str, Any]) -> None:
-        _LOGGER.warning("Server error: %s", message.get("message"))
+        _LOGGER.warning("Server error: %s", message.get(protocol.FIELD_MESSAGE))

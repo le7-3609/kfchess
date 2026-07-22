@@ -24,77 +24,83 @@ from shared.events import (
     PiecePromotedEvent,
     ScoreUpdatedEvent,
 )
+from server.application.dtos import frame_fields as ff
+from server.application.dtos import network_frames as nf
 from server.application.dtos.protocol_mapper import AlgebraicParser
 
 _LOGGER = logging.getLogger(__name__)
+
+# Duck-typed send hooks a recipient may expose, probed in this order.
+_ATTR_SEND = "send"
+_ATTR_SEND_MESSAGE = "send_message"
 
 # Maps a domain event type onto the wire frame it becomes. Declared once so
 # adding an event means adding a row here, not another branch in a growing
 # isinstance chain. Every builder takes the event and returns a plain dict.
 _EVENT_SERIALIZERS: Dict[type, Callable[[Event], Dict[str, Any]]] = {
     GameStartedEvent: lambda event: {
-        "type": "event_game_started",
-        "rows": event.rows,
-        "cols": event.cols,
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_GAME_STARTED,
+        ff.FIELD_ROWS: event.rows,
+        ff.FIELD_COLS: event.cols,
+        ff.FIELD_AT_MS: event.at_ms,
     },
     MoveStartedEvent: lambda event: {
-        "type": "event_move_started",
-        "color": event.color,
-        "piece_type": event.piece_type,
-        "from": AlgebraicParser.format_square(event.frm),
-        "to": AlgebraicParser.format_square(event.to),
-        "arrival_ms": event.arrival_ms,
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_MOVE_STARTED,
+        ff.FIELD_COLOR: event.color,
+        ff.FIELD_PIECE_TYPE: event.piece_type,
+        ff.FIELD_FROM: AlgebraicParser.format_square(event.frm),
+        ff.FIELD_TO: AlgebraicParser.format_square(event.to),
+        ff.FIELD_ARRIVAL_MS: event.arrival_ms,
+        ff.FIELD_AT_MS: event.at_ms,
     },
     PieceMovedEvent: lambda event: {
-        "type": "event_piece_moved",
-        "color": event.color,
-        "piece_type": event.piece_type,
-        "from": AlgebraicParser.format_square(event.frm),
-        "to": AlgebraicParser.format_square(event.to),
-        "was_capture": event.was_capture,
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_PIECE_MOVED,
+        ff.FIELD_COLOR: event.color,
+        ff.FIELD_PIECE_TYPE: event.piece_type,
+        ff.FIELD_FROM: AlgebraicParser.format_square(event.frm),
+        ff.FIELD_TO: AlgebraicParser.format_square(event.to),
+        ff.FIELD_WAS_CAPTURE: event.was_capture,
+        ff.FIELD_AT_MS: event.at_ms,
     },
     PieceCapturedEvent: lambda event: {
-        "type": "event_piece_captured",
-        "color": event.color,
-        "piece_type": event.piece_type,
-        "pos": AlgebraicParser.format_square(event.pos),
-        "captor_color": event.captor_color,
-        "captor_piece_type": event.captor_piece_type,
-        "captor_from": AlgebraicParser.format_square(event.captor_frm),
-        "captor_to": AlgebraicParser.format_square(event.captor_to),
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_PIECE_CAPTURED,
+        ff.FIELD_COLOR: event.color,
+        ff.FIELD_PIECE_TYPE: event.piece_type,
+        ff.FIELD_POS: AlgebraicParser.format_square(event.pos),
+        ff.FIELD_CAPTOR_COLOR: event.captor_color,
+        ff.FIELD_CAPTOR_PIECE_TYPE: event.captor_piece_type,
+        ff.FIELD_CAPTOR_FROM: AlgebraicParser.format_square(event.captor_frm),
+        ff.FIELD_CAPTOR_TO: AlgebraicParser.format_square(event.captor_to),
+        ff.FIELD_AT_MS: event.at_ms,
     },
     MoveAbortedEvent: lambda event: {
-        "type": "event_move_aborted",
-        "color": event.color,
-        "piece_type": event.piece_type,
-        "from": AlgebraicParser.format_square(event.frm),
-        "stopped_at": AlgebraicParser.format_square(event.stopped_at),
-        "reason": event.reason,
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_MOVE_ABORTED,
+        ff.FIELD_COLOR: event.color,
+        ff.FIELD_PIECE_TYPE: event.piece_type,
+        ff.FIELD_FROM: AlgebraicParser.format_square(event.frm),
+        ff.FIELD_STOPPED_AT: AlgebraicParser.format_square(event.stopped_at),
+        ff.FIELD_REASON: event.reason,
+        ff.FIELD_AT_MS: event.at_ms,
     },
     PiecePromotedEvent: lambda event: {
-        "type": "event_piece_promoted",
-        "color": event.color,
-        "from_piece_type": event.from_piece_type,
-        "to_piece_type": event.to_piece_type,
-        "pos": AlgebraicParser.format_square(event.pos),
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_PIECE_PROMOTED,
+        ff.FIELD_COLOR: event.color,
+        ff.FIELD_FROM_PIECE_TYPE: event.from_piece_type,
+        ff.FIELD_TO_PIECE_TYPE: event.to_piece_type,
+        ff.FIELD_POS: AlgebraicParser.format_square(event.pos),
+        ff.FIELD_AT_MS: event.at_ms,
     },
     ScoreUpdatedEvent: lambda event: {
-        "type": "event_score_updated",
-        "white_score": event.white_score,
-        "black_score": event.black_score,
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_SCORE_UPDATED,
+        ff.FIELD_WHITE_SCORE: event.white_score,
+        ff.FIELD_BLACK_SCORE: event.black_score,
+        ff.FIELD_AT_MS: event.at_ms,
     },
     GameEndedEvent: lambda event: {
-        "type": "event_game_ended",
-        "reason": event.reason,
-        "winner": event.winner,
-        "at_ms": event.at_ms,
+        ff.FIELD_TYPE: nf.MSG_EVENT_GAME_ENDED,
+        ff.FIELD_REASON: event.reason,
+        ff.FIELD_WINNER: event.winner,
+        ff.FIELD_AT_MS: event.at_ms,
     },
 }
 
@@ -128,9 +134,9 @@ class NetworkBroadcastObserver(Observer):
     async def _broadcast(self, payload: Dict[str, Any]) -> None:
         for recipient in list(self._recipients):
             try:
-                if hasattr(recipient, "send"):
+                if hasattr(recipient, _ATTR_SEND):
                     await recipient.send(payload)
-                elif hasattr(recipient, "send_message"):
+                elif hasattr(recipient, _ATTR_SEND_MESSAGE):
                     await recipient.send_message(payload)
             except Exception as exc:
                 _LOGGER.warning("Broadcast send failed for recipient %r: %s", recipient, exc)

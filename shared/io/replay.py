@@ -9,6 +9,12 @@ script path; translation both ways is io/command_parser.py's job.
 
 from typing import List
 
+from shared.config.consts import (
+    FILE_ENCODING,
+    FILE_MODE_APPEND,
+    FILE_MODE_READ,
+    LINE_SEPARATOR,
+)
 from shared.engine.input_commands import GameCommand
 from shared.io.command_parser import (
     CommandParseException,
@@ -22,8 +28,8 @@ class ReplayWriter:
         self._filename = filename
 
     def write_command(self, command: GameCommand) -> None:
-        with open(self._filename, "a", encoding="utf-8") as f:
-            f.write(TextCommandFormatter.format_command(command) + "\n")
+        with open(self._filename, FILE_MODE_APPEND, encoding=FILE_ENCODING) as f:
+            f.write(TextCommandFormatter.format_command(command) + LINE_SEPARATOR)
 
 
 class ReplayReader:
@@ -38,7 +44,7 @@ class ReplayReader:
         the moves that did survive.
         """
         try:
-            with open(self._filename, "r", encoding="utf-8") as f:
+            with open(self._filename, FILE_MODE_READ, encoding=FILE_ENCODING) as f:
                 lines = f.readlines()
         except FileNotFoundError:
             return []

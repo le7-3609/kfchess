@@ -28,10 +28,16 @@ from server.domain.matchmaking.queue import MatchmakingQueue
 from server.domain.room.room_role import RoomRole
 from server.infrastructure.database.database import Database
 from server.infrastructure.services.bot_driver import DEFAULT_BOT_MOVE_INTERVAL_SECONDS
+from server.application.dtos.frame_fields import (
+    FIELD_MESSAGE,
+    FIELD_TYPE,
+    FIELD_USERNAME,
+)
 from server.application.dtos.network_frames import (
     MSG_AUTH,
     MSG_CANCEL_SEARCH,
     MSG_CREATE_ROOM,
+    MSG_INFO,
     MSG_JOIN_ROOM,
     MSG_MOVE,
     MSG_PING,
@@ -223,7 +229,7 @@ class KFChessServer:
         """Turn the post-auth handshake frame into a registered, routable session."""
         user_id, username, elo = identity
 
-        if handshake.get("type") == MSG_RECONNECT:
+        if handshake.get(FIELD_TYPE) == MSG_RECONNECT:
             session = await self._handle_reconnect_handshake(websocket, handshake, username)
             if session is None:
                 return None
@@ -251,7 +257,7 @@ class KFChessServer:
             if frame is None:
                 return None
 
-            if frame.get("type") != MSG_AUTH:
+            if frame.get(FIELD_TYPE) != MSG_AUTH:
                 await self._safe_send(
                     websocket, build_error_message("First message must be an 'auth' handshake")
                 )
@@ -309,13 +315,13 @@ class KFChessServer:
             await session.send(build_error_message(result.error))
             return
         if result.value == RoomRole.VIEWER:
-            await session.send({"type": "info", "message": "Joined room as spectator"})
+            await session.send({FIELD_TYPE: MSG_INFO, FIELD_MESSAGE: "Joined room as spectator"})
 
     async def _handle_move(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
         await self._reply_on_failure(session, await self._game.submit_move(session, msg))
 
     async def _handle_ping(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
-        await session.send({"type": MSG_PONG})
+        await session.send({FIELD_TYPE: MSG_PONG})
 
     async def _handle_reconnect_handshake(
         self, websocket: Any, handshake: Dict[str, Any], authenticated_username: str
@@ -326,7 +332,7 @@ class KFChessServer:
         because on this path there is no session yet to send through.
         """
         result = await self._game.reconnect(
-            authenticated_username, handshake.get("username"), websocket
+            authenticated_username, handshake.get(FIELD_USERNAME), websocket
         )
         if not result.is_ok:
             await self._safe_send(websocket, build_error_message(result.error))
@@ -360,7 +366,7 @@ class KFChessServer:
         Shared by the post-auth handshake frame and the steady-state message
         loop, so a lobby action means the same thing whenever it arrives.
         """
-        msg_type = msg.get("type")
+        msg_type = msg.get(FIELD_TYPE)
         handler = self._message_handlers.get(msg_type)
         if handler is None:
             await session.send(build_error_message(f"Unhandled message type: {msg_type!r}"))

@@ -166,8 +166,7 @@ SPRITE_TRANSPARENT_RGBA = (0, 0, 0, 0)
 # Sound cues
 # --------------------------------------------------------------------------
 SOUNDS_DIR_NAME = "sounds"
-SOUND_FILE_MOVE = "move.wav"
-SOUND_FILE_WIN = "TADA.WAV"
+SOUND_FILE_WIN = "tada.wav"
 SOUND_FILE_LOSE = "fail.wav"
 
 # --------------------------------------------------------------------------
@@ -177,6 +176,88 @@ SOUND_FILE_LOSE = "fail.wav"
 # resting rather than the window freezing the instant it touches down.
 REPLAY_END_PAD_MS = 1500
 REPLAY_MIN_SCRUBBER_MS = 1
+
+REPLAY_BUTTON_WIDTH = 8
+REPLAY_TIME_LABEL_WIDTH = 10
+REPLAY_PLAY_LABEL = "Play"
+REPLAY_PAUSE_LABEL = "Pause"
+REPLAY_RESTART_LABEL = "Restart"
+
+# --------------------------------------------------------------------------
+# Fonts and spacing (Tk windows)
+# --------------------------------------------------------------------------
+UI_FONT_FAMILY = "Helvetica"
+FONT_WEIGHT_BOLD = "bold"
+TITLE_FONT_SIZE = 20
+BODY_FONT_SIZE = 11
+ENTRY_FONT_SIZE = 12
+SECTION_TITLE_FONT_SIZE = 12
+
+# Spacing ladder (px) — Tk padding values pick from these steps so sibling
+# widgets stay on one rhythm instead of each inventing its own gap.
+SPACING_XS = 3
+SPACING_SM = 5
+SPACING_MD = 8
+SPACING_LG = 10
+SPACING_XL = 12
+SPACING_XXL = 15
+SPACING_TITLE = 18
+SPACING_SECTION = 20
+
+# --------------------------------------------------------------------------
+# Lobby window and its dialogs
+# --------------------------------------------------------------------------
+LOBBY_GEOMETRY = "460x380"
+MATCHMAKING_DIALOG_GEOMETRY = "340x160"
+ROOM_DIALOG_GEOMETRY = "360x200"
+OFFLINE_DIALOG_GEOMETRY = "420x440"
+
+LOBBY_FRAME_PADDING = "20 20 20 20"
+BOT_PANEL_PADDING = "12 8 12 12"
+LOBBY_BUTTON_PAD_Y = 8
+LOBBY_BUTTON_IPAD_Y = 6
+EXIT_BUTTON_IPAD_Y = 4
+ROOM_ENTRY_IPAD_X = 10
+RADIO_LABEL_WIDTH = 10
+RADIO_BUTTON_PAD_X = 4
+
+MATCHMAKING_DIALOG_TITLE = "Matchmaking"
+ROOM_DIALOG_TITLE = "Room"
+OFFLINE_DIALOG_TITLE = "Offline Game"
+
+# The lobby polls its inbound frame queue on the Tk loop at this beat.
+LOBBY_POLL_INTERVAL_MS = 200
+# Client-side fallback: give up searching if the server never answers.
+MATCHMAKING_TIMEOUT_SECONDS = 60.0
+
+# Tk protocol/window-manager hooks and widget states.
+WM_DELETE_WINDOW_PROTOCOL = "WM_DELETE_WINDOW"
+WIDGET_STATE_DISABLED = "disabled"
+DISABLED_TEXT_COLOR = "gray"
+
+# Tk event binding sequences.
+EVENT_CONFIGURE = "<Configure>"
+EVENT_LEFT_CLICK = "<Button-1>"
+EVENT_RIGHT_CLICK = "<Button-3>"
+EVENT_DOUBLE_CLICK = "<Double-Button-1>"
+ANCHOR_NORTH_WEST = "nw"
+ANCHOR_CENTER = "center"
+
+# The board sits between a left and a right side panel.
+SIDE_PANEL_COUNT = 2
+# Halving divisor used when centering a smaller box inside a larger one.
+CENTERING_DIVISOR = 2
+
+# Game window menu labels.
+MENU_LABEL_GAME = "Game"
+MENU_LABEL_SETTINGS = "Settings"
+
+# --------------------------------------------------------------------------
+# History picker dialog
+# --------------------------------------------------------------------------
+HISTORY_PICKER_TITLE = "Load History"
+HISTORY_LISTBOX_WIDTH = 50
+HISTORY_LISTBOX_MAX_ROWS = 15
 
 # --------------------------------------------------------------------------
 # User preferences file

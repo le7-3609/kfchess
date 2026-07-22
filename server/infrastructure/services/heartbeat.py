@@ -14,6 +14,16 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_PING_INTERVAL_SECONDS = 5.0
 DEFAULT_PONG_TIMEOUT_SECONDS = 3.0
 
+# Private mirror of the wire vocabulary (application/dtos): infrastructure may
+# not import application, so the ping frame's shape is restated here.
+_FIELD_TYPE = "type"
+_MSG_PING = "ping"
+
+# Duck-typed session attributes probed with getattr.
+_ATTR_SEND = "send"
+_ATTR_USERNAME = "username"
+_UNKNOWN_USERNAME = "unknown"
+
 
 class HeartbeatMonitor:
     """Monitors active WebSocket sessions via periodic ping/pong."""
@@ -64,13 +74,16 @@ class HeartbeatMonitor:
         for session in list(self._last_pong.keys()):
             last = self._last_pong.get(session, 0.0)
             if (now - last) > (self._ping_interval + self._pong_timeout):
-                _LOGGER.warning("Heartbeat timeout for session %s", getattr(session, "username", "unknown"))
+                _LOGGER.warning(
+                    "Heartbeat timeout for session %s",
+                    getattr(session, _ATTR_USERNAME, _UNKNOWN_USERNAME),
+                )
                 if self._on_disconnect:
                     self._on_disconnect(session)
                 self.unregister_session(session)
             else:
                 try:
-                    if hasattr(session, "send"):
-                        await session.send({"type": "ping"})
+                    if hasattr(session, _ATTR_SEND):
+                        await session.send({_FIELD_TYPE: _MSG_PING})
                 except Exception:
                     pass

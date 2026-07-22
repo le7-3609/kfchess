@@ -24,6 +24,9 @@ from shared.realtime.proxy_board import ProxyBoard
 from shared.realtime.collision_resolver import CollisionResolver
 from shared.realtime.arrival_resolver import ArrivalResolver
 
+# Duck-typed hook: only speed-based duration strategies expose this setter.
+_ATTR_SET_MS_PER_SQUARE = "set_ms_per_square"
+
 
 class RealTimeArbiter(RealTimeArbiterInterface):
     """Manages active motions, calculates arrival times, and resolves arrivals.
@@ -113,7 +116,7 @@ class RealTimeArbiter(RealTimeArbiterInterface):
         """Apply new movement-speed / cooldown preferences at runtime."""
         self._config.cooldown_duration_ms = cooldown_ms
         self._config.ms_per_square = ms_per_square
-        if hasattr(self._duration_strategy, "set_ms_per_square"):
+        if hasattr(self._duration_strategy, _ATTR_SET_MS_PER_SQUARE):
             self._duration_strategy.set_ms_per_square(ms_per_square)
 
     def get_position_at(self, mov: Movement, t: int) -> Position:

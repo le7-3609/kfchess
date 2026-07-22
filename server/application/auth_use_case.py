@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from shared.model.game_state import Result
 
 from server.application.dtos import Identity
+from server.application.dtos.frame_fields import FIELD_ACTION, FIELD_PASSWORD, FIELD_USERNAME
 from server.application.auth_service import AuthService
 
 AUTH_ACTION_LOGIN = "login"
@@ -34,12 +35,12 @@ class AuthUseCase:
         if self._auth_service is None:
             return Result.fail("Server authentication is not configured")
 
-        username = frame.get("username")
-        password = frame.get("password")
+        username = frame.get(FIELD_USERNAME)
+        password = frame.get(FIELD_PASSWORD)
         if not username or not password:
             return Result.fail("Auth message requires 'username' and 'password'")
 
-        action = frame.get("action")
+        action = frame.get(FIELD_ACTION)
         if action == AUTH_ACTION_REGISTER:
             return await self._auth_service.register(username, password)
         if action == AUTH_ACTION_LOGIN:

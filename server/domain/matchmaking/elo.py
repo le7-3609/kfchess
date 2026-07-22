@@ -18,6 +18,14 @@ DEFAULT_K_FACTOR = 20
 _ELO_SCALING_BASE = 10
 _ELO_SCALING_DIVISOR = 400
 
+# Rating every account starts from; also assumed for a seat whose stored
+# rating is unavailable.
+DEFAULT_PLAYER_ELO = 1200
+
+_WIN_SCORE = 1.0
+_LOSS_SCORE = 0.0
+_DRAW_SCORE = 0.5
+
 
 def expected_score(player_elo: int, opponent_elo: int) -> float:
     """Compute the expected score E_A for a player against an opponent.
@@ -49,11 +57,11 @@ def calculate_elo(
     expected_loser = expected_score(loser_elo, winner_elo)
 
     if draw:
-        actual_winner = 0.5
-        actual_loser = 0.5
+        actual_winner = _DRAW_SCORE
+        actual_loser = _DRAW_SCORE
     else:
-        actual_winner = 1.0
-        actual_loser = 0.0
+        actual_winner = _WIN_SCORE
+        actual_loser = _LOSS_SCORE
 
     new_winner = round(winner_elo + k * (actual_winner - expected_winner))
     new_loser = round(loser_elo + k * (actual_loser - expected_loser))
