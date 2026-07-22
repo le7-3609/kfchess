@@ -63,6 +63,8 @@ _EVENT_SERIALIZERS: Dict[type, Callable[[Event], Dict[str, Any]]] = {
         "pos": AlgebraicParser.format_square(event.pos),
         "captor_color": event.captor_color,
         "captor_piece_type": event.captor_piece_type,
+        "captor_from": AlgebraicParser.format_square(event.captor_frm),
+        "captor_to": AlgebraicParser.format_square(event.captor_to),
         "at_ms": event.at_ms,
     },
     MoveAbortedEvent: lambda event: {

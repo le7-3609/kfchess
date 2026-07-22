@@ -16,10 +16,11 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from shared.bot_factory import build_random_bot
 from shared.config import consts
-from shared.events import Event, GameEndedEvent, Observer
+from shared.events import Event, GameEndedEvent, Observer, PieceCapturedEvent
 from shared.model.game_state import Result
 from shared.runtime.async_runner import AsyncGameRunner
 from server.application.broadcast_observer import NetworkBroadcastObserver
+from server.application.capture_log import CaptureLog
 from server.application.game_persistence_service import GamePersistenceService
 from server.application.game_result import GameResult, PersistedMove, persisted_moves_from_log
 from server.infrastructure.database.database import Database
@@ -107,6 +108,9 @@ class GameRoom:
         self._core: Optional[Any] = None
         self._runner: Optional[AsyncGameRunner] = None
         self._broadcast_observer: Optional[NetworkBroadcastObserver] = None
+        # Records what each capture removed, so a persisted move can name the
+        # piece it took — MovesLog carries the move but drops that flag.
+        self._capture_log = CaptureLog()
         self._bot_driver: Optional[BotDriver] = None
         self._disconnect_handler = DisconnectHandler(
             game_room=self,
@@ -382,7 +386,7 @@ class GameRoom:
         service = self._domain.service
         if service is None:
             return []
-        return persisted_moves_from_log(service.get_moves())
+        return persisted_moves_from_log(service.get_moves(), self._capture_log.records())
 
     async def _broadcast_game_ended(
         self,
@@ -514,6 +518,7 @@ class GameRoom:
         core = self._domain.core
         self._core = core
         core.event_bus.subscribe(self._lifecycle_observer, GameEndedEvent)
+        core.event_bus.subscribe(self._capture_log, PieceCapturedEvent)
 
         self._broadcast_observer = NetworkBroadcastObserver(loop=self._loop)
         core.event_bus.subscribe(self._broadcast_observer)

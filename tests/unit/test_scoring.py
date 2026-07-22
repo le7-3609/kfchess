@@ -21,6 +21,7 @@ def _capture(piece_type: str, color: str = "b", captor_color: str = "w") -> Piec
     return PieceCapturedEvent(
         at_ms=100, color=color, piece_type=piece_type, pos=Position(0, 0),
         captor_color=captor_color, captor_piece_type="R",
+        captor_frm=Position(0, 3), captor_to=Position(0, 0),
     )
 
 

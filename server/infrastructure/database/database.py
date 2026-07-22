@@ -132,6 +132,8 @@ CREATE_INDEXES_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);",
     "CREATE INDEX IF NOT EXISTS idx_moves_created_at ON moves(created_at);",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_game_statistics_user_id ON game_statistics(user_id);",
+    # Leaderboard orders by ELO descending; the index keeps top-N cheap.
+    "CREATE INDEX IF NOT EXISTS idx_users_elo ON users(elo);",
 )
 
 
@@ -374,3 +376,64 @@ class Database:
         ) as cursor:
             row = await cursor.fetchone()
             return tuple(row) if row is not None else None
+
+    async def get_game(self, game_id: int) -> Optional[Tuple]:
+        """Fetch one completed game joined to both players' usernames.
+
+        Returns the game row followed by white_username and black_username, so
+        a replay or PGN reader never has to resolve player ids separately.
+        Returns None if no game has that id.
+        """
+        conn = self._require_connection()
+        async with conn.execute(
+            """
+            SELECT
+                g.id, g.room_id, g.white_player_id, g.black_player_id,
+                g.winner_id, g.result,
+                g.white_elo_before, g.white_elo_after,
+                g.black_elo_before, g.black_elo_after,
+                g.started_at, g.ended_at,
+                w.username AS white_username, b.username AS black_username
+            FROM games g
+            JOIN users w ON w.id = g.white_player_id
+            JOIN users b ON b.id = g.black_player_id
+            WHERE g.id = ?
+            """,
+            (game_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return tuple(row) if row is not None else None
+
+    async def get_moves(self, game_id: int) -> List[Tuple]:
+        """Fetch a game's resolved moves in play order (by move_number)."""
+        conn = self._require_connection()
+        async with conn.execute(
+            """
+            SELECT move_number, from_square, to_square,
+                   piece_type, piece_color, captured_piece, timestamp
+            FROM moves
+            WHERE game_id = ?
+            ORDER BY move_number
+            """,
+            (game_id,),
+        ) as cursor:
+            return [tuple(row) for row in await cursor.fetchall()]
+
+    async def get_leaderboard(self, limit: int = 100) -> List[Tuple]:
+        """Top players by ELO, restricted to those with at least one game.
+
+        The JOIN (not LEFT JOIN) excludes freshly-registered users who have
+        never finished a game, matching what a leaderboard should show.
+        """
+        conn = self._require_connection()
+        async with conn.execute(
+            """
+            SELECT u.username, u.elo, s.total_games, s.wins
+            FROM users u
+            JOIN game_statistics s ON s.user_id = u.id
+            ORDER BY u.elo DESC, u.username ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ) as cursor:
+            return [tuple(row) for row in await cursor.fetchall()]

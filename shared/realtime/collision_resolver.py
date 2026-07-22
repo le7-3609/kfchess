@@ -188,6 +188,8 @@ class CollisionResolver:
             pos=collision_pos,
             captor_color=winner.piece.color,
             captor_piece_type=winner.piece.piece_type,
+            captor_frm=winner.frm,
+            captor_to=winner.to,
         ))
         if loser.piece.piece_type in self._config.king_pieces:
             if state.end_game(consts.GAME_OVER_KING_CAPTURED, winner.piece.color):
