@@ -4,9 +4,9 @@ from client.ui.rendering.pillow_renderer import (
     LEGAL_MOVE_CAPTURE_COLOR,
     LEGAL_MOVE_EMPTY_COLOR,
 )
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot, PieceSnapshot
-from shared.view.piece_visual_state import PieceVisualState
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot, PieceSnapshot
+from core.view.piece_visual_state import PieceVisualState
 
 
 class TestPillowRenderer(unittest.TestCase):

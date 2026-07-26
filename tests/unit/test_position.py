@@ -1,8 +1,8 @@
-"""Unit tests for shared.model.position."""
+"""Unit tests for core.model.position."""
 
 import unittest
 
-from shared.model.position import Position
+from core.model.position import Position
 
 
 class TestPosition(unittest.TestCase):

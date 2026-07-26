@@ -9,10 +9,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from shared.bootstrap import build_realtime_service
-from shared.config import consts
-from shared.events import GameEndedEvent, PieceCapturedEvent, PieceMovedEvent, ScoreUpdatedEvent
-from shared.model.position import Position
+from core.bootstrap import build_realtime_service
+from core.config import consts
+from core.events import GameEndedEvent, PieceCapturedEvent, PieceMovedEvent, ScoreUpdatedEvent
+from core.model.position import Position
 from client.controllers.game_controller import NoticeLevel
 from client.controllers.local_game_controller import LocalGameController
 

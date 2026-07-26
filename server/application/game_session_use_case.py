@@ -11,7 +11,7 @@ Must not own: move legality (the engine decides), countdown timing
 import logging
 from typing import Any, Dict, Optional
 
-from shared.model.game_state import Result
+from core.model.game_state import Result
 
 from server.application.dtos.frame_fields import FIELD_FROM, FIELD_TO
 from server.domain.matchmaking.queue import MatchmakingQueue

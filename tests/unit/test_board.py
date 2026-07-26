@@ -1,11 +1,11 @@
-"""Unit tests for shared.model.board."""
+"""Unit tests for core.model.board."""
 
 import unittest
 
-from shared.errors import EmptyCellError, InvalidPositionError, OccupiedCellError
-from shared.model.position import Position
-from shared.model.board import ArrayBoard
-from shared.model.piece import TextPiece as Piece, PieceFactory
+from core.errors import EmptyCellError, InvalidPositionError, OccupiedCellError
+from core.model.position import Position
+from core.model.board import ArrayBoard
+from core.model.piece import TextPiece as Piece, PieceFactory
 
 
 class TestArrayBoard(unittest.TestCase):

@@ -8,7 +8,7 @@ while it is being iterated.
 
 import unittest
 
-from shared.events import (
+from core.events import (
     Event,
     EventBus,
     GameEndedEvent,
@@ -16,7 +16,7 @@ from shared.events import (
     PieceCapturedEvent,
     PieceMovedEvent,
 )
-from shared.model.position import Position
+from core.model.position import Position
 
 
 def _moved(at_ms: int = 0) -> PieceMovedEvent:
@@ -108,14 +108,14 @@ class TestABrokenSubscriberIsContained(unittest.TestCase):
 
     def test_a_raising_subscriber_does_not_propagate(self):
         self.bus.subscribe(_Exploder())
-        with self.assertLogs("shared.events", level="ERROR"):
+        with self.assertLogs("core.events", level="ERROR"):
             self.bus.publish(_moved())
 
     def test_a_raising_subscriber_does_not_stop_the_others(self):
         recorder = _Recorder()
         self.bus.subscribe(_Exploder())
         self.bus.subscribe(recorder)
-        with self.assertLogs("shared.events", level="ERROR"):
+        with self.assertLogs("core.events", level="ERROR"):
             self.bus.publish(_moved())
         self.assertEqual(len(recorder.seen), 1)
 

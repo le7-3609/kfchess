@@ -2,7 +2,7 @@
 
 import os
 import pytest
-from shared.events import GameStartedEvent, ScoreUpdatedEvent
+from core.events import GameStartedEvent, ScoreUpdatedEvent
 from server.infrastructure.logging.client_logger import ClientLogIngestor
 from server.infrastructure.logging.server_logger import ServerLogger
 

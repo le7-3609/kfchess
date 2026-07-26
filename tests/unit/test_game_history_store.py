@@ -5,11 +5,11 @@ import os
 import tempfile
 import unittest
 
-from shared.config import consts
-from shared.events import PieceMovedEvent
-from shared.io.game_history_store import GameHistoryStore
-from shared.io.moves_log import MovesLog
-from shared.model.position import Position
+from core.config import consts
+from core.events import PieceMovedEvent
+from core.io.game_history_store import GameHistoryStore
+from core.io.moves_log import MovesLog
+from core.model.position import Position
 
 
 class _StoreTestCase(unittest.TestCase):

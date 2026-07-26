@@ -19,9 +19,9 @@ import logging
 import queue
 from typing import Any, Callable, Dict, Optional
 
-from shared.config import consts
-from shared.io.moves_log import MoveLogEntry
-from shared.model.position import Position
+from core.config import consts
+from core.io.moves_log import MoveLogEntry
+from core.model.position import Position
 from client.controllers.game_controller import (
     GameControllerListener,
     GameNotice,

@@ -1,11 +1,11 @@
 """Unit test ensuring bot moves preserve human player piece selection."""
 
-from shared.bot_factory import build_bot_service
-from shared.config import consts
-from shared.model.board import ArrayBoard
-from shared.model.game_state import GameState
-from shared.model.piece import TextPiece
-from shared.model.position import Position
+from core.bot_factory import build_bot_service
+from core.config import consts
+from core.model.board import ArrayBoard
+from core.model.game_state import GameState
+from core.model.piece import TextPiece
+from core.model.position import Position
 
 
 def test_bot_move_preserves_human_selection():

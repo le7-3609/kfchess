@@ -1,21 +1,21 @@
-"""Unit tests for shared.realtime.real_time_arbiter."""
+"""Unit tests for core.realtime.real_time_arbiter."""
 
 import unittest
 from typing import List
 
-from shared.events import Event, EventBus, Observer, PieceCapturedEvent
-from shared.model.position import Position
-from shared.model.board import ArrayBoard
-from shared.model.piece import TextPiece as Piece
-from shared.model.game_state import Cooldown, GameState, Movement
-from shared.realtime.real_time_arbiter import (
+from core.events import Event, EventBus, Observer, PieceCapturedEvent
+from core.model.position import Position
+from core.model.board import ArrayBoard
+from core.model.piece import TextPiece as Piece
+from core.model.game_state import Cooldown, GameState, Movement
+from core.realtime.real_time_arbiter import (
     RealTimeArbiter,
     ChebyshevDistanceDuration,
     InstantMovementDuration,
     ProxyBoard,
 )
-from shared.rules.rule_engine import PathChecker
-from shared.rules.piece_rules import (
+from core.rules.rule_engine import PathChecker
+from core.rules.piece_rules import (
     StandardPawnPromotion,
     MoveValidatorFactory,
     KingMoveValidator,
@@ -25,7 +25,7 @@ from shared.rules.piece_rules import (
     KnightMoveValidator,
     PawnMoveValidator,
 )
-from shared.config.game_config import GameConfig
+from core.config.game_config import GameConfig
 
 
 def _make_factory(config: GameConfig) -> MoveValidatorFactory:
@@ -390,7 +390,7 @@ class TestArbiterCollisions(unittest.TestCase):
     def test_cooldown_expiration(self) -> None:
         p = Piece("w", "R")
         p.transition_to_cooldown()
-        from shared.model.game_state import Cooldown
+        from core.model.game_state import Cooldown
         self.state.active_cooldowns.append(Cooldown(piece=p, end_ms=1000))
 
         self.state.clock_ms = 1500

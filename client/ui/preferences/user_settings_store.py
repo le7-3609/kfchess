@@ -7,7 +7,7 @@ import json
 import os
 from dataclasses import dataclass
 
-from shared.config import consts
+from core.config import consts
 from client.ui import consts as ui_consts
 from client.ui.preferences.piece_themes import DEFAULT_THEME_ID
 from client.ui.preferences.board_themes import DEFAULT_THEME_ID as DEFAULT_BOARD_THEME_ID

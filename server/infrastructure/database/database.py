@@ -19,7 +19,7 @@ from typing import List, Optional, Protocol, Tuple
 import aiosqlite
 import bcrypt
 
-from shared.config.consts import FILE_ENCODING
+from core.config.consts import FILE_ENCODING
 from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
 
 _LOGGER = logging.getLogger(__name__)

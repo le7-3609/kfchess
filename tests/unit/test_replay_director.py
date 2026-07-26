@@ -5,13 +5,13 @@ replay window. No tkinter here; ReplayDirector is a function of the save alone.
 import unittest
 from unittest.mock import Mock
 
-from shared.config.game_config import GameConfig
-from shared.io.game_history_store import SavedGame
-from shared.io.moves_log import MoveLogEntry, parse_notation
-from shared.io.replay import ReplayEngineDecorator
-from shared.model.position import Position
+from core.config.game_config import GameConfig
+from core.io.game_history_store import SavedGame
+from core.io.moves_log import MoveLogEntry, parse_notation
+from core.io.replay import ReplayEngineDecorator
+from core.model.position import Position
 from client.ui.window.replay_window import ReplayDirector, reconstruct_moves
-from shared.view.piece_visual_state import PieceVisualState
+from core.view.piece_visual_state import PieceVisualState
 
 E2, E4 = Position(6, 4), Position(4, 4)
 D7, D5 = Position(1, 3), Position(3, 3)

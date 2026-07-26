@@ -15,12 +15,12 @@ import logging
 import time
 from typing import Callable, Dict, List, Optional, Type
 
-from shared.bootstrap import build_realtime_service
-from shared.bot_factory import build_bot_service
-from shared.config import consts
-from shared.config.bot_profile import BotProfile
-from shared.input.bot_strategy import BotStrategyInterface
-from shared.events import (
+from core.bootstrap import build_realtime_service
+from core.bot_factory import build_bot_service
+from core.config import consts
+from core.config.bot_profile import BotProfile
+from core.input.bot_strategy import BotStrategyInterface
+from core.events import (
     Event,
     GameEndedEvent,
     GameStartedEvent,
@@ -29,9 +29,9 @@ from shared.events import (
     PieceMovedEvent,
     ScoreUpdatedEvent,
 )
-from shared.io.moves_log import MoveLogEntry
-from shared.model.position import Position
-from shared.service import GameService
+from core.io.moves_log import MoveLogEntry
+from core.model.position import Position
+from core.service import GameService
 from client.controllers.game_controller import (
     GameControllerListener,
     GameNotice,
@@ -310,7 +310,7 @@ def build_bot_controller(
     """A single-player match: the human takes *player_color*, the bot the other seat.
 
     *bot_profile* selects the bot's difficulty and move cadence; *bot_strategy*
-    lets the client inject a strategy shared/ cannot build itself (the LLM one).
+    lets the client inject a strategy core/ cannot build itself (the LLM one).
     """
     bot_color = consts.opponent_color(player_color)
     service = build_bot_service(

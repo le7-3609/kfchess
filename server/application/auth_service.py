@@ -7,7 +7,7 @@ Must not own: network sockets or GUI interfaces.
 import logging
 from typing import Optional, Tuple
 
-from shared.model.game_state import Result
+from core.model.game_state import Result
 from server.infrastructure.database.database import Database
 
 _LOGGER = logging.getLogger(__name__)

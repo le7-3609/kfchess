@@ -11,7 +11,7 @@ function keeps it trivially unit-testable against golden strings.
 
 from typing import List, Optional
 
-from shared.config.consts import MS_PER_SECOND, PIECE_PAWN
+from core.config.consts import MS_PER_SECOND, PIECE_PAWN
 
 from server.application.game_query_service import GameReplay, ReplayMove
 

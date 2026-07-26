@@ -6,7 +6,7 @@ Must not own: frame construction, socket I/O, or GUI state.
 
 This deliberately *mirrors* server/application/dtos (network_frames.py and
 frame_fields.py) rather than importing it: the dependency rule is
-`client -> shared <- server`, so the client may never import the server
+`client -> core <- server`, so the client may never import the server
 package. Keeping the restatement in a single module means the protocol can
 drift in at most one place per side.
 """

@@ -1,12 +1,12 @@
-"""Unit tests for shared.rules.rule_engine — RuleEngine, PathChecker, ThreatValidator."""
+"""Unit tests for core.rules.rule_engine — RuleEngine, PathChecker, ThreatValidator."""
 
 import unittest
 
-from shared.model.position import Position
-from shared.model.board import ArrayBoard
-from shared.model.piece import TextPiece as Piece
-from shared.rules.rule_engine import MoveValidation, PathChecker, RuleEngine, ThreatValidator
-from shared.rules.piece_rules import (
+from core.model.position import Position
+from core.model.board import ArrayBoard
+from core.model.piece import TextPiece as Piece
+from core.rules.rule_engine import MoveValidation, PathChecker, RuleEngine, ThreatValidator
+from core.rules.piece_rules import (
     MoveValidatorFactory,
     KingMoveValidator,
     QueenMoveValidator,
@@ -15,7 +15,7 @@ from shared.rules.piece_rules import (
     KnightMoveValidator,
     PawnMoveValidator,
 )
-from shared.config.game_config import GameConfig
+from core.config.game_config import GameConfig
 
 
 def _make_factory() -> MoveValidatorFactory:

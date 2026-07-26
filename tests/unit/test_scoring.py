@@ -5,7 +5,7 @@ The tracker never reads the board, so these drive it purely through the bus.
 
 import unittest
 
-from shared.events import (
+from core.events import (
     Event,
     EventBus,
     GameStartedEvent,
@@ -13,8 +13,8 @@ from shared.events import (
     PieceCapturedEvent,
     ScoreUpdatedEvent,
 )
-from shared.model.position import Position
-from shared.scoring import MaterialScoreTracker
+from core.model.position import Position
+from core.scoring import MaterialScoreTracker
 
 
 def _capture(piece_type: str, color: str = "b", captor_color: str = "w") -> PieceCapturedEvent:

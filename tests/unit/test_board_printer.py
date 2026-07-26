@@ -1,12 +1,12 @@
-"""Unit tests for shared.io.board_printer."""
+"""Unit tests for core.io.board_printer."""
 
 import unittest
 from io import StringIO
 
-from shared.model.board import ArrayBoard
-from shared.model.piece import TextPiece as Piece
-from shared.model.position import Position
-from shared.io.board_printer import BoardPrinter
+from core.model.board import ArrayBoard
+from core.model.piece import TextPiece as Piece
+from core.model.position import Position
+from core.io.board_printer import BoardPrinter
 
 
 class TestBoardPrinter(unittest.TestCase):

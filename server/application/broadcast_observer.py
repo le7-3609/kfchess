@@ -12,7 +12,7 @@ import asyncio
 import logging
 from typing import Any, Callable, Dict, Optional, Set
 
-from shared.events import (
+from core.events import (
     Event,
     GameEndedEvent,
     GameStartedEvent,

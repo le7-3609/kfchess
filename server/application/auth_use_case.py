@@ -10,7 +10,7 @@ once per attempt and turns a failed Result into an `error` frame.
 
 from typing import Any, Dict, Optional
 
-from shared.model.game_state import Result
+from core.model.game_state import Result
 
 from server.application.dtos import Identity
 from server.application.dtos.frame_fields import FIELD_ACTION, FIELD_PASSWORD, FIELD_USERNAME

@@ -1,14 +1,14 @@
-"""Unit tests for shared.input.controller."""
+"""Unit tests for core.input.controller."""
 
 import unittest
 from typing import List, Optional, Tuple
 
-from shared.model.board import ArrayBoard, BoardInterface
-from shared.model.piece import TextPiece
-from shared.model.position import Position
-from shared.input.board_mapper import BoardMapper
-from shared.input.controller import Controller
-from shared.engine.engine_interfaces import BoardRepositoryInterface
+from core.model.board import ArrayBoard, BoardInterface
+from core.model.piece import TextPiece
+from core.model.position import Position
+from core.input.board_mapper import BoardMapper
+from core.input.controller import Controller
+from core.engine.engine_interfaces import BoardRepositoryInterface
 
 
 class FakeBoardRepository(BoardRepositoryInterface):

@@ -3,7 +3,7 @@
 Layer: domain (server/domain/room)
 Owns: room lifecycle state (WAITING / PLAYING / FINISHED), White/Black/viewer
 seat bindings, seat-assignment invariants, move authorization, and delegating
-live simulation to shared.service.GameService.
+live simulation to core.service.GameService.
 Must not own: WebSocket transport, event broadcasting, database persistence,
 bot driving, or disconnect/reconnect timers — those live in
 server.application.game_room.GameRoom, the orchestrating room that composes
@@ -15,16 +15,16 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, List, Optional
 
-from shared.bootstrap import build_core
-from shared.config import consts
-from shared.config.game_config import GameConfig
-from shared.events import PieceMovedEvent
-from shared.io.game_history_store import GameHistoryStore
-from shared.io.moves_log import MovesLog
-from shared.model.game_state import Result
-from shared.model.position import Position
-from shared.realtime.real_time_arbiter import ChebyshevDistanceDuration
-from shared.service import GameService
+from core.bootstrap import build_core
+from core.config import consts
+from core.config.game_config import GameConfig
+from core.events import PieceMovedEvent
+from core.io.game_history_store import GameHistoryStore
+from core.io.moves_log import MovesLog
+from core.model.game_state import Result
+from core.model.position import Position
+from core.realtime.real_time_arbiter import ChebyshevDistanceDuration
+from core.service import GameService
 from server.domain.matchmaking.elo import calculate_elo
 from server.domain.room.room_role import RoomRole
 

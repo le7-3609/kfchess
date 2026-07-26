@@ -33,36 +33,36 @@ Kung Fu Chess is real-time chess with **no turns**: both colors move concurrentl
 
 The repo is split into three top-level packages (repo root must be on `sys.path` — running from the root, as pytest and the entry scripts do, handles this):
 
-- **[shared/](shared/)** — the core game engine and domain models. No UI or network dependency; both other packages import from it.
+- **[core/](core/)** — the core game engine and domain models. No UI or network dependency; both other packages import from it.
 - **[client/](client/)** — the Tk/Pillow GUI (`client/ui/`, `client/main_gui.py`) and, later, the WebSocket network client.
-- **[server/](server/)** — the WebSocket server, matchmaking, auth, persistence, and game rooms. Imports `shared` only; never `client`.
+- **[server/](server/)** — the WebSocket server, matchmaking, auth, persistence, and game rooms. Imports `core` only; never `client`.
 
-Dependencies point one way: `client → shared ← server`. Never import `client` or `server` from `shared`.
+Dependencies point one way: `client → core ← server`. Never import `client` or `server` from `core`.
 
-Within `shared/`, Clean Architecture with a strict numbered layering. **Every module's docstring names its layer and states what it must *not* own** — read it before editing; those constraints are the design, not decoration. Dependencies point inward only, and interfaces are declared in the inner layer that needs them (e.g. `PixelMapperInterface` lives in `engine/engine_interfaces.py`, not in `input/`, so engine never imports input). Positions are grid `Position(row, col)` throughout every layer from `engine/` inward; pixels exist only at the UI's own boundary (`shared/input/board_mapper.py`), which converts to `Position` before anything reaches `GameService`/`GameEngine`.
+Within `core/`, Clean Architecture with a strict numbered layering. **Every module's docstring names its layer and states what it must *not* own** — read it before editing; those constraints are the design, not decoration. Dependencies point inward only, and interfaces are declared in the inner layer that needs them (e.g. `PixelMapperInterface` lives in `engine/engine_interfaces.py`, not in `input/`, so engine never imports input). Positions are grid `Position(row, col)` throughout every layer from `engine/` inward; pixels exist only at the UI's own boundary (`core/input/board_mapper.py`), which converts to `Position` before anything reaches `GameService`/`GameEngine`.
 
 | Layer | Package | Role |
 |---|---|---|
-| 1 | [events.py](shared/events.py) | `Event` value types, `Observer`, `EventBus` — the pub/sub spine every layer may import |
-| 1–2 | [model/](shared/model/), [config/](shared/config/) | `Position`, `ArrayBoard`, `TextPiece`, `GameState`, `Movement`, `Cooldown`, `Result`; `GameConfig` timing constants |
-| 2–3 | [rules/](shared/rules/) | pure legality/math: per-piece validators, `PathChecker`, `ThreatValidator`, `EndgameValidator`, `CastlingValidator` |
-| 4 | [realtime/](shared/realtime/) | `RealTimeArbiter` tick loop + `CollisionResolver`, `ArrivalResolver`, `ProxyBoard`, duration strategies |
-| 5 | [engine/](shared/engine/) | `GameEngine` command dispatch, click/jump/castling processors, game-over detection |
-| 6 | [input/](shared/input/), [view/](shared/view/), [ui/](client/ui/) | pixel↔cell mapping, `GameSnapshot` DTO, Pillow renderer, Tk window (`ui/` lives in `client/`) |
-| 7 | [io/](shared/io/) | board parse/print, moves log, JSON history store, replay decorator |
-| 8–9 | [texttests/](shared/texttests/), [runtime/](shared/runtime/) | `.kfc` script runner; asyncio tick loop |
+| 1 | [events.py](core/events.py) | `Event` value types, `Observer`, `EventBus` — the pub/sub spine every layer may import |
+| 1–2 | [model/](core/model/), [config/](core/config/) | `Position`, `ArrayBoard`, `TextPiece`, `GameState`, `Movement`, `Cooldown`, `Result`; `GameConfig` timing constants |
+| 2–3 | [rules/](core/rules/) | pure legality/math: per-piece validators, `PathChecker`, `ThreatValidator`, `EndgameValidator`, `CastlingValidator` |
+| 4 | [realtime/](core/realtime/) | `RealTimeArbiter` tick loop + `CollisionResolver`, `ArrivalResolver`, `ProxyBoard`, duration strategies |
+| 5 | [engine/](core/engine/) | `GameEngine` command dispatch, click/jump/castling processors, game-over detection |
+| 6 | [input/](core/input/), [view/](core/view/), [ui/](client/ui/) | pixel↔cell mapping, `GameSnapshot` DTO, Pillow renderer, Tk window (`ui/` lives in `client/`) |
+| 7 | [io/](core/io/) | board parse/print, moves log, JSON history store, replay decorator |
+| 8–9 | [texttests/](core/texttests/), [runtime/](core/runtime/) | `.kfc` script runner; asyncio tick loop |
 
-The core is a pure simulation engine with no UI or network dependency. Keep it that way — the server consumes it through `GameService`/`bootstrap` without touching `rules/`, `realtime/`, or `engine/`. Note `input/` stays in `shared` (not `client`): `bootstrap.py` wires `BoardMapper` for the pixel-coordinate click path used by text tests and bots.
+The core is a pure simulation engine with no UI or network dependency. Keep it that way — the server consumes it through `GameService`/`bootstrap` without touching `rules/`, `realtime/`, or `engine/`. Note `input/` stays in `core` (not `client`): `bootstrap.py` wires `BoardMapper` for the pixel-coordinate click path used by text tests and bots.
 
 ### The two boundaries that matter
 
-**[service.py](shared/service.py) — `GameService` is the only public entry point.** The Tk window, script runner, and bots all talk exclusively to it: commands (`init_game`, `execute_command`, `click`, `right_click`, `advance_clock`, history save/load), queries (`get_snapshot`, `get_moves`, `list_saves`), and event subscription (`subscribe`, `unsubscribe`). Nothing outside reaches through to `GameEngine`, the repositories, the arbiter, or the bus itself. Optional collaborators (`arbiter`, `moves_log`, `history_store`, `event_bus`) gate only the query/history/subscription methods — the pure `execute()` path used by text tests works without them.
+**[service.py](core/service.py) — `GameService` is the only public entry point.** The Tk window, script runner, and bots all talk exclusively to it: commands (`init_game`, `execute_command`, `click`, `right_click`, `advance_clock`, history save/load), queries (`get_snapshot`, `get_moves`, `list_saves`), and event subscription (`subscribe`, `unsubscribe`). Nothing outside reaches through to `GameEngine`, the repositories, the arbiter, or the bus itself. Optional collaborators (`arbiter`, `moves_log`, `history_store`, `event_bus`) gate only the query/history/subscription methods — the pure `execute()` path used by text tests works without them.
 
-**[bootstrap.py](shared/bootstrap.py) — the composition root.** All wiring happens here; nothing else constructs the object graph.
+**[bootstrap.py](core/bootstrap.py) — the composition root.** All wiring happens here; nothing else constructs the object graph.
 - `build_core(...)` returns `CoreComponents`, the shared stack.
 - `build_service()` — `InstantMovementDuration`, for tests and scripted runs.
 - `build_realtime_service()` — `ChebyshevDistanceDuration`, pieces travel over time; adds moves log + history store.
-- Bots need the *same* repo/arbiter instances, so they can't be injected after the fact — [bot_factory.py](shared/bot_factory.py) composes `build_core()` with bot construction instead.
+- Bots need the *same* repo/arbiter instances, so they can't be injected after the fact — [bot_factory.py](core/bot_factory.py) composes `build_core()` with bot construction instead.
 
 ### Non-obvious invariants
 
@@ -103,5 +103,5 @@ Integration tests in [tests/integration/scripts/](tests/integration/scripts/) ar
 ## Conventions
 
 - PEP-8, type annotations, and the existing docstring style: a module docstring stating layer + owns/must-not-own, and comments that explain *why* for real-time simulation subtleties.
-- Errors flow back as `Result.ok/fail` (see [model/game_state.py](shared/model/game_state.py)), not exceptions, on the command path.
+- Errors flow back as `Result.ok/fail` (see [model/game_state.py](core/model/game_state.py)), not exceptions, on the command path.
 - Every feature, fix, or refactor needs test coverage, and the suite must stay green — it exists to pin collision priorities and rule edge cases across refactors.

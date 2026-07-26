@@ -29,19 +29,19 @@ import tkinter as tk
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional
 
-from shared.config import consts
-from shared.config.game_config import GameConfig
-from shared.io.board_parser import BoardParser
-from shared.io.game_history_store import SavedGame
-from shared.io.moves_log import MoveLogEntry, parse_notation
-from shared.model.piece import PieceFactory
-from shared.model.position import Position
+from core.config import consts
+from core.config.game_config import GameConfig
+from core.io.board_parser import BoardParser
+from core.io.game_history_store import SavedGame
+from core.io.moves_log import MoveLogEntry, parse_notation
+from core.model.piece import PieceFactory
+from core.model.position import Position
 from client.ui import consts as ui_consts
 from client.ui.rendering.info_panel import InfoPanel
 from client.ui.rendering.pillow_renderer import PillowRenderer
 from client.ui.window.image_view import TkImageView
-from shared.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
-from shared.view.piece_visual_state import PieceVisualState
+from core.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
+from core.view.piece_visual_state import PieceVisualState
 
 
 @dataclass(frozen=True)

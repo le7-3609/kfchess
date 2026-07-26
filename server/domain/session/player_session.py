@@ -11,7 +11,7 @@ that composes this entity.
 from enum import Enum
 from typing import Optional
 
-from shared.config import consts
+from core.config import consts
 from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
 
 _VALID_COLORS = frozenset({consts.COLOR_WHITE, consts.COLOR_BLACK})

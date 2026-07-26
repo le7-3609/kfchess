@@ -1,10 +1,10 @@
-"""Unit tests for shared.input.board_mapper."""
+"""Unit tests for core.input.board_mapper."""
 
 import unittest
 
-from shared.model.board import ArrayBoard
-from shared.model.position import Position
-from shared.input.board_mapper import BoardMapper
+from core.model.board import ArrayBoard
+from core.model.position import Position
+from core.input.board_mapper import BoardMapper
 
 
 class TestBoardMapper(unittest.TestCase):

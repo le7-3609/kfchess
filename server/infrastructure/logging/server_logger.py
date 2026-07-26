@@ -11,8 +11,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-from shared.config.consts import FILE_ENCODING, FILE_MODE_APPEND, LINE_SEPARATOR
-from shared.events import Event, Observer
+from core.config.consts import FILE_ENCODING, FILE_MODE_APPEND, LINE_SEPARATOR
+from core.events import Event, Observer
 
 _LOGGER = logging.getLogger("server_logger")
 

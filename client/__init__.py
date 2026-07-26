@@ -1,6 +1,6 @@
 """client — GUI delivery layer: Tk window, Pillow rendering, and the network client.
 
-Depends only on the shared core engine package. Must not own: game rules,
+Depends only on the core engine package. Must not own: game rules,
 simulation, or server transport concerns.
 
 Sub-packages: `controllers` (the `IGameController` seam and its local/network

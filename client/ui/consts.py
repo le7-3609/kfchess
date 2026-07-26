@@ -12,7 +12,7 @@ import the domain codes it labels (colors, game-over reasons) so display names
 stay keyed to the real values rather than restating them as strings.
 """
 
-from shared.config.consts import (
+from core.config.consts import (
     COLOR_BLACK,
     COLOR_WHITE,
     GAME_OVER_CHECKMATE,

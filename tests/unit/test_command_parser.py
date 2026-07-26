@@ -1,23 +1,23 @@
-"""Unit tests for shared.io.command_parser — the text<->GameCommand boundary."""
+"""Unit tests for core.io.command_parser — the text<->GameCommand boundary."""
 
 import dataclasses
 import unittest
 
-from shared.bootstrap import build_service
-from shared.engine.input_commands import (
+from core.bootstrap import build_service
+from core.engine.input_commands import (
     ClickCommand,
     GameCommand,
     PrintBoardCommand,
     RightClickCommand,
     WaitCommand,
 )
-from shared.io.board_parser import BoardParser
-from shared.io.command_parser import (
+from core.io.board_parser import BoardParser
+from core.io.command_parser import (
     CommandParseException,
     TextCommandFormatter,
     TextCommandParser,
 )
-from shared.model.position import Position
+from core.model.position import Position
 
 
 ALL_COMMANDS = (

@@ -6,7 +6,7 @@ import pytest
 from server.application.room_manager import RoomManager
 from server.domain.room.game_room import RoomState
 from server.domain.room.room_role import RoomRole
-from shared.events import GameEndedEvent
+from core.events import GameEndedEvent
 
 
 class MockSession:

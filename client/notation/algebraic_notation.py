@@ -10,8 +10,8 @@ server.application.dtos.protocol_mapper.AlgebraicParser independently on the
 client side of the wire boundary rather than importing it.
 """
 
-from shared.config import consts
-from shared.model.position import Position
+from core.config import consts
+from core.model.position import Position
 
 # A square identifier is exactly file letter + rank digit, e.g. "e2".
 _SQUARE_TOKEN_LENGTH = 2

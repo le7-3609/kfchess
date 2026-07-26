@@ -10,7 +10,7 @@ Owns: the background asyncio event loop and its daemon thread, the long-lived
       server authenticates per-connection rather than per-session; the
       credentials used are the ones already verified by the pre-GUI CLI login.
 Must not own: GUI widgets/windows/state, game rules, or anything from the
-      server package — this module may import shared/ and websockets only.
+      server package — this module may import core/ and websockets only.
 """
 
 import asyncio
