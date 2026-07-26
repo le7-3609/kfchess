@@ -16,7 +16,7 @@ import asyncio
 import logging
 from typing import Any, Callable, List, Optional
 
-from shared.engine.input_commands import GameCommand
+from core.engine.input_commands import GameCommand
 
 _LOGGER = logging.getLogger(__name__)
 

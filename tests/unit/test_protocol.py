@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from shared.model.position import Position
+from core.model.position import Position
 from server.application.dtos.network_frames import MSG_ERROR, MSG_GAME_START, MSG_MOVE
 from server.application.dtos.protocol_mapper import (
     AlgebraicParser,
@@ -14,8 +14,8 @@ from server.application.dtos.response_frames import (
     build_game_start_message,
     build_move_message,
 )
-from shared.view.game_snapshot import GameSnapshot, PieceSnapshot
-from shared.view.piece_visual_state import PieceVisualState
+from core.view.game_snapshot import GameSnapshot, PieceSnapshot
+from core.view.piece_visual_state import PieceVisualState
 
 
 def test_parse_square_a1():

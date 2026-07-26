@@ -7,7 +7,7 @@ from server.application.game_room import GameRoom
 from server.domain.room.game_room import RoomState
 from server.domain.room.room_role import RoomRole
 from server.presentation.ws_connection import PlayerSession
-from shared.events import GameEndedEvent
+from core.events import GameEndedEvent
 
 
 class MockSession:

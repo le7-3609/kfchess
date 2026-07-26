@@ -8,8 +8,8 @@ shapes belongs here, where no tkinter root is involved at all.
 
 from unittest.mock import MagicMock
 
-from shared.config import consts
-from shared.model.position import Position
+from core.config import consts
+from core.model.position import Position
 from client.controllers.game_controller import NoticeLevel
 from client.controllers.network_game_controller import NetworkGameController
 from client.network.network_client import (

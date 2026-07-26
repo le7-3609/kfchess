@@ -14,11 +14,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-from shared.bot_factory import build_random_bot
-from shared.config import consts
-from shared.events import Event, GameEndedEvent, Observer, PieceCapturedEvent
-from shared.model.game_state import Result
-from shared.runtime.async_runner import AsyncGameRunner
+from core.bot_factory import build_random_bot
+from core.config import consts
+from core.events import Event, GameEndedEvent, Observer, PieceCapturedEvent
+from core.model.game_state import Result
+from core.runtime.async_runner import AsyncGameRunner
 from server.application.broadcast_observer import NetworkBroadcastObserver
 from server.application.capture_log import CaptureLog
 from server.application.game_persistence_service import GamePersistenceService

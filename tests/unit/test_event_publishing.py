@@ -9,8 +9,8 @@ needs to draw them.
 import unittest
 from typing import List, Type
 
-from shared.bootstrap import build_realtime_service, build_service
-from shared.events import (
+from core.bootstrap import build_realtime_service, build_service
+from core.events import (
     ABORT_REASON_FRIENDLY_COLLISION,
     Event,
     GameEndedEvent,
@@ -22,7 +22,7 @@ from shared.events import (
     PieceMovedEvent,
     PiecePromotedEvent,
 )
-from shared.model.position import Position
+from core.model.position import Position
 
 
 class _Recorder(Observer):
@@ -266,7 +266,7 @@ class TestSubscriptionThroughTheFacade(unittest.TestCase):
         self.assertEqual(recorder.seen, [])
 
     def test_a_service_built_without_a_bus_refuses_subscription(self):
-        from shared.service import GameService
+        from core.service import GameService
 
         service = GameService(
             board_repo=None, state_repo=None, parser=None, validator=None, engine=None

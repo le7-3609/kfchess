@@ -4,9 +4,9 @@ import os
 import sys
 import unittest
 
-from shared.bootstrap import build_service
-from shared.texttests.script_parser import ScriptParser
-from shared.texttests.script_runner import ScriptRunner
+from core.bootstrap import build_service
+from core.texttests.script_parser import ScriptParser
+from core.texttests.script_runner import ScriptRunner
 
 _SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "scripts")
 

@@ -1,10 +1,10 @@
-"""Unit tests for shared.io.board_parser."""
+"""Unit tests for core.io.board_parser."""
 
 import unittest
 
-from shared.engine.input_commands import ClickCommand, PrintBoardCommand
-from shared.io.board_parser import BoardParser
-from shared.model.position import Position
+from core.engine.input_commands import ClickCommand, PrintBoardCommand
+from core.io.board_parser import BoardParser
+from core.model.position import Position
 
 
 class TestBoardParser(unittest.TestCase):

@@ -1,13 +1,13 @@
 """Unit tests for castling and endgame logic in GameEngine."""
 
 import unittest
-from shared.bootstrap import build_service
-from shared.engine.input_commands import ClickCommand, WaitCommand
-from shared.model.position import Position
-from shared.model.piece import TextPiece
+from core.bootstrap import build_service
+from core.engine.input_commands import ClickCommand, WaitCommand
+from core.model.position import Position
+from core.model.piece import TextPiece
 
-from shared.model.board import ArrayBoard
-from shared.model.game_state import GameState
+from core.model.board import ArrayBoard
+from core.model.game_state import GameState
 
 class TestEngineCastlingEndgame(unittest.TestCase):
     

@@ -17,15 +17,15 @@ import pytest_asyncio
 from server.application.capture_log import CaptureLog
 from server.application.game_result import GameResult, persisted_moves_from_log
 from server.infrastructure.database.database import Database
-from shared.config.game_config import GameConfig
-from shared.events import EventBus, PieceCapturedEvent, PieceMovedEvent
-from shared.io.moves_log import MovesLog
-from shared.model.board import ArrayBoard
-from shared.model.game_state import GameState, Movement
-from shared.model.piece import TextPiece as Piece
-from shared.model.position import Position
-from shared.realtime.real_time_arbiter import ChebyshevDistanceDuration, RealTimeArbiter
-from shared.rules.piece_rules import (
+from core.config.game_config import GameConfig
+from core.events import EventBus, PieceCapturedEvent, PieceMovedEvent
+from core.io.moves_log import MovesLog
+from core.model.board import ArrayBoard
+from core.model.game_state import GameState, Movement
+from core.model.piece import TextPiece as Piece
+from core.model.position import Position
+from core.realtime.real_time_arbiter import ChebyshevDistanceDuration, RealTimeArbiter
+from core.rules.piece_rules import (
     BishopMoveValidator,
     KingMoveValidator,
     KnightMoveValidator,
@@ -35,7 +35,7 @@ from shared.rules.piece_rules import (
     RookMoveValidator,
     StandardPawnPromotion,
 )
-from shared.rules.rule_engine import PathChecker
+from core.rules.rule_engine import PathChecker
 
 MS_PER_SQUARE = 1000
 

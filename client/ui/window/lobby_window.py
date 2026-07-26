@@ -19,9 +19,9 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any, Dict, Optional
 
-from shared.config import consts
-from shared.config.bot_profile import BotDifficulty, BotProfile
-from shared.input.bot_strategy import BotStrategyInterface
+from core.config import consts
+from core.config.bot_profile import BotDifficulty, BotProfile
+from core.input.bot_strategy import BotStrategyInterface
 from client.ai.llm_strategy import build_llm_strategy
 from client.ai.providers import active_provider, load_api_key
 from client.auth.cli_auth import UserCredentials
@@ -429,7 +429,7 @@ class LobbyWindow:
     def _build_bot_strategy(
         self, difficulty: BotDifficulty, player_color: str
     ) -> Optional[BotStrategyInterface]:
-        """Strategies shared/ cannot compose itself — today only the LLM one."""
+        """Strategies core/ cannot compose itself — today only the LLM one."""
         if difficulty is not BotDifficulty.LLM:
             return None
         return build_llm_strategy(consts.opponent_color(player_color))

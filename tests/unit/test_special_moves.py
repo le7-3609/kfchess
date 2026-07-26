@@ -1,12 +1,12 @@
 """Unit tests for special chess moves: Castling, En Passant, and Promotion in GameEngine/Arbiter."""
 
 import unittest
-from shared.bootstrap import build_service
-from shared.engine.input_commands import ClickCommand, WaitCommand
-from shared.model.position import Position
-from shared.model.piece import TextPiece
-from shared.model.board import ArrayBoard
-from shared.model.game_state import GameState, Movement, Cooldown, EnPassantTarget
+from core.bootstrap import build_service
+from core.engine.input_commands import ClickCommand, WaitCommand
+from core.model.position import Position
+from core.model.piece import TextPiece
+from core.model.board import ArrayBoard
+from core.model.game_state import GameState, Movement, Cooldown, EnPassantTarget
 
 
 class TestSpecialMoves(unittest.TestCase):

@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
-from shared.config import consts
-from shared.io.moves_log import MoveLogEntry, parse_notation
+from core.config import consts
+from core.io.moves_log import MoveLogEntry, parse_notation
 
 if TYPE_CHECKING:
     from server.application.capture_log import CaptureRecord

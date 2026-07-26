@@ -9,8 +9,8 @@ StrategyBotInputSource discards anything outside it), pacing, provider choice
 ChatClientInterface, so swapping Groq for OpenAI or any other provider never
 touches this module.
 
-Implements shared's BotStrategyInterface, keeping the dependency arrow
-client -> shared.
+Implements core's BotStrategyInterface, keeping the dependency arrow
+client -> core.
 
 Failure policy: the bot must never freeze. A garbage or failed reply falls back
 to the random strategy for that turn, and after enough consecutive transport
@@ -23,11 +23,11 @@ import threading
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from shared.config import consts
-from shared.input.bot_strategy import BotStrategyInterface, Move, RandomMoveStrategy
-from shared.model.board import BoardInterface
-from shared.model.game_state import GameState
-from shared.model.position import Position
+from core.config import consts
+from core.input.bot_strategy import BotStrategyInterface, Move, RandomMoveStrategy
+from core.model.board import BoardInterface
+from core.model.game_state import GameState
+from core.model.position import Position
 from client.ai.chat_client import ChatClientInterface
 from client.ai.env_loader import DEFAULT_ENV_FILE
 from client.ai.providers import build_chat_client
@@ -207,8 +207,8 @@ def build_llm_strategy(
 ) -> Optional[LlmMoveStrategy]:
     """The LLM-difficulty strategy for *bot_color*, or None with no API key configured.
 
-    Composed here rather than in shared/bot_factory because the transport may
-    not cross into shared/; the lobby passes the result through
+    Composed here rather than in core/bot_factory because the transport may
+    not cross into core/; the lobby passes the result through
     build_bot_controller(..., bot_strategy=...). Which provider answers is the
     registry's decision (providers.py), not this module's.
     """

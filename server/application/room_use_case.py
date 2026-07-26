@@ -11,7 +11,7 @@ domain GameRoom own those), nor socket transport.
 import logging
 from typing import Any, Dict
 
-from shared.model.game_state import Result
+from core.model.game_state import Result
 
 from server.application.dtos import ERROR_ALREADY_SEATED
 from server.application.dtos.frame_fields import FIELD_ROOM_ID

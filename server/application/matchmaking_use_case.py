@@ -12,7 +12,7 @@ socket this layer holds.
 import logging
 from typing import Any
 
-from shared.model.game_state import Result
+from core.model.game_state import Result
 
 from server.application.dtos import ERROR_ALREADY_SEATED
 from server.domain.matchmaking.queue import MatchmakingQueue

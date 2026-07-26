@@ -12,9 +12,9 @@ import re
 
 from PIL import Image, ImageFilter
 
-from shared.config import consts
+from core.config import consts
 from client.ui import consts as ui_consts
-from shared.view.piece_visual_state import PieceVisualState
+from core.view.piece_visual_state import PieceVisualState
 
 _FPS_PATTERN = re.compile(ui_consts.SPRITE_FPS_PATTERN)
 _LOOP_PATTERN = re.compile(ui_consts.SPRITE_LOOP_PATTERN)

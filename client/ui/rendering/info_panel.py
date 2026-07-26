@@ -17,10 +17,10 @@ same inputs always paint the same pixels.
 
 from typing import Optional, Sequence, Tuple
 
-from shared.config import consts
+from core.config import consts
 from client.ui import consts as ui_consts
 from client.ui.rendering.img import Img
-from shared.io.moves_log import MoveLogEntry
+from core.io.moves_log import MoveLogEntry
 
 
 def _format_time(millis: int) -> str:

@@ -8,10 +8,10 @@ typed callbacks it gets back.
 
 from unittest.mock import MagicMock, patch
 
-from shared.config import consts
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot, PieceSnapshot
-from shared.view.piece_visual_state import PieceVisualState
+from core.config import consts
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot, PieceSnapshot
+from core.view.piece_visual_state import PieceVisualState
 from client.ui.rendering.board_geometry import BoardGeometry
 from client.ui.rendering.pillow_renderer import PillowRenderer
 

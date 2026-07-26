@@ -1,11 +1,11 @@
-"""Unit tests for shared.rules.piece_rules — validators and factory."""
+"""Unit tests for core.rules.piece_rules — validators and factory."""
 
 import unittest
 
-from shared.errors import MissingValidatorError
-from shared.model.position import Position
-from shared.model.board import ArrayBoard
-from shared.rules.piece_rules import (
+from core.errors import MissingValidatorError
+from core.model.position import Position
+from core.model.board import ArrayBoard
+from core.rules.piece_rules import (
     KingMoveValidator,
     QueenMoveValidator,
     RookMoveValidator,
@@ -15,8 +15,8 @@ from shared.rules.piece_rules import (
     MoveValidatorFactory,
     StandardPawnPromotion,
 )
-from shared.config.game_config import GameConfig
-from shared.model.piece import TextPiece as Piece
+from core.config.game_config import GameConfig
+from core.model.piece import TextPiece as Piece
 
 
 def _board(rows: int = 8, cols: int = 8) -> ArrayBoard:

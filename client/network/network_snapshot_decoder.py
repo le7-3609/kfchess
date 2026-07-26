@@ -9,8 +9,8 @@ from typing import Any, Dict
 
 from client.network import protocol
 from client.notation.algebraic_notation import parse_square
-from shared.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
-from shared.view.piece_visual_state import PieceVisualState
+from core.view.game_snapshot import GameSnapshot, MovementSnapshot, PieceSnapshot
+from core.view.piece_visual_state import PieceVisualState
 
 # SnapshotSerializer.serialize only puts color/piece_type on the wire for an
 # in-flight movement (see server/application/dtos/protocol_mapper.py) because PillowRenderer reads a

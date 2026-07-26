@@ -1,8 +1,8 @@
-"""Unit tests for shared.io.board_validator."""
+"""Unit tests for core.io.board_validator."""
 
 import unittest
 
-from shared.io.board_validator import BoardValidator
+from core.io.board_validator import BoardValidator
 
 
 class TestBoardValidator(unittest.TestCase):

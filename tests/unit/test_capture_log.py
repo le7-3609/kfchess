@@ -1,8 +1,8 @@
 """Unit tests for CaptureLog event recording and algebraic conversion."""
 
 from server.application.capture_log import CaptureLog, CaptureRecord
-from shared.events import GameStartedEvent, PieceCapturedEvent
-from shared.model.position import Position
+from core.events import GameStartedEvent, PieceCapturedEvent
+from core.model.position import Position
 
 
 def _captured(at_ms, pos, piece_type="P", color="b", captor_color="w",

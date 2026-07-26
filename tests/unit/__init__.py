@@ -1,1 +1,1 @@
-"""Unit tests package for shared."""
+"""Unit tests package for core."""

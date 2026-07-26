@@ -21,10 +21,10 @@ import tkinter as tk
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
-from shared.config import consts
-from shared.io.moves_log import MoveLogEntry
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot
+from core.config import consts
+from core.io.moves_log import MoveLogEntry
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot
 from client.controllers.game_controller import (
     GameControllerListener,
     GameNotice,

@@ -7,10 +7,10 @@ command.
 
 import pytest
 
-from shared.input.bot import PacedBotInputSource, StrategyBotInputSource
-from shared.engine.input_commands import RequestMoveCommand
-from shared.model.game_state import GameState
-from shared.model.position import Position
+from core.input.bot import PacedBotInputSource, StrategyBotInputSource
+from core.engine.input_commands import RequestMoveCommand
+from core.model.game_state import GameState
+from core.model.position import Position
 
 
 class _FakeStateRepo:

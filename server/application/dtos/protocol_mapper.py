@@ -9,9 +9,9 @@ Must not own: game logic, network I/O, or state management.
 import json
 from typing import Any, Dict, List, Tuple
 
-from shared.config import consts
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot
+from core.config import consts
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot
 
 from server.application.dtos import frame_fields as ff
 

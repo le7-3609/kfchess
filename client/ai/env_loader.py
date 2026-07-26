@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-from shared.config.consts import FILE_ENCODING
+from core.config.consts import FILE_ENCODING
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_FILE = _REPO_ROOT / ".env"

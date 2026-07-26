@@ -15,7 +15,7 @@ from server.application.auth_service import AuthService
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.infrastructure.database.database import Database
 from server.presentation.ws_server import KFChessServer
-from shared.events import GameEndedEvent
+from core.events import GameEndedEvent
 
 _RECV_TIMEOUT = 2.0
 _TEST_PASSWORD = "password123"

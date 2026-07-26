@@ -1,12 +1,12 @@
 """Unit tests for miscellaneous branches in GameEngine."""
 
 import unittest
-from shared.bootstrap import build_service
-from shared.engine.input_commands import ClickCommand
-from shared.model.position import Position
-from shared.model.piece import TextPiece
-from shared.model.board import ArrayBoard
-from shared.model.game_state import GameState, Cooldown
+from core.bootstrap import build_service
+from core.engine.input_commands import ClickCommand
+from core.model.position import Position
+from core.model.piece import TextPiece
+from core.model.board import ArrayBoard
+from core.model.game_state import GameState, Cooldown
 
 class TestEngineMisc(unittest.TestCase):
     def setUp(self) -> None:

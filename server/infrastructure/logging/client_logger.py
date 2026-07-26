@@ -10,9 +10,9 @@ import os
 import time
 from typing import Any, Dict, List
 
-from shared.config.consts import FILE_ENCODING, FILE_MODE_APPEND, LINE_SEPARATOR
+from core.config.consts import FILE_ENCODING, FILE_MODE_APPEND, LINE_SEPARATOR
 
-_LOGGER = logging.getLogger("shared.client_logger")
+_LOGGER = logging.getLogger("core.client_logger")
 
 DEFAULT_CLIENT_LOG_DIR = "server_logs/client_logs"
 

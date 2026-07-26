@@ -9,12 +9,12 @@ import random
 
 import pytest
 
-from shared.config import consts
-from shared.input.bot_strategy import GreedyCaptureStrategy, RandomMoveStrategy
-from shared.model.board import ArrayBoard
-from shared.model.game_state import GameState
-from shared.model.piece import TextPiece
-from shared.model.position import Position
+from core.config import consts
+from core.input.bot_strategy import GreedyCaptureStrategy, RandomMoveStrategy
+from core.model.board import ArrayBoard
+from core.model.game_state import GameState
+from core.model.piece import TextPiece
+from core.model.position import Position
 
 
 def _board_with(pieces) -> ArrayBoard:

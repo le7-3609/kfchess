@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from shared.io.moves_log import MoveLogEntry
+from core.io.moves_log import MoveLogEntry
 from server.application.capture_log import CaptureRecord
 from server.application.game_persistence_service import GamePersistenceService
 from server.application.game_result import GameResult, persisted_moves_from_log

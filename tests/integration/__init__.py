@@ -1,1 +1,1 @@
-"""Integration tests package for shared."""
+"""Integration tests package for core."""

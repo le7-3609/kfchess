@@ -1,13 +1,13 @@
-"""Unit tests for shared.runtime.async_runner.AsyncGameRunner."""
+"""Unit tests for core.runtime.async_runner.AsyncGameRunner."""
 
 import asyncio
 import unittest
 
-from shared.bootstrap import build_realtime_service
-from shared.config.game_config import GameConfig
-from shared.engine.input_commands import ClickCommand, WaitCommand
-from shared.model.position import Position
-from shared.runtime.async_runner import AsyncGameRunner
+from core.bootstrap import build_realtime_service
+from core.config.game_config import GameConfig
+from core.engine.input_commands import ClickCommand, WaitCommand
+from core.model.position import Position
+from core.runtime.async_runner import AsyncGameRunner
 
 
 BOARD = [

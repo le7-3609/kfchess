@@ -17,7 +17,7 @@ from server.application.dtos.network_frames import MSG_ERROR
 from server.application.room_manager import RoomManager
 from server.domain.room.game_room import RoomState
 from server.presentation.ws_server import KFChessServer
-from shared.events import GameEndedEvent
+from core.events import GameEndedEvent
 
 
 class MockSession:

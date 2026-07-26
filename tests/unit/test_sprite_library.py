@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from client.ui.rendering.sprite_library import SpriteLibrary
-from shared.view.piece_visual_state import PieceVisualState
+from core.view.piece_visual_state import PieceVisualState
 
 
 def _make_state_dir(base: str, folder: str, state: str) -> str:

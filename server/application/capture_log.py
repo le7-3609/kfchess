@@ -1,9 +1,9 @@
-"""Capture recording — an EventBus subscriber, twin of shared.io.MovesLog.
+"""Capture recording — an EventBus subscriber, twin of core.io.MovesLog.
 
 Layer: application (server/application)
 Owns: an in-memory, ordered record of every capture announced on the bus, keyed
 so a resolved move can later be annotated with the piece it took. Lives here
-rather than in shared/ because captured_piece is a persistence concern the game
+rather than in core/ because captured_piece is a persistence concern the game
 engine has no reason to carry.
 Must not own: game rules, board mutation, or drawing. Like MovesLog it only
 records mid-tick — "events notify, they never draw" — so a slow subscriber can
@@ -13,9 +13,9 @@ never stall a half-resolved tick.
 from dataclasses import dataclass
 from typing import List
 
-from shared.config import consts
-from shared.events import Event, Observer, PieceCapturedEvent
-from shared.model.position import Position
+from core.config import consts
+from core.events import Event, Observer, PieceCapturedEvent
+from core.model.position import Position
 
 
 def _algebraic(pos: Position) -> str:

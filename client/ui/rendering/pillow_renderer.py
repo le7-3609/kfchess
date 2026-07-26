@@ -12,10 +12,10 @@ from client.ui import consts as ui_consts
 from client.ui.rendering.board_geometry import BoardGeometry
 from client.ui.rendering.img import Img
 from client.ui.rendering.sprite_library import SpriteLibrary
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot, PieceSnapshot
-from shared.view.piece_visual_state import PieceVisualState
-from shared.view.renderer import RendererInterface
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot, PieceSnapshot
+from core.view.piece_visual_state import PieceVisualState
+from core.view.renderer import RendererInterface
 
 # Geometry helpers: halving centers a box inside a cell; an inset or margin
 # applied at both edges is paid twice; a circle's bounding box spans a diameter.

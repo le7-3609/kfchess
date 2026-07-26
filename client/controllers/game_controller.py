@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Protocol
 
-from shared.io.game_history_store import SavedGame
-from shared.io.moves_log import MoveLogEntry
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot
+from core.io.game_history_store import SavedGame
+from core.io.moves_log import MoveLogEntry
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot
 
 
 @dataclass(frozen=True)

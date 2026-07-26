@@ -10,9 +10,9 @@ from client.ai.llm_strategy import (
     LlmMoveStrategy,
     MAX_CONSECUTIVE_TRANSPORT_FAILURES,
 )
-from shared.config import consts
-from shared.model.game_state import GameState
-from shared.model.position import Position
+from core.config import consts
+from core.model.game_state import GameState
+from core.model.position import Position
 
 
 class _Piece:

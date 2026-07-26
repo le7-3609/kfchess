@@ -11,10 +11,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from client.ui import consts as ui_consts
-from shared.config import consts
-from shared.io.moves_log import MoveLogEntry
-from shared.model.position import Position
-from shared.view.game_snapshot import GameSnapshot
+from core.config import consts
+from core.io.moves_log import MoveLogEntry
+from core.model.position import Position
+from core.view.game_snapshot import GameSnapshot
 from client.controllers.game_controller import GameNotice, GameSessionInfo, NoticeLevel
 from client.ui.rendering.board_geometry import BoardGeometry
 from client.ui.window.game_window import GameWindow
@@ -283,8 +283,8 @@ def test_right_click_asks_the_controller_to_jump_in_place():
 
 
 def test_cannot_select_or_jump_opponent_piece_when_assigned_color_set():
-    from shared.view.piece_visual_state import PieceVisualState
-    from shared.view.game_snapshot import PieceSnapshot, GameSnapshot
+    from core.view.piece_visual_state import PieceVisualState
+    from core.view.game_snapshot import PieceSnapshot, GameSnapshot
 
     controller = MagicMock()
     controller.is_viewer = False
