@@ -21,6 +21,7 @@ import bcrypt
 
 from core.config.consts import FILE_ENCODING
 from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
+from server.infrastructure.database.query_executor import SecureQueryExecutor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -143,12 +144,30 @@ CREATE_INDEXES_SQL = (
 )
 
 
+# The statements reached by client-supplied values. They are module constants
+# rather than call-site strings so there is no expression at the call site an
+# f-string or concatenation could ever be added to: the SQL text is fixed at
+# import time and user input can only arrive through the `?` placeholders.
+INSERT_USER_SQL = "INSERT INTO users (username, password_hash, elo) VALUES (?, ?, ?)"
+
+SELECT_USER_CREDENTIALS_SQL = (
+    "SELECT id, username, password_hash, elo FROM users WHERE username = ?"
+)
+
+SELECT_USER_PROFILE_SQL = "SELECT id, username, elo FROM users WHERE username = ?"
+
+UPDATE_USER_ELO_SQL = "UPDATE users SET elo = ? WHERE username = ?"
+
+
 class Database:
     """Async SQLite persistence adapter."""
 
     def __init__(self, db_path: str = DEFAULT_DB_PATH) -> None:
         self._db_path = db_path
         self._conn: Optional[aiosqlite.Connection] = None
+        # Bound to the accessor, not the connection object, so the executor
+        # always sees the currently open connection and fails loudly if closed.
+        self._queries = SecureQueryExecutor(self._require_connection)
 
     async def connect(self) -> None:
         """Open persistent SQLite connection and initialize schema."""
@@ -187,69 +206,62 @@ class Database:
         """Hash password with bcrypt and insert a new user.
 
         Returns:
-            user_id of created user, or None if username already exists.
+            user_id of created user, or None if the username is taken or the
+            insert failed. The two are indistinguishable to the caller by
+            design; the real reason is in the server log.
         """
-        conn = self._require_connection()
         pw_bytes = password_plain.encode(FILE_ENCODING)
         salt = bcrypt.gensalt()
         pw_hash = bcrypt.hashpw(pw_bytes, salt).decode(FILE_ENCODING)
 
-        try:
-            cursor = await conn.execute(
-                "INSERT INTO users (username, password_hash, elo) VALUES (?, ?, ?)",
-                (username, pw_hash, initial_elo),
-            )
-            await conn.commit()
-            return cursor.lastrowid
-        except aiosqlite.IntegrityError:
-            _LOGGER.warning("Attempted duplicate user registration: %s", username)
+        insert = await self._queries.insert_returning_id(
+            INSERT_USER_SQL,
+            (username, pw_hash, initial_elo),
+        )
+        if not insert.is_ok:
             return None
+        if insert.value is None:
+            _LOGGER.warning("Attempted duplicate user registration: %s", username)
+        return insert.value
 
     async def authenticate_user(self, username: str, password_plain: str) -> Optional[Tuple[int, str, int]]:
         """Verify username and password.
 
+        The username is bound as a parameter, so a value like
+        ``' OR '1'='1`` is compared as a literal name and matches nothing.
+
         Returns:
-            Tuple of (user_id, username, elo) if authenticated, or None.
+            Tuple of (user_id, username, elo) if authenticated, or None. A
+            lookup failure also yields None: an unavailable database must read
+            as "not authenticated" to the caller rather than surfacing why.
         """
-        conn = self._require_connection()
-        async with conn.execute(
-            "SELECT id, username, password_hash, elo FROM users WHERE username = ?",
-            (username,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row is None:
-                return None
-
-            user_id, name, pw_hash, elo = row
-            pw_bytes = password_plain.encode(FILE_ENCODING)
-            hash_bytes = pw_hash.encode(FILE_ENCODING)
-
-            if bcrypt.checkpw(pw_bytes, hash_bytes):
-                return (user_id, name, elo)
+        lookup = await self._queries.fetch_one(SELECT_USER_CREDENTIALS_SQL, (username,))
+        if not lookup.is_ok or lookup.value is None:
             return None
+
+        user_id, name, pw_hash, elo = lookup.value
+        pw_bytes = password_plain.encode(FILE_ENCODING)
+        hash_bytes = pw_hash.encode(FILE_ENCODING)
+
+        if bcrypt.checkpw(pw_bytes, hash_bytes):
+            return (user_id, name, elo)
+        return None
 
     async def get_user_by_username(self, username: str) -> Optional[Tuple[int, str, int]]:
         """Fetch user profile (user_id, username, elo)."""
-        conn = self._require_connection()
-        async with conn.execute(
-            "SELECT id, username, elo FROM users WHERE username = ?",
-            (username,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row is None:
-                return None
-            user_id, name, elo = row
-            return (user_id, name, elo)
+        lookup = await self._queries.fetch_one(SELECT_USER_PROFILE_SQL, (username,))
+        if not lookup.is_ok or lookup.value is None:
+            return None
+        user_id, name, elo = lookup.value
+        return (user_id, name, elo)
 
     async def update_elo(self, username: str, new_elo: int) -> bool:
         """Update a user's ELO rating atomically."""
-        conn = self._require_connection()
-        cursor = await conn.execute(
-            "UPDATE users SET elo = ? WHERE username = ?",
-            (new_elo, username),
-        )
-        await conn.commit()
-        return cursor.rowcount > 0
+        update = await self._queries.execute(UPDATE_USER_ELO_SQL, (new_elo, username))
+        if not update.is_ok:
+            return False
+        rowcount, _ = update.value
+        return rowcount > 0
 
     async def save_completed_game(
         self, game: SavableGame, moves: List[SavableMove]
