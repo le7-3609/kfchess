@@ -1,0 +1,22 @@
+# Keep the build context small and keep host-local state out of the image.
+.git/
+.github/
+.agents/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Never bake secrets or a developer's local database into an image.
+.env
+*.db
+*.db-journal
+
+# Client-only and documentation assets the server image does not need.
+client/
+tests/
+docs/
+*.md
+!requirements.txt

@@ -1,0 +1,90 @@
+# Local, single-machine run of the Kung Fu Chess server.
+#
+# This is the "whole system on one machine" step from Server_Design.md section
+# 3.1 — not a production topology. It runs what exists today: one server
+# process (WebSocket + HTTP API) against SQLite on a named volume.
+#
+# The infrastructure the design calls for next — PostgreSQL (section 12) and a
+# broker (section 9) — is declared below under the `future` profile. Those
+# services start only with `--profile future` and nothing connects to them yet;
+# they are here so the migration is a code change against a running dependency
+# rather than a code change and an environment change at once.
+#
+#   docker compose up --build          # the server, as it works today
+#   docker compose --profile future up # plus Postgres and NATS, unwired
+
+services:
+  server:
+    build: .
+    image: kfchess/server:dev
+    # --host 0.0.0.0 is required in a container: the code's default of
+    # "localhost" binds the loopback interface only, which no published port
+    # can reach from outside the container.
+    command:
+      - python
+      - main_server.py
+      - --host
+      - 0.0.0.0
+      - --db-path
+      - /data/kfchess.db
+      - --log-level
+      - INFO
+    ports:
+      - "8765:8765"   # WebSocket game socket
+      - "8080:8080"   # HTTP API
+    volumes:
+      - game-data:/data
+    healthcheck:
+      # There is no dedicated health endpoint yet, so this borrows a real read
+      # path. Section 16.3 explains why a genuine liveness probe must NOT touch
+      # the database like this one does — that is a gap to close, not a model
+      # to copy into Kubernetes.
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/leaderboard', timeout=3)
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  postgres:
+    profiles: [future]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kfchess
+      # Sourced from the environment (or an untracked .env), never committed —
+      # the same rule Server_Design.md applies to the token signing key. Run
+      # `cp .env.example .env` and fill it in.
+      #
+      # The `:?` form fails the run loudly rather than falling back to a
+      # default, which would be identical on every developer's machine. Its
+      # error message is deliberately left empty: any text there sits where a
+      # value would, and secret scanners read it as one. Compose supplies its
+      # own "required variable is missing a value" message.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: kfchess
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kfchess -d kfchess"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    profiles: [future]
+    image: nats:2-alpine
+    # -js enables JetStream, the durable side of the broker split in section 9.1.
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"   # client connections
+      - "8222:8222"   # monitoring / metrics endpoint
+
+volumes:
+  game-data:
+  postgres-data:
