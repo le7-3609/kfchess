@@ -1,0 +1,52 @@
+# Namespace, configuration and secrets for the Kung Fu Chess fleet.
+#
+# Every role below runs the same image and differs only in its entry command —
+# the pattern `server/presentation/app_runner.py` establishes and `Dockerfile`
+# preserves by keeping the command out of the image.
+#
+# Apply in order:
+#   kubectl apply -f 00-namespace-and-config.yaml
+#   kubectl apply -f 10-dependencies.yaml
+#   kubectl apply -f 20-migrate-job.yaml     # must complete before the rest
+#   kubectl apply -f 30-api.yaml -f 40-gateway.yaml -f 50-authority.yaml -f 60-worker.yaml
+#   kubectl apply -f 70-autoscaling.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kfchess
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kfchess-config
+  namespace: kfchess
+data:
+  # Addresses only. Nothing here selects behaviour that differs between
+  # environments beyond where the dependencies live, so a config change is never
+  # a behaviour change.
+  KFCHESS_REDIS_URL: "redis://redis:6379/0"
+  KFCHESS_NATS_URL: "nats://nats:4222"
+  KFCHESS_POSTGRES_DSN: "postgresql://kfchess:kfchess-dev-password@postgres:5432/kfchess"
+  # The ingress terminates TLS and is the only peer whose X-Forwarded-For may be
+  # believed. Trusting the header from any peer makes every per-IP rate limit
+  # bypassable with one header, so this is the allowlist, not a formality.
+  KFCHESS_TRUSTED_PROXIES: "10.0.0.0/8"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kfchess-secrets
+  namespace: kfchess
+type: Opaque
+stringData:
+  # DEVELOPMENT VALUES. Replace before any deployment that is reachable from a
+  # network you do not control — this file is in version control, which is
+  # exactly what a real signing key must never be. Generate with:
+  #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+  #
+  # The API tier signs session tokens with this and the gateway verifies them,
+  # so both must receive the same value; a per-process key would invalidate
+  # every token the moment a second replica answered.
+  KFCHESS_TOKEN_SIGNING_KEY: "dev-only-signing-key-replace-me-before-exposure"
+  POSTGRES_PASSWORD: "kfchess-dev-password"

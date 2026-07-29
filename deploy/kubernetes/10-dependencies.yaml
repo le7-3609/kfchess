@@ -1,0 +1,132 @@
+# PostgreSQL, Redis and NATS, sized for a local cluster.
+#
+# These are single-replica and, for Redis and NATS, storage-less. That is
+# deliberate for a local run and explicitly wrong for production, where each of
+# these is a managed service or an operator-run cluster: PostgreSQL with a
+# primary and read replicas, NATS with a JetStream cluster, Redis with
+# replication. What this file provides is somewhere for the application
+# manifests to point, so those are exercised against real addresses.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: kfchess
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: kfchess
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - { name: POSTGRES_USER, value: kfchess }
+            - { name: POSTGRES_DB, value: kfchess }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kfchess-secrets, key: POSTGRES_PASSWORD }
+            # The data directory must be a subdirectory of the mount, not the
+            # mount itself: a PVC's lost+found makes initdb refuse to start.
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432 }]
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "kfchess", "-d", "kfchess"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: kfchess
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: kfchess
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # No persistence, on purpose. Everything Redis holds — the queue, the
+          # seat directory, the ownership leases — is rebuilt by players
+          # reconnecting and instances re-registering. Restoring a snapshot of
+          # who *was* seated where is worse than an empty store: stale routing
+          # would outlive the restart that should have cleared it.
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports: [{ containerPort: 6379 }]
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: kfchess
+spec:
+  selector: { app: nats }
+  ports:
+    - { name: client, port: 4222, targetPort: 4222 }
+    - { name: monitor, port: 8222, targetPort: 8222 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: kfchess
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: nats }
+  template:
+    metadata:
+      labels: { app: nats }
+    spec:
+      containers:
+        - name: nats
+          image: nats:2-alpine
+          # -js enables JetStream, the durable side of the broker split: room
+          # events are fire-and-forget and repaired by the next reconciliation
+          # frame, while a finished game must never be silently dropped.
+          args: ["-js", "-m", "8222"]
+          ports:
+            - { containerPort: 4222 }
+            - { containerPort: 8222 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8222 }
+            initialDelaySeconds: 2
+            periodSeconds: 5

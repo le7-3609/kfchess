@@ -47,6 +47,8 @@ METRIC_HTTP_REQUEST_DURATION = "kfchess_http_request_duration_seconds"
 METRIC_ROOMS_OWNED = "kfchess_rooms_owned"
 METRIC_LEASE_ACQUISITIONS = "kfchess_lease_acquisitions_total"
 METRIC_LEASE_FAILOVERS = "kfchess_lease_failovers_total"
+METRIC_PERSISTENCE_PENDING = "kfchess_persistence_pending"
+METRIC_PERSISTENCE_WRITTEN = "kfchess_persistence_written_total"
 
 # Request latencies span a much wider range than a simulation tick — a cached
 # leaderboard read and a bcrypt-backed login are three orders of magnitude
@@ -119,6 +121,9 @@ class ServerMetrics:
             "against a flat crash rate means leases are being lost to network "
             "jitter rather than to failures, and the TTL is too tight.",
         )
+        self.persistence_written: Counter = registry.counter(
+            METRIC_PERSISTENCE_WRITTEN, "Finished games written by this worker."
+        )
 
     @property
     def registry(self) -> MetricsRegistry:
@@ -157,6 +162,19 @@ class ServerMetrics:
             METRIC_ROOMS_OWNED, "Rooms this instance holds an ownership lease on.", source
         )
 
+    def bind_persistence_pending(self, source: Callable[[], float]) -> None:
+        """The persistence pool's scaling signal.
+
+        Sustained growth here means the database, not the game, is the
+        bottleneck — which is the specific condition Step 8 requires the fleet to
+        survive by queueing rather than by stalling rooms.
+        """
+        self._registry.gauge(
+            METRIC_PERSISTENCE_PENDING,
+            "Finished games accepted by this worker but not yet written.",
+            source,
+        )
+
     def unbind_live_gauges(self) -> None:
         """Drop the gauges that read live objects, on server teardown.
 
@@ -171,6 +189,7 @@ class ServerMetrics:
             METRIC_QUEUE_LENGTH,
             METRIC_COUNTDOWNS_ACTIVE,
             METRIC_ROOMS_OWNED,
+            METRIC_PERSISTENCE_PENDING,
         ):
             self._registry.unregister(name)
 

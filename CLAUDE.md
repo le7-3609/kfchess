@@ -10,24 +10,31 @@ pip install -r requirements.txt      # Pillow, pytest, pre-commit
 python client/main_gui.py            # Tkinter GUI (prompts for player names, then plays)
 python main.py                       # headless: reads a command script from stdin
 
-python main_ws.py                    # WebSocket game server  (port 8765)
+python main_ws.py                    # WebSocket game server  (8765, probes on 8080)
 python main_api.py                   # HTTP API + probes      (port 8080)
-python main_server.py                # both roles in one process — local development only
+python main_worker.py                # persistence worker     (probes on 8080)
+python main_server.py                # ws + api in one process — local development only
 
-docker compose up --build            # the same two roles as containers
-docker compose --profile future up   # plus Postgres and NATS, declared but unwired
+docker compose up --build            # whole stack: both roles, Postgres, Redis, NATS
+docker compose up --scale ws=2       # two game replicas over one player population
+alembic upgrade head                 # apply the schema (KFCHESS_POSTGRES_DSN must be set)
 
-pytest                               # full suite (~770 tests, ~1.5 minutes)
+pytest                               # full suite (~860 tests, ~3 minutes); infra tests skip
 pytest tests/unit/test_board.py                      # one file
 pytest tests/unit/test_board.py::TestBoard::test_x   # one test
 pytest -k collision                                  # by name
+pytest tests/infra                                   # needs real services — see below
 
 pre-commit run --all-files           # the only hook is pytest; CI (.github/workflows/tests.yml) runs pytest on Python 3.10, builds the image, and runs tests/integration against the Compose stack
 ```
 
 `KFCHESS_TOKEN_SIGNING_KEY` must be set and **identical** for both roles — the API tier signs session tokens with it and the WebSocket tier verifies them. `KFCHESS_PREVIOUS_TOKEN_KEYS` (comma-separated) keeps tokens issued under an outgoing key valid during a rotation, and `KFCHESS_TRUSTED_PROXIES` names the ingress addresses whose `X-Forwarded-For` may be believed. See `.env.example`.
 
-There is no linter or formatter configured, and no pytest config file — discovery is pytest's default over `tests/`.
+**Every backing store has two implementations behind one port**, and which one runs is decided entirely by whether its URL is set: `KFCHESS_REDIS_URL` (matchmaking queue, seat/room directory, ownership leases), `KFCHESS_POSTGRES_DSN` (selects `PostgresDatabase` over SQLite), `KFCHESS_NATS_URL` (room events and the finished-game stream). Unset means in-process, which is a real configuration and not a fallback — it is what a single server runs and what keeps `pytest` green with no containers. `tests/infra/` is marked `infra` and skips itself unless the matching variable is set; those tests are what actually prove the Redis/PostgreSQL/NATS implementations satisfy the contract, since an in-memory dict agrees with any contract including a wrong one.
+
+There is no linter or formatter configured. `pytest.ini` exists only to register the `infra` marker and pin the asyncio fixture loop scope; discovery is still pytest's default over `tests/`.
+
+Kubernetes manifests for every role are in [deploy/kubernetes/](deploy/kubernetes/), applied in filename order, with the Alembic job gating the rest. [deploy/prometheus/prometheus.yml](deploy/prometheus/prometheus.yml) is the Compose-topology scrape config; the Kubernetes one is inlined in `80-prometheus.yaml`.
 
 ## What the game is
 

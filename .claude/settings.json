@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python -c ' *)",
-      "Bash(BENCH_N=* python -c ' *)"
+      "Bash(BENCH_N=* python -c ' *)",
+      "PowerShell(python -c \"from server.application.dtos import frame_fields as ff, network_frames as nf; print\\(ff.FIELD_ROOM_ID, nf.MSG_GAME_START, nf.MSG_GAME_ENDED\\)\")",
+      "PowerShell(python -c \"from server.application.dtos import frame_fields as ff, network_frames as nf; print\\(repr\\(ff.FIELD_ROOM_ID\\), repr\\(nf.MSG_GAME_START\\), repr\\(nf.MSG_GAME_END\\)\\)\")"
     ]
   }
 }

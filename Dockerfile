@@ -1,11 +1,11 @@
 # Kung Fu Chess server image.
 #
 # One image, every role: `main_ws.py` (the game socket), `main_api.py` (the HTTP
-# API), `main_server.py` (both, for local development) and `alembic upgrade
-# head` (the pre-deploy migration job). The roles differ only in their entry
-# command, which is why the command lives in the orchestration file rather than
-# being baked in — the CMD below is the development default, and Compose and
-# Kubernetes each override it per role.
+# API), `main_server.py` (both, for local development), `main_worker.py` (the
+# persistence workers) and `alembic upgrade head` (the pre-deploy migration
+# job). The roles differ only in their entry command, which is why the command
+# lives in the orchestration file rather than being baked in — the CMD below is
+# the development default, and Compose and Kubernetes each override it per role.
 
 FROM python:3.10-slim
 
@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY core/ ./core/
 COPY server/ ./server/
-COPY main_server.py main_ws.py main_api.py ./
+COPY main_server.py main_ws.py main_api.py main_worker.py ./
 
 # The migration job runs from this same image, so the schema that ships is the
 # schema the code in this layer was built against — a migration image that can

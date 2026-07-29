@@ -1,0 +1,71 @@
+# The persistence worker pool.
+#
+# Holds no socket and computes no game. It drains the durable `game.finished`
+# stream into PostgreSQL in batches, which is what keeps a slow database from
+# stalling a room over an operation that has nothing to do with the game: the
+# backlog grows in the broker instead of in the simulation.
+#
+# Delivery is at-least-once, so a redelivered game must be a no-op rather than a
+# duplicate — which is `ON CONFLICT (room_id) DO NOTHING`, and why that was a
+# prerequisite for this step rather than a refinement of it.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kfchess-worker
+  namespace: kfchess
+  labels: { app: kfchess-worker }
+spec:
+  selector: { app: kfchess-worker }
+  ports: [{ name: http, port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kfchess-worker
+  namespace: kfchess
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: kfchess-worker }
+  template:
+    metadata:
+      labels: { app: kfchess-worker }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Long enough for a worker to finish the batch it already accepted. Those
+      # games were acknowledged to the broker, so nothing will redeliver them —
+      # exiting without writing them is the one way this design loses a game.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: worker
+          image: kfchess/server:dev
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - main_worker.py
+            - --host
+            - 0.0.0.0
+            - --log-level
+            - INFO
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: kfchess-config }
+            - secretRef: { name: kfchess-secrets }
+          env:
+            - name: KFCHESS_INSTANCE_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { memory: 512Mi }

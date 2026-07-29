@@ -81,7 +81,7 @@ That ratio is why Step 2 comes before any infrastructure work. Sharding a protoc
 | 5 | Move state out of the process | `room_manager.py`, `queue.py`, `database.py` | Two server replicas serve one logical game population | **Built** — verified below |
 | 6 | Introduce the broker | `broadcast_observer.py`, `ws_server.py` | A player on replica A sees moves computed on replica B | **Built** — verified below |
 | 7 | Shard the game authority | `domain/coordination/leases.py`, `room_ownership.py` | Rooms are owned by lease; killing an owner loses only its rooms | **Partly built** — see below |
-| 8 | Kubernetes, autoscaling, persistence pipeline | manifests, new persistence worker | Replica counts track load; a database stall does not stall a game | Not started |
+| 8 | Kubernetes, autoscaling, persistence pipeline | `deploy/`, `persistence_worker.py` | Replica counts track load; a database stall does not stall a game | **Partly built** — see below |
 
 Steps 1 through 4 change this repository and need no new infrastructure. Steps 5 through 8 add infrastructure (Redis, NATS, PostgreSQL, Kubernetes), each piece introduced only once the code had a place to put it.
 
@@ -109,7 +109,7 @@ Measured over a real socket, two players at one move per player per two seconds:
 
 The steady-state protocol is in the hundreds of bytes per second as the criterion requires. The reconciliation frame is what adds the rest, and its interval is the knob that trades bandwidth against how long a client can stay drifted. Five seconds is sized for the transport events run on *next*: today they share one ordered TCP socket and barely drift, but Step 6 moves them to a fire-and-forget broker where a dropped event must be repaired in seconds.
 
-### What Steps 5–7 landed, and what they did not
+### What Steps 5–8 landed, and what they did not
 
 **Step 5 — state out of the process.** `MatchmakingQueue` keeps its interface (`join_queue`, `leave_queue`, `try_match`, `check_timeouts`) and gains a store behind it: a Redis sorted set by rating, so the ±100 window is a `ZRANGEBYSCORE` rather than the O(n²) pair scan, plus a second set by join time so pairing still favours the longest wait. The pop is one Lua script that takes both players or neither. Session and room directories are Redis keys with a 10-minute TTL, so `find_room_by_username` no longer scans local rooms. `Database` is joined by `PostgresDatabase` over `asyncpg` — `?` → `$n`, `INSERT OR IGNORE` → `ON CONFLICT`, one connection → a pool — and `SecureQueryExecutor`'s contract is shared verbatim between the two drivers via `query_contract.py`, with all 24 of its tests ported and passing against PostgreSQL. Schema management is Alembic, applied by a job that runs to completion before any replica starts.
 
@@ -122,6 +122,10 @@ The steady-state protocol is in the hundreds of bytes per second as the criterio
 **Step 7 — leases. Partly built.** The mechanism is complete and tested: `SET NX PX 30000` with renewal at 10s, a fencing token in its own non-expiring key so a room going briefly unowned cannot reset the generation, renewal and release both verifying owner *and* token, rendezvous-hash placement, and a drain that stops taking rooms while continuing to renew what it holds. The failure injection the exit criterion demands is `test_killing_an_owner_bounds_the_damage_to_its_own_rooms`: two instances hold three rooms each, one stops renewing without releasing, and what is asserted is that its ids become acquirable while the survivor's are untouched.
 
 *What is not built:* `RoomOwnership` is not yet driving the gateway's room lifecycle — a room is still owned implicitly by the instance that created it. The single-authority property is nonetheless enforced structurally today, because only that instance subscribes to `room.<id>.commands`, which is where the design says the enforcement belongs. What is missing is lease-based *placement* and *failover*: today a crashed instance's rooms are lost without another instance acquiring the ids. The gateway and game authority also remain one process rather than two.
+
+**Step 8 — orchestration. Partly built.** `GameRoom` no longer awaits the database on game end: it publishes to the durable stream and frees the room, falling back to an inline write only when no broker exists or the publish fails. `PersistenceWorker` consumes the stream as a named consumer group and writes in batches bounded by both size and age. Kubernetes manifests exist for every role and were applied to a real k3d cluster (k3s v1.35.5); all six application pods reached Ready, the Alembic job ran to completion first, and Prometheus scraped every role's `/metrics`.
+
+*What is not built:* the HPAs are written against the exported gauges but nothing converts those into the custom-metrics API — that needs `prometheus-adapter` or KEDA, neither of which is deployed, so the gateway and worker HPAs report `<unknown>` rather than scaling. The autoscaling exit criterion is therefore **not** demonstrated. The data stores are also not split by shape (Section 11.4): game history is still in PostgreSQL rather than a wide-column store.
 
 ---
 

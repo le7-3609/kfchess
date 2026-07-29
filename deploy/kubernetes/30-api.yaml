@@ -1,0 +1,89 @@
+# The HTTP API tier: history reads, leaderboard, token issuance.
+#
+# The tier whose restart costs nothing — clients retry — so it deploys freely
+# and first in any rollout ordered by blast radius.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kfchess-api
+  namespace: kfchess
+  labels: { app: kfchess-api }
+spec:
+  selector: { app: kfchess-api }
+  ports: [{ name: http, port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kfchess-api
+  namespace: kfchess
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: kfchess-api }
+  template:
+    metadata:
+      labels: { app: kfchess-api }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+        # Waits for the migration rather than assuming it. A replica that starts
+        # against an unmigrated database fails every query and, worse, passes its
+        # liveness probe while doing so.
+        - name: wait-for-migration
+          image: kfchess/server:dev
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import asyncio, os, sys, asyncpg
+              async def main():
+                  for _ in range(60):
+                      try:
+                          conn = await asyncpg.connect(os.environ["KFCHESS_POSTGRES_DSN"])
+                          done = await conn.fetchval("SELECT to_regclass('public.users') IS NOT NULL")
+                          await conn.close()
+                          if done:
+                              return
+                      except Exception:
+                          pass
+                      await asyncio.sleep(2)
+                  sys.exit("schema never appeared")
+              asyncio.run(main())
+          envFrom:
+            - configMapRef: { name: kfchess-config }
+      containers:
+        - name: api
+          image: kfchess/server:dev
+          imagePullPolicy: IfNotPresent
+          command: ["python", "main_api.py", "--host", "0.0.0.0", "--log-level", "INFO"]
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: kfchess-config }
+            - secretRef: { name: kfchess-secrets }
+          env:
+            # Names this process in directory entries and lease keys. Defaulting
+            # it to the Pod name means two replicas can never call themselves the
+            # same thing, which would read as one instance owning everything.
+            - name: KFCHESS_INSTANCE_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          livenessProbe:
+            # /healthz, never /readyz and never a real query. A liveness check
+            # that touches the database turns one slow database into a
+            # fleet-wide restart storm: every replica fails at once and the
+            # restarts hit the struggling database harder.
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { memory: 512Mi }

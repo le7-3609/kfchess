@@ -36,7 +36,8 @@ from server.application.disconnect_handler import (
     DEFAULT_DISCONNECT_TIMEOUT_SECONDS,
     DisconnectHandler,
 )
-from server.domain.coordination.broker import room_events_subject
+from server.application.game_result_codec import encode_game_result
+from server.domain.coordination.broker import SUBJECT_GAME_FINISHED, room_events_subject
 from server.domain.room.game_room import (
     ForfeitOutcome,
     GameEndOutcome,
@@ -372,7 +373,7 @@ class GameRoom:
         `.elo` supplies the before-values and the outcome's new ratings the
         after-values.
         """
-        if self._persistence_service is None:
+        if self._persistence_service is None and self._broker is None:
             return
         game_result = GameResult(
             room_id=self.room_id,
@@ -388,7 +389,7 @@ class GameRoom:
             ended_at=datetime.now(timezone.utc),
             moves=self._collect_persisted_moves(),
         )
-        await self._persistence_service.persist_game(game_result)
+        await self._hand_off_for_persistence(game_result)
 
     async def _persist_forfeit(
         self,
@@ -403,7 +404,7 @@ class GameRoom:
         The seat framing is already resolved by the caller; the winner comes
         from the forfeit outcome so a draw is impossible on this path.
         """
-        if self._persistence_service is None:
+        if self._persistence_service is None and self._broker is None:
             return
         game_result = GameResult(
             room_id=self.room_id,
@@ -419,7 +420,38 @@ class GameRoom:
             ended_at=datetime.now(timezone.utc),
             moves=self._collect_persisted_moves(),
         )
-        await self._persistence_service.persist_game(game_result)
+        await self._hand_off_for_persistence(game_result)
+
+    async def _hand_off_for_persistence(self, game_result: GameResult) -> None:
+        """Publish the finished game, or write it inline if there is no stream.
+
+        The published path is the one a fleet runs: the authority hands the game
+        to a durable stream and frees the room without waiting for a database
+        acknowledgement, so a slow database queues messages in the broker rather
+        than stalling rooms over an operation that has nothing to do with the
+        game. Delivery is at-least-once, which the `ON CONFLICT (room_id) DO
+        NOTHING` save makes safe.
+
+        The inline path remains for a single process with no broker, where there
+        is no worker pool to hand anything to and the write is a local one.
+
+        A failed publish falls back to writing inline rather than dropping the
+        game. Losing a finished game is the one failure here with no later
+        repair — unlike a dropped event, nothing reconciles it.
+        """
+        if self._broker is not None:
+            published = await self._broker.publish_durable(
+                SUBJECT_GAME_FINISHED, encode_game_result(game_result)
+            )
+            if published:
+                return
+            _LOGGER.warning(
+                "Room %s could not be published for persistence; writing inline",
+                game_result.room_id,
+            )
+
+        if self._persistence_service is not None:
+            await self._persistence_service.persist_game(game_result)
 
     @staticmethod
     def _winner_id_for(

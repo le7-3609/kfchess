@@ -1,0 +1,93 @@
+# The WebSocket gateway tier.
+#
+# Holds player sockets and owns the rooms it creates. Deploys rarely and always
+# with draining, because every client on a replaced instance must reconnect —
+# the highest blast radius of any role, which is why it deploys last.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kfchess-gateway
+  namespace: kfchess
+  labels: { app: kfchess-gateway }
+spec:
+  selector: { app: kfchess-gateway }
+  ports:
+    - { name: ws, port: 8765, targetPort: 8765 }
+    - { name: http, port: 8080, targetPort: 8080 }
+  # No session affinity. Placement matters only at connect time — a socket stays
+  # pinned to whichever instance accepted it — and a returning client is routed
+  # by the Redis seat directory rather than by the balancer remembering it.
+  sessionAffinity: None
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kfchess-gateway
+  namespace: kfchess
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: kfchess-gateway }
+  strategy:
+    rollingUpdate:
+      # Surge before draining, so capacity exists to accept the connections the
+      # instance being replaced is about to shed.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels: { app: kfchess-gateway }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Games last 30 to 90 seconds. Three minutes lets an instance's live rooms
+      # finish after it stops accepting new ones, so a deploy drops no game.
+      terminationGracePeriodSeconds: 180
+      containers:
+        - name: gateway
+          image: kfchess/server:dev
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - main_ws.py
+            - --host
+            - 0.0.0.0
+            - --log-level
+            - INFO
+          ports:
+            - { name: ws, containerPort: 8765 }
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - configMapRef: { name: kfchess-config }
+            - secretRef: { name: kfchess-secrets }
+          env:
+            - name: KFCHESS_INSTANCE_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          lifecycle:
+            preStop:
+              exec:
+                # SIGTERM already triggers the drain in `app_runner`; this holds
+                # the Pod in Terminating long enough for the endpoint removal to
+                # propagate before the process stops accepting, which is what
+                # stops a connection being handed to an instance that is going
+                # away.
+                command: ["sh", "-c", "sleep 10"]
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            # Fails during a drain while liveness keeps passing — the instance
+            # leaves rotation without having its live rooms killed. It also
+            # covers the broker: a gateway that reports ready before it can
+            # reach NATS is handed connections it can accept and then cannot
+            # serve, which is worse than refusing them.
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { memory: 768Mi }

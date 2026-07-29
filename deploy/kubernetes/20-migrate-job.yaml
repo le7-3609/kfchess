@@ -1,0 +1,44 @@
+# The pre-deploy migration job.
+#
+# `CREATE TABLE IF NOT EXISTS` on every startup is correct for a file one
+# process owns and wrong for a shared database fifty replicas start against at
+# once. This runs once, to completion, before any replica does — which is why
+# every Deployment below carries an init container that waits on it rather than
+# merely being applied afterwards.
+#
+# It runs from the *same image* as the application, so the schema that ships is
+# the schema the code in that image was built against. A separate migration
+# image can drift from the application image, and the failure mode is a replica
+# starting against a database it does not match.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kfchess-migrate
+  namespace: kfchess
+spec:
+  # A failed migration must stop the deploy, not retry until it accidentally
+  # succeeds against a half-migrated schema.
+  backoffLimit: 2
+  template:
+    metadata:
+      labels: { app: kfchess-migrate }
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -U kfchess -d kfchess; do sleep 2; done
+      containers:
+        - name: migrate
+          image: kfchess/server:dev
+          imagePullPolicy: IfNotPresent
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: { name: kfchess-config }
+            - secretRef: { name: kfchess-secrets }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 256Mi }

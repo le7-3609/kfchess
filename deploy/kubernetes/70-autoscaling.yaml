@@ -1,0 +1,99 @@
+# Horizontal autoscaling, one signal per role.
+#
+# CPU is the HPA's default metric and it is the wrong one for every role here.
+# An idle keep-alive socket costs almost no CPU but still holds memory and a file
+# descriptor. A room waiting on a slow database costs none at all while still
+# being work that has not finished. Scaling on CPU would leave a gateway at 5%
+# CPU and out of file descriptors, and a worker pool idle while its backlog grew.
+#
+# Each `pods` metric below is a gauge this codebase already exports from
+# `server/infrastructure/observability/` and Prometheus already scrapes (see
+# `deploy/prometheus/prometheus.yml`). Reaching them from an HPA needs one more
+# component in the cluster — either `prometheus-adapter`, which serves them
+# through the custom-metrics API, or KEDA, which converts them into a
+# ScaledObject. Neither is installed by these manifests; without one, the
+# HorizontalPodAutoscalers below will report `<unknown>` for their targets rather
+# than scaling. That is the missing piece, named here rather than assumed.
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kfchess-gateway
+  namespace: kfchess
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: kfchess-gateway }
+  minReplicas: 2
+  maxReplicas: 50
+  metrics:
+    - type: Pods
+      pods:
+        metric: { name: kfchess_ws_sessions_active }
+        target: { type: AverageValue, averageValue: "2000" }
+  behavior:
+    scaleUp:
+      # Connection count is what this tier is sized by, and it rises with
+      # traffic rather than with load average — so react quickly, and do not
+      # average over a window that hides a surge.
+      stabilizationWindowSeconds: 30
+      policies: [{ type: Percent, value: 100, periodSeconds: 30 }]
+    scaleDown:
+      # Slowly. Removing a gateway disconnects every player on it, so a
+      # momentary dip must not cost anyone their game.
+      stabilizationWindowSeconds: 600
+      policies: [{ type: Pods, value: 1, periodSeconds: 120 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kfchess-api
+  namespace: kfchess
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: kfchess-api }
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    # The one role where CPU is genuinely the right signal: a request is CPU and
+    # database time, and it ends. Latency (p99) is the better signal still, but
+    # it needs the adapter, and CPU degrades gracefully in its absence.
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kfchess-worker
+  namespace: kfchess
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: kfchess-worker }
+  minReplicas: 2
+  maxReplicas: 30
+  metrics:
+    - type: Pods
+      pods:
+        metric: { name: kfchess_persistence_pending }
+        # A pool that is keeping up sits near zero. A sustained non-zero backlog
+        # means the database, not the game, is the bottleneck — which is exactly
+        # the condition this step requires the fleet to survive by queueing
+        # rather than by stalling rooms.
+        target: { type: AverageValue, averageValue: "20" }
+  behavior:
+    scaleUp:
+      # Fast and aggressive: the backlog is already the symptom, and every
+      # second spent deciding is more games queued.
+      stabilizationWindowSeconds: 0
+      policies: [{ type: Percent, value: 200, periodSeconds: 30 }]
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies: [{ type: Pods, value: 2, periodSeconds: 60 }]
+---
+# A gateway losing all its replicas at once would disconnect every player on
+# them, so voluntary disruption (a node drain, a cluster upgrade) is bounded.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kfchess-gateway
+  namespace: kfchess
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: kfchess-gateway }

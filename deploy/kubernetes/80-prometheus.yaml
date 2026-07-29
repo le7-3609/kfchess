@@ -1,0 +1,151 @@
+# Prometheus, scraping every role's `/metrics`.
+#
+# This is what turns the arithmetic in Server_Design.md into facts, and it is
+# also the input the autoscalers in `70-autoscaling.yaml` are driven by — a
+# metrics pipeline that lies produces a fleet that scales wrongly.
+#
+# The scrape config is the Kubernetes half of `deploy/prometheus/prometheus.yml`,
+# inlined here because a ConfigMap is how a cluster delivers a file. The two are
+# kept identical on purpose: a developer debugging a scrape against Compose must
+# be reading the same relabelling rules the cluster applies.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: kfchess
+---
+# Pod discovery needs read access to the API, and nothing else. Scoped to the
+# one namespace rather than cluster-wide: a scraper that can list every Pod in
+# the cluster is a credential worth stealing.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus
+  namespace: kfchess
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus
+  namespace: kfchess
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: kfchess
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: kfchess
+data:
+  prometheus.yml: |
+    global:
+      # Well inside the HPA's reaction window. The game authority must react to
+      # load within seconds — demand turns over roughly every minute at the
+      # target scale — so the metric feeding that decision cannot be a minute
+      # stale.
+      scrape_interval: 10s
+      scrape_timeout: 5s
+      external_labels:
+        fleet: kfchess
+
+    scrape_configs:
+      - job_name: kfchess
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [kfchess]
+        relabel_configs:
+          # Opt-in by annotation, so a Pod serving no metrics never appears as a
+          # target that is permanently down.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: role
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: instance
+
+      # The broker's own metrics — publish rate, subscriber lag, dropped
+      # messages, which is the row Section 13 of Server_Design.md needs to test
+      # whether Step 6's "loss is tolerable" assumption is actually being
+      # exercised — are deliberately NOT scraped here.
+      #
+      # NATS's `:8222/varz` serves JSON, not the Prometheus exposition format,
+      # so scraping it directly yields a target permanently `up=0`. Collecting
+      # them needs `natsio/prometheus-nats-exporter` as a sidecar or a
+      # Deployment, translating `/varz` into `/metrics`. That component is not
+      # deployed by these manifests; adding it is a one-container change and is
+      # named here rather than left as a silently broken target.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: kfchess
+spec:
+  selector: { app: prometheus }
+  ports: [{ name: http, port: 9090, targetPort: 9090 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: kfchess
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: prometheus }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.1.0
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            # Local storage only. This is the scrape pipeline, not the long-term
+            # store: a real deployment federates or remote-writes to one, because
+            # a Prometheus that dies with its node takes the history the
+            # autoscaling decisions were justified by with it.
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=2h
+          ports: [{ name: http, containerPort: 9090 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/prometheus }
+            - { name: data, mountPath: /prometheus }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+      volumes:
+        - name: config
+          configMap: { name: prometheus-config }
+        - name: data
+          emptyDir: {}

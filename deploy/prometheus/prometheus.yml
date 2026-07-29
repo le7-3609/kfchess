@@ -1,0 +1,83 @@
+# Prometheus scrape configuration for the Kung Fu Chess fleet.
+#
+# Every role serves `/metrics` on the same HTTP port from the same dependency-free
+# registry in `server/infrastructure/observability/`, which is what lets one job
+# per topology cover all of them.
+#
+# Two jobs rather than one because the two topologies discover targets
+# differently and nothing else about them differs:
+#
+#   kfchess-compose    static targets, for `docker compose up`
+#   kfchess-kubernetes Pod discovery, for a cluster
+#
+# The numbers this collects are not decoration. Section 13 of Server_Design.md
+# makes the autoscalers *driven* by them, so a metrics pipeline that lies
+# produces a fleet that scales wrongly — which is why the scrape interval below
+# is well inside the HPA's own reaction window rather than a round number.
+
+global:
+  # The game authority must react to load within seconds (demand turns over
+  # roughly every minute at the target scale), so the metric feeding that
+  # decision cannot be up to a minute stale.
+  scrape_interval: 10s
+  scrape_timeout: 5s
+  external_labels:
+    fleet: kfchess
+
+scrape_configs:
+  # ------------------------------------------------------------------
+  # Compose topology
+  # ------------------------------------------------------------------
+  - job_name: kfchess-compose
+    static_configs:
+      - targets: ["api:8080"]
+        labels: { role: api }
+      # Compose assigns each scaled replica its own container name; Prometheus
+      # resolves this service name to every one of them.
+      - targets: ["ws:8080"]
+        labels: { role: gateway }
+    metrics_path: /metrics
+
+  # The broker's own metrics — publish rate, subscriber lag, dropped messages,
+  # the row Section 13 of Server_Design.md needs to test whether Step 6's "loss
+  # is tolerable" assumption is actually being exercised — are deliberately NOT
+  # scraped here.
+  #
+  # NATS serves `:8222/varz` as JSON, not the Prometheus exposition format, so
+  # pointing a scrape at it produces a target that is permanently `up=0`.
+  # Collecting them needs `natsio/prometheus-nats-exporter` alongside the broker,
+  # translating `/varz` into `/metrics`. That is a one-container addition and is
+  # named here rather than left as a job that looks configured and is not.
+
+  # ------------------------------------------------------------------
+  # Kubernetes topology
+  # ------------------------------------------------------------------
+  - job_name: kfchess-kubernetes
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [kfchess]
+    relabel_configs:
+      # Opt-in by annotation, so a Pod that serves no metrics is never scraped
+      # and never appears as a target that is permanently down.
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      # `role` is what every dashboard and every HPA query groups by, so it is
+      # derived from the label the Deployment already sets rather than being a
+      # second thing to keep in step.
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: replace
+        target_label: role
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: instance

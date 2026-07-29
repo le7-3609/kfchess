@@ -33,8 +33,10 @@ from typing import Any, List, Optional, Sequence
 
 from server.application.auth_service import AuthService
 from server.application.game_query_service import GameQueryService
+from server.application.game_persistence_service import GamePersistenceService
 from server.application.gateway_relay import GatewayRelay
 from server.application.health import ReadinessProbe
+from server.application.persistence_worker import PersistenceWorker
 from server.application.remote_seat import RemoteSeat
 from server.application.room_command_listener import RoomCommandListener
 from server.application.room_manager import RoomManager
@@ -43,6 +45,7 @@ from server.domain.coordination.broker import InProcessBroker
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.infrastructure.database.database import DEFAULT_DB_PATH, Database
 from server.infrastructure.logging.json_logging import configure_json_logging
+from server.infrastructure.observability.server_metrics import server_metrics
 from server.presentation.http_api import DEFAULT_HTTP_PORT, HttpApi, HttpApiServer
 from server.presentation.ws_server import DEFAULT_HOST, DEFAULT_PORT, KFChessServer
 
@@ -431,6 +434,33 @@ def _probe_server(settings: ServerSettings, readiness: ReadinessProbe) -> HttpAp
         host=settings.host,
         port=settings.http_port,
     )
+
+
+async def run_worker(settings: ServerSettings) -> None:
+    """Run a persistence worker: drain the finished-game stream into the database.
+
+    Serves its own HTTP port for probes and metrics, because an autoscaler
+    cannot read a backlog it cannot scrape and Kubernetes cannot restart a
+    process it cannot probe. That port serves no API routes — this role answers
+    no client — but the operational surface is identical to every other role's,
+    which is what lets one set of manifests describe all of them.
+    """
+    async with _dependencies(settings, with_broker=True) as (database, _redis, broker):
+        readiness = build_readiness(database, broker=broker)
+        worker = PersistenceWorker(broker, GamePersistenceService(database))
+        server_metrics().bind_persistence_pending(lambda: worker.pending_count)
+
+        probes = _probe_server(settings, readiness)
+        await probes.start()
+        await worker.start()
+        try:
+            await _serve_until_signalled(readiness)
+        finally:
+            # The worker stops before the probe server so its final flush
+            # happens while the database is still open. Those games were already
+            # acknowledged to the broker: nothing will redeliver them.
+            await worker.stop()
+            await probes.stop()
 
 
 async def run_combined(settings: ServerSettings) -> None:
