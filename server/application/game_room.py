@@ -36,6 +36,7 @@ from server.application.disconnect_handler import (
     DEFAULT_DISCONNECT_TIMEOUT_SECONDS,
     DisconnectHandler,
 )
+from server.domain.coordination.broker import room_events_subject
 from server.domain.room.game_room import (
     ForfeitOutcome,
     GameEndOutcome,
@@ -131,10 +132,15 @@ class GameRoom:
         reconciliation_interval_seconds: float = DEFAULT_RECONCILIATION_INTERVAL_SECONDS,
         metrics: Optional[ServerMetrics] = None,
         clock_fn: Callable[[], float] = time.monotonic,
+        broker: Optional[Any] = None,
     ) -> None:
         self._domain = DomainGameRoom(room_id=room_id)
         self._loop = loop
         self._database = database
+        # Where this room's events go when a recipient's socket is held by
+        # another replica. None in a single process, where every recipient is
+        # reachable directly and a broker hop would be pure latency.
+        self._broker = broker
         self._persistence_service = persistence_service
         self._metrics = metrics or server_metrics()
         self._clock_fn = clock_fn
@@ -591,7 +597,11 @@ class GameRoom:
         core.event_bus.subscribe(self._lifecycle_observer, GameEndedEvent)
         core.event_bus.subscribe(self._capture_log, PieceCapturedEvent)
 
-        self._broadcast_observer = NetworkBroadcastObserver(loop=self._loop)
+        self._broadcast_observer = NetworkBroadcastObserver(
+            loop=self._loop,
+            broker=self._broker,
+            room_subject=room_events_subject(self._domain.room_id) if self._broker else None,
+        )
         core.event_bus.subscribe(self._broadcast_observer)
         if self._domain.white_player:
             self._broadcast_observer.add_recipient(self._domain.white_player)

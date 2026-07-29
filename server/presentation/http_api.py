@@ -208,7 +208,7 @@ class HttpApi:
 
     def __init__(
         self,
-        query_service: GameQueryService,
+        query_service: Optional[GameQueryService] = None,
         readiness: Optional[ReadinessProbe] = None,
         metrics_registry: Optional[MetricsRegistry] = None,
         auth_service: Optional[AuthService] = None,
@@ -237,14 +237,30 @@ class HttpApi:
     def issues_tokens(self) -> bool:
         return self._token_service is not None and self._auth_service is not None
 
+    @property
+    def serves_history(self) -> bool:
+        return self._query_service is not None
+
     def build_app(self) -> web.Application:
+        """Register the routes this deployment's collaborators can actually serve.
+
+        The operational routes are unconditional: every role — API, gateway,
+        game authority, persistence worker — is probed and scraped the same way,
+        which is what lets one set of manifests describe all of them.
+
+        The history and token routes are not. A persistence worker answers no
+        client, and registering `/api/games/{id}` on one would advertise an
+        endpoint whose only possible response is a 500 — worse than a 404,
+        because a load balancer would route real traffic to it.
+        """
         app = web.Application(middlewares=[self._rate_limit_middleware])
-        app.router.add_get(ROUTE_GAME, self.get_game)
-        app.router.add_get(ROUTE_GAME_PGN, self.get_game_pgn)
-        app.router.add_get(ROUTE_LEADERBOARD, self.get_leaderboard)
         app.router.add_get(ROUTE_HEALTHZ, self.get_healthz)
         app.router.add_get(ROUTE_READYZ, self.get_readyz)
         app.router.add_get(ROUTE_METRICS, self.get_metrics)
+        if self.serves_history:
+            app.router.add_get(ROUTE_GAME, self.get_game)
+            app.router.add_get(ROUTE_GAME_PGN, self.get_game_pgn)
+            app.router.add_get(ROUTE_LEADERBOARD, self.get_leaderboard)
         if self.issues_tokens:
             app.router.add_post(ROUTE_AUTH_LOGIN, self.post_login)
             app.router.add_post(ROUTE_AUTH_REFRESH, self.post_refresh)

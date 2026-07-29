@@ -17,3 +17,7 @@ redis>=5.0
 asyncpg>=0.29.0
 alembic>=1.13.0
 SQLAlchemy>=2.0.0
+
+# The broker. NATS core carries room events (fire-and-forget, repaired by the
+# reconciliation frame) and JetStream carries finished games (durable).
+nats-py>=2.6.0

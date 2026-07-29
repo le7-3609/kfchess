@@ -1,11 +1,26 @@
-"""Network broadcast observer — fans EventBus events out to seated players.
+"""Network broadcast observer — fans EventBus events out to a room's audience.
 
 Layer: application (server/application)
-Owns: mapping domain events onto wire frames and pushing them to every
-recipient of a room.
-Must not own: game rules, board mutation, session management, or transport —
-it hands plain dicts to the seat contract, and the seat does the JSON encoding
-and socket write.
+Owns: mapping domain events onto wire frames and getting them to every recipient
+of a room, whether that recipient's socket is held by this process or by another.
+Must not own: game rules, board mutation, session management, or transport — it
+hands plain dicts to the seat contract or to the broker, and neither the seat nor
+the broker knows what the frame means.
+
+**Where the frames go.** With no broker, straight to the sockets this process
+holds — the original behaviour, and what a single-process deployment runs. With
+one, to `room.<room_id>.events`, and whichever gateway holds a subscriber's
+socket forwards it down. The publisher does not know where any subscriber runs,
+which is the whole point: direct addressing between replicas would need every
+instance to know how to reach every other in a fleet that is constantly being
+rescheduled.
+
+Both at once is normal rather than exceptional. The owner of a room very often
+also holds one player's socket, and delivering locally as well as publishing
+costs one dict copy and saves that player a broker round trip.
+
+`_EVENT_SERIALIZERS`, the event types, and `core/events.py` are untouched by any
+of this. The table below is the same table it was before the broker existed.
 """
 
 import asyncio
@@ -106,11 +121,26 @@ _EVENT_SERIALIZERS: Dict[type, Callable[[Event], Dict[str, Any]]] = {
 
 
 class NetworkBroadcastObserver(Observer):
-    """Subscribes to EventBus and dispatches serialized event messages to network clients."""
+    """Subscribes to EventBus and dispatches serialized event frames to a room's audience."""
 
-    def __init__(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    def __init__(
+        self,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+        broker: Optional[Any] = None,
+        room_subject: Optional[str] = None,
+    ) -> None:
         self._loop = loop
         self._recipients: Set[Any] = set()
+        # Both optional and both required together: a broker with no subject has
+        # nowhere to publish, and a subject with no broker has nothing to publish
+        # through. Neither is a usable half-configuration, so publishing is
+        # enabled only when both arrived.
+        self._broker = broker if room_subject else None
+        self._room_subject = room_subject if broker else None
+
+    @property
+    def publishes_to_broker(self) -> bool:
+        return self._broker is not None
 
     def add_recipient(self, recipient: Any) -> None:
         self._recipients.add(recipient)
@@ -119,12 +149,16 @@ class NetworkBroadcastObserver(Observer):
         self._recipients.discard(recipient)
 
     def on_event(self, event: Event) -> None:
-        """Synchronous Observer entry point called during simulation tick."""
+        """Synchronous Observer entry point called during simulation tick.
+
+        The dispatch is deferred onto a task because this runs part-way through
+        a tick: awaiting a socket write or a broker publish inline would put
+        network latency inside the simulation's 50 ms budget.
+        """
         payload = self._serialize_event(event)
         if payload is None:
             return
 
-        # Schedule async broadcast to all recipients
         try:
             loop = self._loop or asyncio.get_running_loop()
             loop.create_task(self._broadcast(payload))
@@ -132,14 +166,31 @@ class NetworkBroadcastObserver(Observer):
             pass
 
     async def _broadcast(self, payload: Dict[str, Any]) -> None:
+        """Deliver one frame to every recipient, local and remote."""
+        await self._publish_to_broker(payload)
         for recipient in list(self._recipients):
-            try:
-                if hasattr(recipient, _ATTR_SEND):
-                    await recipient.send(payload)
-                elif hasattr(recipient, _ATTR_SEND_MESSAGE):
-                    await recipient.send_message(payload)
-            except Exception as exc:
-                _LOGGER.warning("Broadcast send failed for recipient %r: %s", recipient, exc)
+            await self._send_locally(recipient, payload)
+
+    async def _publish_to_broker(self, payload: Dict[str, Any]) -> None:
+        if self._broker is None:
+            return
+        try:
+            await self._broker.publish(self._room_subject, payload)
+        except Exception as exc:
+            # Contained rather than raised: this is the fire-and-forget channel,
+            # and the room's next reconciliation frame repairs whatever a
+            # dropped event cost. A broker blip must not end a game.
+            _LOGGER.warning("Publishing to %s failed: %s", self._room_subject, exc)
+
+    @staticmethod
+    async def _send_locally(recipient: Any, payload: Dict[str, Any]) -> None:
+        try:
+            if hasattr(recipient, _ATTR_SEND):
+                await recipient.send(payload)
+            elif hasattr(recipient, _ATTR_SEND_MESSAGE):
+                await recipient.send_message(payload)
+        except Exception as exc:
+            _LOGGER.warning("Broadcast send failed for recipient %r: %s", recipient, exc)
 
     def _serialize_event(self, event: Event) -> Optional[Dict[str, Any]]:
         serializer = _EVENT_SERIALIZERS.get(type(event))

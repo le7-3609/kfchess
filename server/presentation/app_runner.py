@@ -25,14 +25,22 @@ import asyncio
 import logging
 import os
 import signal
+import socket
 import ssl
+import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from server.application.auth_service import AuthService
 from server.application.game_query_service import GameQueryService
+from server.application.gateway_relay import GatewayRelay
 from server.application.health import ReadinessProbe
+from server.application.remote_seat import RemoteSeat
+from server.application.room_command_listener import RoomCommandListener
+from server.application.room_manager import RoomManager
 from server.application.token_service import TokenService
+from server.domain.coordination.broker import InProcessBroker
+from server.domain.matchmaking.queue import MatchmakingQueue
 from server.infrastructure.database.database import DEFAULT_DB_PATH, Database
 from server.infrastructure.logging.json_logging import configure_json_logging
 from server.presentation.http_api import DEFAULT_HTTP_PORT, HttpApi, HttpApiServer
@@ -43,6 +51,10 @@ _LOGGER = logging.getLogger(__name__)
 ENV_TOKEN_SIGNING_KEY = "KFCHESS_TOKEN_SIGNING_KEY"
 ENV_PREVIOUS_TOKEN_KEYS = "KFCHESS_PREVIOUS_TOKEN_KEYS"
 ENV_TRUSTED_PROXIES = "KFCHESS_TRUSTED_PROXIES"
+ENV_REDIS_URL = "KFCHESS_REDIS_URL"
+ENV_POSTGRES_DSN = "KFCHESS_POSTGRES_DSN"
+ENV_INSTANCE_ID = "KFCHESS_INSTANCE_ID"
+ENV_NATS_URL = "KFCHESS_NATS_URL"
 
 _LIST_SEPARATOR = ","
 
@@ -50,6 +62,8 @@ DEFAULT_LOG_LEVEL = "INFO"
 LOG_LEVEL_CHOICES = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 READINESS_CHECK_DATABASE = "database"
+READINESS_CHECK_REDIS = "redis"
+READINESS_CHECK_BROKER = "broker"
 
 ARG_HOST = "--host"
 ARG_PORT = "--port"
@@ -74,10 +88,25 @@ class ServerSettings:
     token_signing_key: Optional[str] = None
     previous_token_keys: List[str] = field(default_factory=list)
     trusted_proxies: List[str] = field(default_factory=list)
+    redis_url: Optional[str] = None
+    postgres_dsn: Optional[str] = None
+    nats_url: Optional[str] = None
+    instance_id: str = ""
 
     @property
     def tls_enabled(self) -> bool:
         return bool(self.tls_cert and self.tls_key)
+
+    @property
+    def shared_state_enabled(self) -> bool:
+        """Whether this process coordinates through Redis rather than in RAM.
+
+        The absence of a URL is a valid configuration, not a misconfiguration: a
+        single process has nothing to share state *with*, and the in-process
+        stores behind the same ports are what let the suite and a developer's
+        machine run with no containers at all.
+        """
+        return bool(self.redis_url)
 
 
 def build_arg_parser(description: str) -> argparse.ArgumentParser:
@@ -123,7 +152,23 @@ def settings_from_args(args: argparse.Namespace) -> ServerSettings:
         token_signing_key=os.environ.get(ENV_TOKEN_SIGNING_KEY) or None,
         previous_token_keys=_split_env(ENV_PREVIOUS_TOKEN_KEYS),
         trusted_proxies=_split_env(ENV_TRUSTED_PROXIES),
+        redis_url=os.environ.get(ENV_REDIS_URL) or None,
+        postgres_dsn=os.environ.get(ENV_POSTGRES_DSN) or None,
+        nats_url=os.environ.get(ENV_NATS_URL) or None,
+        instance_id=os.environ.get(ENV_INSTANCE_ID) or _derived_instance_id(),
     )
+
+
+def _derived_instance_id() -> str:
+    """A name for this process, for directory entries and ownership leases.
+
+    Derived rather than required, because a deployment that forgets to set it
+    must not end up with fifty replicas all calling themselves the same thing —
+    which reads as one instance owning everything and makes lease handover
+    silently wrong. The hostname is stable and unique inside a cluster (it is the
+    Pod name); the uuid suffix keeps two processes on one host apart.
+    """
+    return f"{socket.gethostname()}-{uuid.uuid4().hex[:6]}"
 
 
 def _split_env(name: str) -> List[str]:
@@ -166,15 +211,132 @@ def build_token_service(settings: ServerSettings) -> Optional[TokenService]:
     )
 
 
-def build_readiness(database: Database) -> ReadinessProbe:
-    """A probe that reports ready only while the database answers."""
+def build_database(settings: ServerSettings):
+    """The persistence adapter this process runs against.
+
+    A PostgreSQL DSN selects the fleet adapter; its absence selects SQLite. The
+    two satisfy the same surface, so nothing downstream branches on which one it
+    got — which is the point of doing the choosing here and only here.
+    """
+    if settings.postgres_dsn:
+        from server.infrastructure.database.postgres_database import PostgresDatabase
+
+        _LOGGER.info("Using the PostgreSQL adapter")
+        return PostgresDatabase(dsn=settings.postgres_dsn)
+    return Database(settings.db_path)
+
+
+def build_redis(settings: ServerSettings):
+    """A Redis connection, or None when this process coordinates in RAM."""
+    if not settings.shared_state_enabled:
+        return None
+
+    from server.infrastructure.coordination.redis_client import RedisConnection
+
+    _LOGGER.info("Coordinating shared state through Redis as instance %s", settings.instance_id)
+    return RedisConnection(url=settings.redis_url)
+
+
+async def build_broker(settings: ServerSettings):
+    """A connected broker, or the in-process one when no URL is configured.
+
+    Never None. Unlike Redis — whose absence genuinely means "there is no fleet
+    to coordinate with" — every deployment publishes room events somewhere, and
+    the in-process implementation is a real destination rather than a null
+    object. Callers therefore never branch on whether a broker exists.
+    """
+    if not settings.nats_url:
+        return InProcessBroker()
+
+    from server.infrastructure.broker.nats_broker import NatsBroker
+
+    broker = NatsBroker(url=settings.nats_url)
+    await broker.connect()
+    return broker
+
+
+def build_matchmaker(settings: ServerSettings, redis: Any, broker: Any) -> MatchmakingQueue:
+    """The matchmaking queue, backed by Redis when the fleet shares one.
+
+    The remote resolver is what completes the cross-replica pairing: a ticket
+    naming a player whose socket is on another instance resolves to a
+    `RemoteSeat`, which the room then treats as an ordinary seat and reaches
+    through the broker.
+    """
+    if redis is None:
+        return MatchmakingQueue(replica_id=settings.instance_id)
+
+    from server.infrastructure.coordination.redis_queue_backend import RedisQueueBackend
+
+    return MatchmakingQueue(
+        backend=RedisQueueBackend(redis),
+        replica_id=settings.instance_id,
+        remote_resolver=_remote_seat_resolver(broker),
+    )
+
+
+def _remote_seat_resolver(broker: Any):
+    def resolve(ticket) -> RemoteSeat:
+        return RemoteSeat(
+            username=ticket.username,
+            user_id=ticket.user_id,
+            elo=ticket.elo,
+            broker=broker,
+            replica=ticket.replica,
+        )
+
+    return resolve
+
+
+def build_room_manager(
+    settings: ServerSettings, database, redis: Any, broker: Any, relay: GatewayRelay
+) -> RoomManager:
+    """The room registry, publishing to a shared directory when there is one."""
+    directory = None
+    if redis is not None:
+        from server.infrastructure.coordination.redis_directory import RedisDirectory
+
+        directory = RedisDirectory(redis, replica_id=settings.instance_id)
+
+    manager = RoomManager(
+        database=database,
+        seat_directory=directory,
+        room_directory=directory,
+        instance_id=settings.instance_id,
+        broker=broker,
+        relay=relay,
+    )
+    # Constructed after the manager because it routes into it, and handed back
+    # in because the manager is what knows when a room starts and stops being
+    # this instance's to answer for.
+    manager.attach_command_listener(RoomCommandListener(broker, manager))
+    return manager
+
+
+def build_readiness(database, redis: Any = None, broker: Any = None) -> ReadinessProbe:
+    """A probe that reports ready only while every dependency answers.
+
+    Redis joins the database here for the same reason the database is there: a
+    replica that cannot reach the shared queue and directory can accept a socket
+    but cannot match, seat or reconnect anyone on it, and should be drained
+    rather than handed work.
+
+    The broker joins them for a sharper version of the same reason. A gateway
+    that reports ready before it can reach the broker is handed live connections
+    it physically cannot serve — it will accept the socket, seat the player, and
+    then deliver nothing, which is worse than refusing the connection.
+    """
     probe = ReadinessProbe()
     probe.register(READINESS_CHECK_DATABASE, database.ping)
+    if redis is not None:
+        probe.register(READINESS_CHECK_REDIS, redis.ping)
+    if broker is not None:
+        probe.register(READINESS_CHECK_BROKER, broker.is_connected)
     return probe
 
 
 def build_http_api(
-    database: Database,
+    database,
     settings: ServerSettings,
     readiness: ReadinessProbe,
     token_service: Optional[TokenService],
@@ -189,8 +351,13 @@ def build_http_api(
 
 
 async def run_api(settings: ServerSettings) -> None:
-    """Run the HTTP API alone: history reads, leaderboard, and token issuance."""
-    async with _database(settings) as database:
+    """Run the HTTP API alone: history reads, leaderboard, and token issuance.
+
+    Opens no Redis: the API tier holds no seat, owns no room and reads no queue,
+    so a connection here would be a dependency it never uses and a readiness
+    check that could take it out of rotation for a service it does not need.
+    """
+    async with _dependencies(settings) as (database, _redis, _broker):
         readiness = build_readiness(database)
         api = build_http_api(database, settings, readiness, build_token_service(settings))
         server = HttpApiServer(
@@ -213,22 +380,57 @@ async def run_ws(settings: ServerSettings) -> None:
     behind it. Once clients present tokens issued by the API tier, the only
     remaining reads here are rating writes — which Step 8 moves onto a
     persistence worker, leaving this tier stateless.
+
+    With a Redis URL configured, its queue and room directory are the shared
+    ones, which is what makes two of these one player population rather than two.
     """
-    async with _database(settings) as database:
+    async with _dependencies(settings, with_redis=True, with_broker=True) as (
+        database, redis, broker,
+    ):
+        readiness = build_readiness(database, redis, broker)
+        relay = GatewayRelay(broker)
         server = KFChessServer(
             host=settings.host,
             port=settings.port,
             database=database,
             auth_service=AuthService(database),
+            matchmaker=build_matchmaker(settings, redis, broker),
+            room_manager=build_room_manager(settings, database, redis, broker, relay),
             token_service=build_token_service(settings),
             ssl_context=build_ssl_context(settings),
             trusted_proxies=settings.trusted_proxies,
+            relay=relay,
         )
+        # The operational port. This role answers no HTTP client, but it must
+        # still be probed and scraped: without it Kubernetes has no readiness
+        # signal to drain on, no liveness signal to restart on, and the HPA has
+        # no open-connection count to scale on — which is the only signal that
+        # means anything for a tier whose cost is sockets rather than CPU.
+        probes = _probe_server(settings, readiness)
+        await probes.start()
         await server.start()
         try:
-            await _serve_until_signalled(build_readiness(database))
+            await _serve_until_signalled(readiness)
         finally:
             await server.stop()
+            await relay.close()
+            await probes.stop()
+
+
+def _probe_server(settings: ServerSettings, readiness: ReadinessProbe) -> HttpApiServer:
+    """The operational endpoints, for a role that serves no HTTP API.
+
+    `/healthz`, `/readyz` and `/metrics` only — `HttpApi` registers the history
+    and token routes only when given the collaborators that serve them, so a
+    gateway or a worker advertises nothing it cannot answer. Every role having
+    the same operational surface on the same port is what lets one set of
+    Kubernetes manifests describe all of them.
+    """
+    return HttpApiServer(
+        api=HttpApi(readiness=readiness),
+        host=settings.host,
+        port=settings.http_port,
+    )
 
 
 async def run_combined(settings: ServerSettings) -> None:
@@ -237,19 +439,25 @@ async def run_combined(settings: ServerSettings) -> None:
     Convenient on one machine and wrong in a fleet: a replay query storm here
     competes for the same event loop that forwards moves.
     """
-    async with _database(settings) as database:
-        readiness = build_readiness(database)
+    async with _dependencies(settings, with_redis=True, with_broker=True) as (
+        database, redis, broker,
+    ):
+        readiness = build_readiness(database, redis, broker)
         token_service = build_token_service(settings)
         ssl_context = build_ssl_context(settings)
+        relay = GatewayRelay(broker)
 
         ws_server = KFChessServer(
             host=settings.host,
             port=settings.port,
             database=database,
             auth_service=AuthService(database),
+            matchmaker=build_matchmaker(settings, redis, broker),
+            room_manager=build_room_manager(settings, database, redis, broker, relay),
             token_service=token_service,
             ssl_context=ssl_context,
             trusted_proxies=settings.trusted_proxies,
+            relay=relay,
         )
         http_server = HttpApiServer(
             api=build_http_api(database, settings, readiness, token_service),
@@ -267,20 +475,41 @@ async def run_combined(settings: ServerSettings) -> None:
             await http_server.stop()
 
 
-class _database:
-    """Async context manager owning one Database connection for a process run."""
+class _dependencies:
+    """Async context manager owning this process's external connections.
 
-    def __init__(self, settings: ServerSettings) -> None:
+    One place opens them and one place closes them, in reverse order, whichever
+    role is running — so a role that gains a dependency does not also gain its
+    own half-correct teardown.
+    """
+
+    def __init__(
+        self, settings: ServerSettings, with_redis: bool = False, with_broker: bool = False
+    ) -> None:
         self._settings = settings
-        self._database: Optional[Database] = None
+        self._with_redis = with_redis
+        self._with_broker = with_broker
+        self._database = None
+        self._redis = None
+        self._broker = None
 
-    async def __aenter__(self) -> Database:
+    async def __aenter__(self):
         configure_json_logging(self._settings.log_level)
-        self._database = Database(self._settings.db_path)
+        self._database = build_database(self._settings)
         await self._database.connect()
-        return self._database
+        if self._with_redis:
+            self._redis = build_redis(self._settings)
+        if self._with_broker:
+            self._broker = await build_broker(self._settings)
+        return (self._database, self._redis, self._broker)
 
     async def __aexit__(self, *_exc_info) -> None:
+        if self._broker is not None and hasattr(self._broker, "close"):
+            await self._broker.close()
+            self._broker = None
+        if self._redis is not None:
+            await self._redis.close()
+            self._redis = None
         if self._database is not None:
             await self._database.close()
             self._database = None

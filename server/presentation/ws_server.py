@@ -23,6 +23,7 @@ except ImportError:
 from server.application.auth_use_case import AuthUseCase
 from server.application.dtos import Identity
 from server.application.game_room import DEFAULT_RECONCILIATION_INTERVAL_SECONDS
+from server.application.gateway_relay import GatewayRelay
 from server.application.game_session_use_case import GameSessionUseCase
 from server.application.matchmaking_use_case import MatchmakingUseCase
 from server.application.room_use_case import RoomUseCase
@@ -96,6 +97,7 @@ class KFChessServer:
         heartbeat_timeout_seconds: float = DEFAULT_PONG_TIMEOUT_SECONDS,
         reconciliation_interval_seconds: float = DEFAULT_RECONCILIATION_INTERVAL_SECONDS,
         metrics: Optional[ServerMetrics] = None,
+        relay: Optional[GatewayRelay] = None,
     ) -> None:
         self._host = host
         self._port = port
@@ -104,6 +106,10 @@ class KFChessServer:
         self._ssl_context = ssl_context
         self._server = None
         self._sessions: Dict[Any, PlayerSession] = {}
+        # Present only when a broker is configured. It is what makes this
+        # process a gateway for rooms it does not own: without it, every seat a
+        # client holds must be in a room on this same process.
+        self._relay = relay
 
         # Injectable so tests can shrink the 60s queue timeout without waiting
         # a real minute for the bot-fallback path.
@@ -305,7 +311,24 @@ class KFChessServer:
             self._heartbeat.unregister_session(session)
             self._guard.forget_session(self._session_key(session))
             await self._game.handle_connection_closed(session)
+            await self._detach_relay(session)
             self._sessions.pop(websocket, None)
+
+    async def _attach_relay(self, session: PlayerSession) -> None:
+        """Subscribe this socket to the frames addressed to its player.
+
+        Opened as soon as the session exists rather than when it is seated,
+        because the subject also carries the `game_start` frame that tells the
+        client it *has* a room — subscribing after that would miss it.
+        """
+        if self._relay is None:
+            return
+        await self._relay.attach_session(session)
+
+    async def _detach_relay(self, session: PlayerSession) -> None:
+        if self._relay is None:
+            return
+        await self._relay.detach_session(session)
 
     def _on_heartbeat_timeout(self, session: Any) -> None:
         """Close a socket that stopped answering pings.
@@ -355,14 +378,19 @@ class KFChessServer:
             if session is None:
                 return None
             self._sessions[websocket] = session
+            await self._attach_relay(session)
             return session
 
         session = PlayerSession(websocket=websocket, username=username, user_id=user_id, elo=elo)
         _LOGGER.info("New connection: %s (id=%d)", username, user_id)
 
-        # Registered before dispatch so a handshake that pairs instantly (a
-        # second player already queued) finds a fully-tracked session.
+        # Registered and relayed before dispatch so a handshake that pairs
+        # instantly (a second player already queued) finds a fully-tracked
+        # session with its subscriptions already live — otherwise the
+        # `game_start` frame it triggers can be published before anything is
+        # listening for it.
         self._sessions[websocket] = session
+        await self._attach_relay(session)
         await self._dispatch_message(session, handshake)
         return session
 
@@ -482,7 +510,37 @@ class KFChessServer:
             await session.send({FIELD_TYPE: MSG_INFO, FIELD_MESSAGE: "Joined room as spectator"})
 
     async def _handle_move(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
+        """Answer a move locally, or forward it to the instance that owns the room.
+
+        The local path is tried first and costs nothing extra: a gateway that
+        also owns the room — the common case for the player who created it —
+        executes the move inline rather than taking a broker round trip to
+        itself.
+        """
+        if await self._forward_move_to_owner(session, msg):
+            return
         await self._reply_on_failure(session, await self._game.submit_move(session, msg))
+
+    async def _forward_move_to_owner(
+        self, session: PlayerSession, msg: Dict[str, Any]
+    ) -> bool:
+        """Publish a move for a room this process does not run; True if it did.
+
+        Deliberately does not wait for a result. The authority answers a
+        rejected move on the player's own frame subject, which arrives back
+        through the relay like every other frame — so there is one inbound path
+        for the client rather than two that could disagree.
+        """
+        if self._relay is None or self._room_manager.find_room_by_session(session) is not None:
+            return False
+
+        location = await self._room_manager.locate_seat(session.username)
+        if location is None or location.is_on(self._room_manager.instance_id):
+            return False
+
+        await self._relay.join_room(location.room_id, session.username)
+        await self._relay.forward_command(location.room_id, session.username, msg)
+        return True
 
     async def _handle_ping(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
         await session.send({FIELD_TYPE: MSG_PONG})

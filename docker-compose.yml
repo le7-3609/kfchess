@@ -13,10 +13,10 @@
 # restarting `api` costs nothing. Keeping them apart locally means the topology
 # under test is the topology that ships.
 #
-# Redis and PostgreSQL are no longer declared-but-unwired: Redis holds the
+# The infrastructure is no longer declared-but-unwired. Redis holds the
 # matchmaking queue and the seat/room directory, PostgreSQL holds the durable
-# data, and both are reached by the code and exercised by `pytest tests/infra`.
-# NATS stays behind the `future` profile until Step 6 gives it a caller.
+# data, and NATS carries room events and the finished-game stream — all of it
+# reached by the code, all of it exercised by `pytest tests/infra`.
 #
 #   docker compose up --build                 # the whole stack
 #   docker compose up --scale ws=2            # two game replicas, one population
@@ -45,6 +45,9 @@ services:
       # Turns the process-local queue and room index into shared ones. Without
       # it two `ws` replicas are two disjoint player populations.
       KFCHESS_REDIS_URL: redis://redis:6379/0
+      # Where this replica publishes room events and subscribes on behalf of the
+      # sockets it holds.
+      KFCHESS_NATS_URL: nats://nats:4222
     # --host 0.0.0.0 is required in a container: the code's default of
     # "localhost" binds the loopback interface only, which no published port
     # can reach from outside the container.
@@ -65,6 +68,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      nats:
+        condition: service_started
     healthcheck:
       # The WebSocket role serves no HTTP, so its check is a TCP connect to the
       # game port — local, and touching no database. A health check that reads
@@ -160,7 +165,6 @@ services:
       retries: 10
 
   nats:
-    profiles: [future]
     image: nats:2-alpine
     # -js enables JetStream, the durable side of the broker split: room events
     # are fire-and-forget (a lost one is repaired by the next reconciliation
