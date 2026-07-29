@@ -40,6 +40,14 @@ METRIC_HTTP_ERRORS = "kfchess_http_errors_total"
 METRIC_HTTP_RATE_LIMITED = "kfchess_http_rate_limited_total"
 METRIC_HTTP_REQUEST_DURATION = "kfchess_http_request_duration_seconds"
 
+# The four autoscaling signals, one per role. CPU is the default HPA metric and
+# is the wrong one for every role here: an idle keep-alive socket costs almost no
+# CPU but still holds memory and a file descriptor, and a room waiting on a slow
+# database costs none at all while still being work that has not finished.
+METRIC_ROOMS_OWNED = "kfchess_rooms_owned"
+METRIC_LEASE_ACQUISITIONS = "kfchess_lease_acquisitions_total"
+METRIC_LEASE_FAILOVERS = "kfchess_lease_failovers_total"
+
 # Request latencies span a much wider range than a simulation tick — a cached
 # leaderboard read and a bcrypt-backed login are three orders of magnitude
 # apart — so the HTTP histogram gets its own, wider buckets.
@@ -102,6 +110,15 @@ class ServerMetrics:
             "Wall-clock duration of one HTTP request.",
             buckets=HTTP_BUCKETS_SECONDS,
         )
+        self.lease_acquisitions: Counter = registry.counter(
+            METRIC_LEASE_ACQUISITIONS, "Room ownership leases taken by this instance."
+        )
+        self.lease_failovers: Counter = registry.counter(
+            METRIC_LEASE_FAILOVERS,
+            "Rooms surrendered because their lease was lost. A rising count "
+            "against a flat crash rate means leases are being lost to network "
+            "jitter rather than to failures, and the TTL is too tight.",
+        )
 
     @property
     def registry(self) -> MetricsRegistry:
@@ -128,6 +145,18 @@ class ServerMetrics:
             source,
         )
 
+    def bind_rooms_owned(self, source: Callable[[], float]) -> None:
+        """The game authority's scaling signal.
+
+        Distinct from `rooms_active`: that counts what is registered locally,
+        this counts what this instance holds a lease on and is therefore
+        responsible for computing. They agree in a healthy fleet and diverge
+        exactly when something is wrong.
+        """
+        self._registry.gauge(
+            METRIC_ROOMS_OWNED, "Rooms this instance holds an ownership lease on.", source
+        )
+
     def unbind_live_gauges(self) -> None:
         """Drop the gauges that read live objects, on server teardown.
 
@@ -141,6 +170,7 @@ class ServerMetrics:
             METRIC_SESSIONS_ACTIVE,
             METRIC_QUEUE_LENGTH,
             METRIC_COUNTDOWNS_ACTIVE,
+            METRIC_ROOMS_OWNED,
         ):
             self._registry.unregister(name)
 
