@@ -48,7 +48,7 @@ The wire protocol is **event-driven, not snapshot-driven**. Because pieces trave
 
 Supporting behaviour, all wired: bcrypt-hashed accounts in SQLite (`auth_service.py`, `database.py`) at a pinned cost factor, hashed off the event loop so a login cannot stall the game tick; ±100 ELO matchmaking with a 60-second timeout (`queue.py`, `elo.py`); ping/pong heartbeats that close a half-open socket (`heartbeat.py`) and a 30-second reconnection window that resyncs a returning player (`disconnect_handler.py`); rate limits on connections, frames, room creation and HTTP requests; and idempotent writes — a repeated `move_id` is answered from cache, and re-saving a finished game is a no-op rather than a duplicate or an error.
 
-[Server_Design.md](Server_Design.md) is the ordered work plan for scaling this to a fleet; Steps 1–4 (deployability, protocol, edge security, role split) are implemented, and Steps 5–8 (Redis, a broker, ownership leases, Kubernetes) are not.
+[Server_Design.md](Server_Design.md) is the ordered work plan for scaling this to a fleet. Steps 1–6 are implemented — deployability, the protocol, edge security, the role split, shared state in Redis and PostgreSQL, and room events over NATS. Step 7 is implemented as far as ownership goes: a room is registered only once this instance holds its Redis lease, a lost lease tears the room down here rather than letting a second authority compute it, and a drain refuses new rooms while renewing the ones already running — but the gateway and the game authority are still one process rather than two. Step 8 has its Kubernetes manifests and persistence worker, and lacks the metrics adapter its HPAs need.
 
 ---
 ## Technological Stack & Current Status
@@ -99,14 +99,52 @@ Defaults are `localhost:8765` for the game socket and `localhost:8080` for the A
 
 Set `KFCHESS_TOKEN_SIGNING_KEY` to the **same** value for both roles — the API tier signs session tokens with it, the socket tier verifies them — and see `.env.example` for the key-rotation and trusted-proxy variables. TLS normally terminates at an ingress; the `--tls-cert`/`--tls-key` flags exist so a TLS problem can be reproduced locally without one.
 
-Or run both roles as containers:
+The API tier exposes `/healthz` (liveness — deliberately touches nothing external), `/readyz` (readiness — pings the database, and reports not-ready while draining) and `/metrics` (Prometheus text, including the tick-duration histogram that reveals a simulation falling behind wall-clock time).
+
+### Running the whole stack in Docker
+
+`docker-compose.yml` runs the same roles as separate services — from one image, differing only in their entry command — alongside the backing stores they select: PostgreSQL for durable data, Redis for the matchmaking queue and the seat/room directory, NATS for room events and the finished-game stream.
+
+1. Create the untracked `.env`. Compose declares `KFCHESS_TOKEN_SIGNING_KEY` and `POSTGRES_PASSWORD` as required, so it refuses to start until both are filled in:
+   ```bash
+   cp .env.example .env
+   python -c "import secrets; print(secrets.token_urlsafe(48))"   # -> KFCHESS_TOKEN_SIGNING_KEY
+   python -c "import secrets; print(secrets.token_urlsafe(24))"   # -> POSTGRES_PASSWORD
+   ```
+   Leave the `KFCHESS_REDIS_URL`, `KFCHESS_POSTGRES_DSN` and `KFCHESS_NATS_URL` lines commented out — those point at `localhost` for a host-side run, and Compose sets the container-network values itself.
+
+2. Bring the stack up:
+   ```bash
+   docker compose up --build
+   ```
+   Startup order is enforced in the file rather than by waiting: `postgres` becomes healthy, then `migrate` runs `alembic upgrade head` to completion, and only then do `ws` and `api` start — they depend on `service_completed_successfully`, so a replica never races the schema it needs.
+
+3. Connect the client, which reaches the published `ws` port like any other server:
+   ```bash
+   python client/main_gui.py ws://localhost:8765
+   ```
+
+| Service | Host port | What it serves |
+|---|---|---|
+| `ws` | 8765 | player sockets and the game simulation (`main_ws.py`) |
+| `api` | 8080 | history, leaderboard, token issuance, plus `/healthz`, `/readyz`, `/metrics` (`main_api.py`) |
+| `migrate` | — | `alembic upgrade head`, run once and exits |
+| `postgres` | 5432 | durable data |
+| `redis` | 6379 | matchmaking queue, seat/room directory, ownership leases |
+| `nats` | 4222, 8222 | room events (core) and finished games (JetStream); monitoring on 8222 |
+
+Useful variants:
 
 ```bash
-cp .env.example .env   # then fill in KFCHESS_TOKEN_SIGNING_KEY
-docker compose up --build
+docker compose up --scale ws=2             # two game replicas over one player population
+docker compose --profile tools run migrate # re-apply migrations by hand
+docker compose logs -f ws                  # follow one role
+docker compose down                        # stop; add -v to drop the postgres volume too
 ```
 
-The API tier exposes `/healthz` (liveness — deliberately touches nothing external), `/readyz` (readiness — pings the database, and reports not-ready while draining) and `/metrics` (Prometheus text, including the tick-duration histogram that reveals a simulation falling behind wall-clock time).
+`--scale ws=2` is what the Redis and NATS wiring is *for*: shared state is the only thing that makes two replicas one player population rather than two disjoint ones, and the `8765-8775` port range (rather than a fixed `8765`) is there so Compose can hand each replica the next free host port instead of failing on a collision. Redis runs with persistence disabled on purpose — everything it holds is rebuilt by players reconnecting and replicas re-registering, so restoring a snapshot would only resurrect stale routing.
+
+Two pieces of the system have no Compose service yet: the persistence worker (`python main_worker.py`) and Prometheus. `deploy/prometheus/prometheus.yml` is written against this topology and can be pointed at it, but nothing in `docker-compose.yml` starts it; the Kubernetes manifests in `deploy/kubernetes/` cover both.
 
 ---
 ## Tests

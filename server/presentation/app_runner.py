@@ -29,7 +29,7 @@ import socket
 import ssl
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 from server.application.auth_service import AuthService
 from server.application.game_query_service import GameQueryService
@@ -40,8 +40,10 @@ from server.application.persistence_worker import PersistenceWorker
 from server.application.remote_seat import RemoteSeat
 from server.application.room_command_listener import RoomCommandListener
 from server.application.room_manager import RoomManager
+from server.application.room_ownership import RoomOwnership
 from server.application.token_service import TokenService
 from server.domain.coordination.broker import InProcessBroker
+from server.domain.coordination.leases import InProcessLeases
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.infrastructure.database.database import DEFAULT_DB_PATH, Database
 from server.infrastructure.logging.json_logging import configure_json_logging
@@ -316,6 +318,39 @@ def build_room_manager(
     return manager
 
 
+def build_room_ownership(
+    settings: ServerSettings, redis: Any, room_manager: RoomManager
+) -> RoomOwnership:
+    """This instance's claim on the rooms it computes.
+
+    Always built, never None. A single process genuinely owns every room it
+    creates, and `InProcessLeases` records that — including the fencing token —
+    so the same acquire/renew/release path runs in the default configuration
+    rather than only against Redis. A store that exists only in the fleet
+    configuration is a store whose call sites are exercised only in the fleet.
+
+    Wired in after the manager for the same reason the command listener is: the
+    lease-lost callback routes back into it.
+    """
+    if redis is None:
+        store: Any = InProcessLeases()
+    else:
+        from server.infrastructure.coordination.redis_leases import RedisLeaseStore
+
+        store = RedisLeaseStore(redis)
+
+    ownership = RoomOwnership(
+        store=store,
+        instance_id=settings.instance_id,
+        on_lease_lost=room_manager.surrender_room,
+    )
+    room_manager.attach_ownership(ownership)
+    # The game authority's scaling signal, and the only one that distinguishes
+    # what this instance is running from what it is entitled to run.
+    server_metrics().bind_rooms_owned(lambda: ownership.owned_room_count)
+    return ownership
+
+
 def build_readiness(database, redis: Any = None, broker: Any = None) -> ReadinessProbe:
     """A probe that reports ready only while every dependency answers.
 
@@ -392,13 +427,15 @@ async def run_ws(settings: ServerSettings) -> None:
     ):
         readiness = build_readiness(database, redis, broker)
         relay = GatewayRelay(broker)
+        room_manager = build_room_manager(settings, database, redis, broker, relay)
+        ownership = build_room_ownership(settings, redis, room_manager)
         server = KFChessServer(
             host=settings.host,
             port=settings.port,
             database=database,
             auth_service=AuthService(database),
             matchmaker=build_matchmaker(settings, redis, broker),
-            room_manager=build_room_manager(settings, database, redis, broker, relay),
+            room_manager=room_manager,
             token_service=build_token_service(settings),
             ssl_context=build_ssl_context(settings),
             trusted_proxies=settings.trusted_proxies,
@@ -411,11 +448,19 @@ async def run_ws(settings: ServerSettings) -> None:
         # means anything for a tier whose cost is sockets rather than CPU.
         probes = _probe_server(settings, readiness)
         await probes.start()
+        await ownership.start()
         await server.start()
         try:
-            await _serve_until_signalled(readiness)
+            # Draining stops this instance taking new rooms while it keeps
+            # renewing the ones it holds, so the games already running here are
+            # allowed to finish inside the termination grace period.
+            await _serve_until_signalled(readiness, on_drain=ownership.begin_draining)
         finally:
             await server.stop()
+            # After the rooms, so their own releases land first; what remains
+            # here is released explicitly rather than left to expire, which is
+            # what makes a clean shutdown's ids re-placeable immediately.
+            await ownership.stop()
             await relay.close()
             await probes.stop()
 
@@ -476,6 +521,8 @@ async def run_combined(settings: ServerSettings) -> None:
         token_service = build_token_service(settings)
         ssl_context = build_ssl_context(settings)
         relay = GatewayRelay(broker)
+        room_manager = build_room_manager(settings, database, redis, broker, relay)
+        ownership = build_room_ownership(settings, redis, room_manager)
 
         ws_server = KFChessServer(
             host=settings.host,
@@ -483,7 +530,7 @@ async def run_combined(settings: ServerSettings) -> None:
             database=database,
             auth_service=AuthService(database),
             matchmaker=build_matchmaker(settings, redis, broker),
-            room_manager=build_room_manager(settings, database, redis, broker, relay),
+            room_manager=room_manager,
             token_service=token_service,
             ssl_context=ssl_context,
             trusted_proxies=settings.trusted_proxies,
@@ -497,11 +544,13 @@ async def run_combined(settings: ServerSettings) -> None:
         )
 
         await http_server.start()
+        await ownership.start()
         await ws_server.start()
         try:
-            await _serve_until_signalled(readiness)
+            await _serve_until_signalled(readiness, on_drain=ownership.begin_draining)
         finally:
             await ws_server.stop()
+            await ownership.stop()
             await http_server.stop()
 
 
@@ -545,7 +594,9 @@ class _dependencies:
             self._database = None
 
 
-async def _serve_until_signalled(readiness: ReadinessProbe) -> None:
+async def _serve_until_signalled(
+    readiness: ReadinessProbe, on_drain: Optional[Callable[[], None]] = None
+) -> None:
     """Block until SIGTERM/SIGINT, then drain rather than exiting immediately.
 
     Draining means reporting not-ready while staying alive: the load balancer
@@ -553,11 +604,19 @@ async def _serve_until_signalled(readiness: ReadinessProbe) -> None:
     allowed to finish. Exiting the moment the signal arrives would disconnect
     every player mid-game, which is the behaviour Step 7's `preStop` hook exists
     to prevent.
+
+    *on_drain* is the role's own half of that — for the game authority, refusing
+    new rooms while continuing to renew the leases it already holds. Readiness
+    and ownership drain together deliberately: an instance that stopped taking
+    rooms while still advertising itself as ready would be handed players it
+    would immediately refuse.
     """
     stop_event = asyncio.Event()
     _install_signal_handlers(stop_event)
     await stop_event.wait()
     readiness.begin_draining()
+    if on_drain is not None:
+        on_drain()
     _LOGGER.info("Shutdown signalled; draining")
 
 

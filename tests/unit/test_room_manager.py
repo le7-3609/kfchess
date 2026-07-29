@@ -26,9 +26,9 @@ class MockSession:
         self.sent_messages.append(msg)
 
 
-def _seated_room(rm: RoomManager):
+async def _seated_room(rm: RoomManager):
     """Fill both seats of a fresh room, which starts its game."""
-    room_id = rm.create_room(MockSession("Alice"))
+    room_id = await rm.create_room(MockSession("Alice"))
     rm.join_room(room_id, MockSession("Bob"))
     return room_id, rm.get_room(room_id)
 
@@ -62,11 +62,12 @@ async def _wait_until_reaped(room, timeout: float = 2.0) -> None:
     await asyncio.wait_for(room._expiry_task, timeout=timeout)
 
 
-def test_create_and_get_room():
+@pytest.mark.asyncio
+async def test_create_and_get_room():
     rm = RoomManager()
     s1 = MockSession("Alice")
 
-    room_id = rm.create_room(s1)
+    room_id = await rm.create_room(s1)
     assert len(room_id) == 6
 
     room = rm.get_room(room_id)
@@ -74,13 +75,14 @@ def test_create_and_get_room():
     assert room.white_player is s1
 
 
-def test_join_room():
+@pytest.mark.asyncio
+async def test_join_room():
     rm = RoomManager()
     s1 = MockSession("Alice")
     s2 = MockSession("Bob")
     v1 = MockSession("Viewer1")
 
-    room_id = rm.create_room(s1)
+    room_id = await rm.create_room(s1)
 
     role2 = rm.join_room(room_id, s2)
     assert role2 == RoomRole.BLACK_PLAYER
@@ -89,10 +91,11 @@ def test_join_room():
     assert role3 == RoomRole.VIEWER
 
 
-def test_list_rooms():
+@pytest.mark.asyncio
+async def test_list_rooms():
     rm = RoomManager()
     s1 = MockSession("Alice")
-    r_id = rm.create_room(s1)
+    r_id = await rm.create_room(s1)
 
     summaries = rm.list_rooms()
     assert len(summaries) == 1
@@ -106,20 +109,22 @@ def test_join_room_rejects_unknown_id():
         rm.join_room("NOPE12", MockSession("Lost"))
 
 
-def test_room_ids_are_matched_case_insensitively():
+@pytest.mark.asyncio
+async def test_room_ids_are_matched_case_insensitively():
     """Room codes are shown uppercase, so a client echoing lowercase must resolve."""
     rm = RoomManager()
-    room_id = rm.create_room(MockSession("Alice"))
+    room_id = await rm.create_room(MockSession("Alice"))
 
     assert rm.get_room(room_id.lower()) is rm.get_room(room_id)
     assert rm.join_room(f"  {room_id.lower()} ", MockSession("Bob")) == RoomRole.BLACK_PLAYER
 
 
-def test_participants_are_indexed_to_their_room():
+@pytest.mark.asyncio
+async def test_participants_are_indexed_to_their_room():
     rm = RoomManager()
     creator, joiner, viewer = MockSession("A"), MockSession("B"), MockSession("C")
 
-    room_id = rm.create_room(creator)
+    room_id = await rm.create_room(creator)
     rm.join_room(room_id, joiner)
     rm.join_room(room_id, viewer)
 
@@ -130,10 +135,11 @@ def test_participants_are_indexed_to_their_room():
     assert rm.find_room_by_session(MockSession("Stranger")) is None
 
 
-def test_release_session_clears_only_that_participant():
+@pytest.mark.asyncio
+async def test_release_session_clears_only_that_participant():
     rm = RoomManager()
     creator, joiner = MockSession("A"), MockSession("B")
-    room_id = rm.create_room(creator)
+    room_id = await rm.create_room(creator)
     rm.join_room(room_id, joiner)
 
     rm.release_session(creator)
@@ -142,10 +148,11 @@ def test_release_session_clears_only_that_participant():
     assert rm.find_room_by_session(joiner) is rm.get_room(room_id)
 
 
-def test_removing_a_room_purges_its_index_entries():
+@pytest.mark.asyncio
+async def test_removing_a_room_purges_its_index_entries():
     rm = RoomManager()
     creator = MockSession("A")
-    room_id = rm.create_room(creator)
+    room_id = await rm.create_room(creator)
 
     assert rm.remove_room(room_id)
     assert rm.room_count == 0
@@ -163,7 +170,7 @@ async def test_find_room_by_username_only_matches_a_disconnected_seat():
     """
     rm = RoomManager()
     creator, joiner = MockSession("Alice"), MockSession("Bob")
-    room_id = rm.create_room(creator)
+    room_id = await rm.create_room(creator)
     rm.join_room(room_id, joiner)
     room = rm.get_room(room_id)
 
@@ -176,18 +183,20 @@ async def test_find_room_by_username_only_matches_a_disconnected_seat():
     room.disconnect_handler.cancel_all()
 
 
-def test_rooms_are_built_with_the_managers_database():
+@pytest.mark.asyncio
+async def test_rooms_are_built_with_the_managers_database():
     """Matchmade and named rooms must keep ELO persistence, not silently lose it."""
     database = object()
     rm = RoomManager(database=database)
-    room_id = rm.create_room(MockSession("Alice"))
+    room_id = await rm.create_room(MockSession("Alice"))
 
     assert rm.get_room(room_id)._database is database
 
 
-def test_generated_room_ids_are_unique_and_well_formed():
+@pytest.mark.asyncio
+async def test_generated_room_ids_are_unique_and_well_formed():
     rm = RoomManager()
-    room_ids = {rm.create_room(MockSession(f"P{i}")) for i in range(50)}
+    room_ids = {await rm.create_room(MockSession(f"P{i}")) for i in range(50)}
 
     assert len(room_ids) == 50
     # str.isupper() is False for an all-digit string (no cased characters at
@@ -205,7 +214,7 @@ def test_generated_room_ids_are_unique_and_well_formed():
 @pytest.mark.asyncio
 async def test_game_end_reaps_the_room_and_stops_it():
     rm = RoomManager()
-    room_id, room = _seated_room(rm)
+    room_id, room = await _seated_room(rm)
     stop_calls = _track_stop(room)
     await room.start()
 
@@ -223,7 +232,7 @@ async def test_game_end_reaps_the_room_and_stops_it():
 async def test_reaping_cancels_the_rooms_background_tasks():
     """The point of reaping is the tasks, not the dictionary entry."""
     rm = RoomManager()
-    room_id, room = _seated_room(rm)
+    room_id, room = await _seated_room(rm)
     await room.start()
     runner = room._runner
     assert runner.running
@@ -240,7 +249,7 @@ async def test_room_ending_mid_tick_does_not_stall_its_own_tick_loop():
     """The end-of-game event fires inside the runner's task — the same task
     `stop()` awaits — so an inline reap would leave it awaiting itself."""
     rm = RoomManager()
-    room_id, room = _seated_room(rm)
+    room_id, room = await _seated_room(rm)
 
     bus = room._core.event_bus
     original_on_tick = room._runner._on_tick
@@ -262,7 +271,7 @@ async def test_a_room_is_reaped_only_once():
     """Several endings can land in one resolution pass, and the forfeit path
     announces its own on top — none of which may schedule a second teardown."""
     rm = RoomManager()
-    room_id, room = _seated_room(rm)
+    room_id, room = await _seated_room(rm)
     stop_calls = _track_stop(room)
     await room.start()
 
@@ -279,7 +288,7 @@ async def test_disconnect_forfeit_reaps_the_room():
     """A forfeit ends the game by writing straight to GameState, publishing no
     event — so it must announce its expiry itself or leak the room."""
     rm = RoomManager()
-    room_id = rm.create_room(MockSession("Alice"))
+    room_id = await rm.create_room(MockSession("Alice"))
     rm.join_room(room_id, MockSession("Bob"))
     room = rm.get_room(room_id)
     room._disconnect_handler._timeout_seconds = 1
@@ -297,7 +306,7 @@ async def test_reaped_room_frees_its_participants_to_join_another():
     """The session index must be purged with the room, or every player who
     finished a game is permanently 'already seated'."""
     rm = RoomManager()
-    room_id, room = _seated_room(rm)
+    room_id, room = await _seated_room(rm)
     white = room.white_player
     await room.start()
 
@@ -311,7 +320,7 @@ async def test_reaped_room_frees_its_participants_to_join_another():
 @pytest.mark.asyncio
 async def test_reaping_an_already_removed_room_is_a_no_op():
     rm = RoomManager()
-    room_id, room = _seated_room(rm)
+    room_id, room = await _seated_room(rm)
     rm.remove_room(room_id)
 
     await rm._reap_room(room_id)

@@ -11,6 +11,15 @@ persistence, event loop for broadcast scheduling) and the same expiry hook.
 That hook is what keeps the registry bounded: a room announces its own end
 rather than being polled for it, and this manager reaps it on being told.
 
+**Ownership.** A room is registered here only once this instance holds its
+lease, and it is unregistered the moment that lease is lost. So the local
+registry is not merely a cache of what this process happens to be running: it is
+the set of rooms this process is *entitled* to run, and the two cannot drift.
+Acquiring is the one coordination step allowed to block room creation, because
+it is what stops two instances computing one room id — an id is drawn locally
+but confirmed globally, and a candidate someone else holds is discarded for the
+next one rather than seated on top of theirs.
+
 **The directory.** The local registry above answers only for rooms this process
 created, which stops being the whole truth the moment a second replica exists.
 Every create, join and reap is therefore also published to a `SeatDirectory` /
@@ -45,6 +54,14 @@ MAX_ROOM_ID_ATTEMPTS = 100
 # process, where "which replica" has only one possible answer.
 DEFAULT_INSTANCE_ID = ""
 
+ERROR_DRAINING = "This server is shutting down; no new rooms are being started here"
+ERROR_NO_PLACEABLE_ID = "Could not claim a room id"
+
+
+class RoomPlacementError(RuntimeError):
+    """No room could be opened here — every candidate id was taken, or this
+    instance is draining and must not accept work it may not outlive."""
+
 
 @dataclass
 class RoomInfo:
@@ -70,6 +87,7 @@ class RoomManager:
         broker: Optional[Any] = None,
         relay: Optional[Any] = None,
         command_listener: Optional[Any] = None,
+        ownership: Optional[Any] = None,
     ) -> None:
         self._database = database
         self._loop = loop
@@ -89,6 +107,11 @@ class RoomManager:
         # reaped, so the subscription's lifetime *is* the ownership window —
         # there is no second flag saying "I own this" that could disagree.
         self._command_listener = command_listener
+        # Consulted before a room is registered and told when one is gone, so
+        # this registry never holds a room whose lease this instance does not.
+        # None is a real configuration and not a missing dependency: a process
+        # with nothing to contend with owns every room it creates by definition.
+        self._ownership = ownership
         # Detached directory writes, held so the loop cannot collect one
         # mid-flight — it keeps only weak references to tasks.
         self._directory_writes: set = set()
@@ -114,6 +137,15 @@ class RoomManager:
         either one construct the other.
         """
         self._command_listener = listener
+
+    def attach_ownership(self, ownership: Any) -> None:
+        """Supply the lease holder after construction.
+
+        Same cycle as the command listener, resolved the same way: ownership
+        reports a lost lease *into* this manager, so it cannot be built before
+        it.
+        """
+        self._ownership = ownership
 
     @property
     def room_count(self) -> int:
@@ -149,13 +181,20 @@ class RoomManager:
             if room.find_player_by_username(username) is not None
         )
 
-    def create_room(self, creator_session: Any) -> str:
+    async def create_room(self, creator_session: Any) -> str:
         """Create a new game room with a unique 6-character alphanumeric ID.
 
         The creator takes the White seat; the room stays WAITING until a second
         participant fills Black.
+
+        Async because the id is claimed rather than merely generated: with a
+        fleet, uniqueness is a property of the lease store and not of this
+        process's dictionary.
+
+        Raises:
+            RoomPlacementError: if no id could be claimed for this instance.
         """
-        room_id = self._generate_unique_room_id()
+        room_id = await self._claim_room_id()
         room = GameRoom(
             room_id=room_id,
             loop=self._loop,
@@ -288,6 +327,11 @@ class RoomManager:
         self._relay_leave(room_id, seat_usernames)
         if self._command_listener is not None:
             self._schedule_directory_write(self._command_listener.stop_listening(room_id))
+        if self._ownership is not None:
+            # Detached, unlike acquisition: releasing early only makes a finished
+            # id re-placeable sooner, and a release that never lands is repaired
+            # by the lease's own TTL. Nothing waits on it.
+            self._schedule_directory_write(self._ownership.release(room_id))
         if self._room_directory is not None:
             self._schedule_directory_write(self._room_directory.release_room(room_id))
         if self._seat_directory is not None:
@@ -369,6 +413,23 @@ class RoomManager:
         await room.stop()
         _LOGGER.info("Room %s reaped: background tasks cancelled, resources reclaimed", normalized_id)
 
+    async def surrender_room(self, room_id: str) -> None:
+        """Drop a room whose lease this instance lost, immediately.
+
+        Handed to `RoomOwnership` as its lease-lost callback. Continuing to
+        compute a room another instance may now hold is the one thing the whole
+        ownership mechanism exists to prevent, so the room goes away here rather
+        than waiting for its game to end — its players are dropped and reconnect
+        into a fresh game, which is the recorded trade (Section 15 of
+        Server_Design.md): the lease bounds how many players that happens to, it
+        does not save the game.
+        """
+        normalized_id = self._normalize(room_id)
+        if normalized_id not in self._rooms:
+            return
+        _LOGGER.warning("Tearing down room %s: its lease is no longer ours", normalized_id)
+        await self._reap_room(normalized_id)
+
     def list_rooms(self) -> List[RoomInfo]:
         """List active room summaries for lobby view."""
         return [
@@ -382,12 +443,48 @@ class RoomManager:
             for r_id, room in self._rooms.items()
         ]
 
-    def _generate_unique_room_id(self) -> str:
+    async def _claim_room_id(self) -> str:
+        """Draw a room id this instance is allowed to own, and take it.
+
+        Local uniqueness is checked first because it costs nothing and rejects
+        the only collision a single process can have. The lease is what makes
+        the answer true across the fleet: at five million concurrent rooms drawn
+        from 36^6 ids, a collision with a room on another instance is a routine
+        event rather than a theoretical one, and two instances computing one id
+        would give that room two divergent histories.
+
+        A candidate someone else holds is discarded and the next one tried —
+        the loser of a race retries rather than failing, since one taken id says
+        nothing about the next.
+        """
+        if self._ownership is None:
+            return self._generate_unique_local_room_id()
+
+        if self._ownership.draining:
+            raise RoomPlacementError(ERROR_DRAINING)
+
         for _ in range(MAX_ROOM_ID_ATTEMPTS):
-            r_id = "".join(random.choices(ROOM_ID_CHARS, k=ROOM_ID_LENGTH))
+            candidate = self._generate_room_id()
+            if candidate in self._rooms:
+                continue
+            if await self._ownership.acquire(candidate) is not None:
+                return candidate
+        raise RoomPlacementError(
+            f"{ERROR_NO_PLACEABLE_ID} after {MAX_ROOM_ID_ATTEMPTS} attempts"
+        )
+
+    def _generate_unique_local_room_id(self) -> str:
+        for _ in range(MAX_ROOM_ID_ATTEMPTS):
+            r_id = self._generate_room_id()
             if r_id not in self._rooms:
                 return r_id
-        raise RuntimeError(f"Failed to generate unique room ID after {MAX_ROOM_ID_ATTEMPTS} attempts")
+        raise RoomPlacementError(
+            f"{ERROR_NO_PLACEABLE_ID} after {MAX_ROOM_ID_ATTEMPTS} attempts"
+        )
+
+    @staticmethod
+    def _generate_room_id() -> str:
+        return "".join(random.choices(ROOM_ID_CHARS, k=ROOM_ID_LENGTH))
 
     @staticmethod
     def _normalize(room_id: str) -> str:

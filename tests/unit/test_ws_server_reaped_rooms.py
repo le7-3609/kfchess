@@ -50,7 +50,7 @@ def _errors(session) -> list:
 
 async def _reaped_room(rm: RoomManager, white, black):
     """Seat both players, run the game to a reaped end, return its room id."""
-    room_id = rm.create_room(white)
+    room_id = await rm.create_room(white)
     rm.join_room(room_id, black)
     room = rm.get_room(room_id)
     await room.start()
@@ -108,7 +108,7 @@ async def test_a_socket_dropping_mid_reap_does_not_break_the_teardown():
     must not abandon the reap and strand the room's tick loop."""
     rm = RoomManager()
     dropped = MockSession("Alice", send_error=ConnectionResetError("socket closed"))
-    room_id = rm.create_room(dropped)
+    room_id = await rm.create_room(dropped)
     rm.join_room(room_id, MockSession("Bob"))
     room = rm.get_room(room_id)
     await room.start()

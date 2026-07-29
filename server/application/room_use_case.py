@@ -19,7 +19,7 @@ from server.domain.matchmaking.queue import MatchmakingQueue
 from server.domain.room.room_role import RoomRole
 from server.application.game_room import GameRoom
 from server.application.dtos.response_frames import build_game_start_message
-from server.application.room_manager import RoomManager
+from server.application.room_manager import RoomManager, RoomPlacementError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +37,14 @@ class RoomUseCase:
             return Result.fail(ERROR_ALREADY_SEATED)
 
         await self._matchmaker.leave_queue(session)
-        room_id = self._room_manager.create_room(session)
+        try:
+            room_id = await self._room_manager.create_room(session)
+        except RoomPlacementError as err:
+            # Refused placement is the client's answer, not a crash: this
+            # instance is draining or could not claim an id, and the client's
+            # own retry lands on a replica that can.
+            _LOGGER.warning("Room creation refused for %s: %s", session.username, err)
+            return Result.fail(str(err))
         return Result.ok(room_id)
 
     async def join(self, session: Any, msg: Dict[str, Any]) -> Result[RoomRole, str]:

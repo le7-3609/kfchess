@@ -16,6 +16,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 
+from server.application.room_manager import RoomManager
 from server.application.room_ownership import RoomOwnership
 from server.infrastructure.coordination.redis_leases import KEY_OWNER, RedisLeaseStore
 
@@ -31,6 +32,34 @@ _TEST_RENEWAL = 0.3
 @pytest_asyncio.fixture
 async def store(redis_connection):
     return RedisLeaseStore(redis_connection, ttl_seconds=_TEST_TTL)
+
+
+class _Session:
+    """The bare seat surface `RoomManager` touches while seating a creator."""
+
+    def __init__(self, username: str):
+        self.username = username
+        self.connected = True
+        self.color = None
+
+    def assign_color(self, color: str):
+        self.color = color
+
+    async def send(self, msg):
+        pass
+
+
+def _managed_instance(store, instance_id: str):
+    manager = RoomManager()
+    ownership = RoomOwnership(
+        store,
+        instance_id,
+        on_lease_lost=manager.surrender_room,
+        renewal_interval_seconds=_TEST_RENEWAL,
+        lease_ttl_seconds=_TEST_TTL,
+    )
+    manager.attach_ownership(ownership)
+    return manager, ownership
 
 
 @pytest.mark.asyncio
@@ -221,6 +250,49 @@ async def test_a_clean_shutdown_frees_rooms_immediately(store):
 
     assert await store.owner_of("ROOM01") is None
     assert await store.acquire("ROOM01", "auth-next") is not None
+
+
+@pytest.mark.asyncio
+async def test_a_room_opened_through_the_manager_is_leased_in_redis(store):
+    """The wiring, against the store that can actually disagree with it.
+
+    Every in-process assertion about this path agrees with any contract,
+    including a wrong one. What is checked here is that opening a room through
+    the real `RoomManager` writes a real lease that a real second instance is
+    refused, and that reaping the room hands the id back.
+    """
+    manager, ownership = _managed_instance(store, "auth-a")
+    _, rival = _managed_instance(store, "auth-b")
+
+    room_id = await manager.create_room(_Session("Alice"))
+
+    assert await store.owner_of(room_id) == "auth-a"
+    assert await rival.acquire(room_id) is None, "a seated room must not be placeable twice"
+
+    manager.remove_room(room_id)
+    await manager.drain_directory_writes()
+
+    assert await store.owner_of(room_id) is None
+    assert await rival.acquire(room_id) is not None, "a finished id must be re-placeable"
+
+
+@pytest.mark.asyncio
+async def test_a_manager_that_loses_its_lease_stops_running_the_room(store):
+    """The failure injection carried through to the room lifecycle: what the
+    exit criterion cares about is not that a key expired but that the instance
+    stopped computing the game behind it."""
+    manager, ownership = _managed_instance(store, "auth-stalled")
+    room_id = await manager.create_room(_Session("Alice"))
+    manager.join_room(room_id, _Session("Bob"))
+    await manager.get_room(room_id).start()
+
+    await asyncio.sleep(_TEST_TTL + 0.2)
+    assert await store.acquire(room_id, "auth-taker") is not None
+    await ownership._renew_all()
+
+    assert manager.get_room(room_id) is None, "the room outlived the lease that authorised it"
+    assert manager.room_count == 0
+    assert not ownership.owns(room_id)
 
 
 @pytest.mark.asyncio

@@ -22,7 +22,7 @@ from server.application.dtos.response_frames import (
     build_error_message,
     build_game_start_message,
 )
-from server.application.room_manager import RoomManager
+from server.application.room_manager import RoomManager, RoomPlacementError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,8 +88,23 @@ class MatchmakingUseCase:
 
         The longest-waiting player takes White, which keeps seating
         deterministic for a given queue order.
+
+        A pair that cannot be placed is told so and dropped rather than
+        re-queued: both players are still connected and free to search again,
+        whereas silently re-queueing them here would race the drain that
+        refused them in the first place.
         """
-        room_id = self._room_manager.create_room(white_session)
+        try:
+            room_id = await self._room_manager.create_room(white_session)
+        except RoomPlacementError as err:
+            _LOGGER.warning(
+                "Could not place a room for %s vs %s: %s",
+                white_session.username, black_session.username, err,
+            )
+            await white_session.send(build_error_message(str(err)))
+            await black_session.send(build_error_message(str(err)))
+            return
+
         self._room_manager.join_room(room_id, black_session)
         room = self._room_manager.get_room(room_id)
 
@@ -107,8 +122,12 @@ class MatchmakingUseCase:
         )
 
     async def start_bot_match(self, session: Any) -> None:
-        """Seat a queue-timeout player as White against an automated opponent."""
-        room_id = self._room_manager.create_room(session)
+        """Seat a queue-timeout player as White against an automated opponent.
+
+        A placement refusal propagates: `drain_timeouts` is what answers it, and
+        it already tells the player their game could not be started.
+        """
+        room_id = await self._room_manager.create_room(session)
         room = self._room_manager.get_room(room_id)
         bot = room.add_bot_opponent(move_interval_seconds=self._bot_move_interval_seconds)
 

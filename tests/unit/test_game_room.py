@@ -324,7 +324,7 @@ async def test_natural_game_end_settles_elo_and_reaps_the_room_via_room_manager(
     db = MockDatabase()
     rm = RoomManager(database=db)
     white, black = MockSession("Alice", 1), MockSession("Bob", 2)
-    room_id = rm.create_room(white)
+    room_id = await rm.create_room(white)
     rm.join_room(room_id, black)
     room = rm.get_room(room_id)
 

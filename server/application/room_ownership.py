@@ -37,6 +37,7 @@ from server.domain.coordination.leases import (
     Lease,
     rendezvous_owner,
 )
+from server.infrastructure.observability.server_metrics import ServerMetrics, server_metrics
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class RoomOwnership:
         on_lease_lost: Optional[LeaseLostCallback] = None,
         renewal_interval_seconds: float = DEFAULT_RENEWAL_INTERVAL_SECONDS,
         lease_ttl_seconds: float = DEFAULT_LEASE_TTL_SECONDS,
+        metrics: Optional[ServerMetrics] = None,
     ) -> None:
         if renewal_interval_seconds >= lease_ttl_seconds:
             raise ValueError(
@@ -63,6 +65,7 @@ class RoomOwnership:
         self._store = store
         self._instance_id = instance_id
         self._on_lease_lost = on_lease_lost
+        self._metrics = metrics or server_metrics()
         self._renewal_interval_seconds = renewal_interval_seconds
         self._leases: Dict[str, Lease] = {}
         self._renewal_task: Optional[asyncio.Task] = None
@@ -127,6 +130,7 @@ class RoomOwnership:
         if lease is None:
             return None
         self._leases[room_id] = lease
+        self._metrics.lease_acquisitions.increment()
         _LOGGER.info(
             "Acquired room %s (token=%d)", room_id, lease.fencing_token
         )
@@ -197,6 +201,7 @@ class RoomOwnership:
         authoritative for one game, so the local copy goes away immediately.
         """
         self._leases.pop(room_id, None)
+        self._metrics.lease_failovers.increment()
         _LOGGER.warning("Surrendering room %s: the lease is no longer ours", room_id)
         if self._on_lease_lost is None:
             return
