@@ -1,43 +1,50 @@
 # Local, single-machine run of the Kung Fu Chess server.
 #
 # This is the "whole system on one machine" step from Server_Design.md — not a
-# production topology. It runs the two roles the design splits the server into,
-# from one image, differing only in their entry command:
+# production topology. It runs the roles the design splits the server into, from
+# one image, differing only in their entry command:
 #
-#   ws  -> main_ws.py   long-lived player sockets and the game simulation
-#   api -> main_api.py  history reads, leaderboard, token issuance
+#   ws       -> main_ws.py        long-lived player sockets and the game simulation
+#   api      -> main_api.py       history reads, leaderboard, token issuance
+#   migrate  -> alembic upgrade   the schema, applied once before anything starts
 #
 # They are separate services here for the same reason they are separate
 # Deployments later: restarting `ws` disconnects every player mid-game, while
 # restarting `api` costs nothing. Keeping them apart locally means the topology
 # under test is the topology that ships.
 #
-# The infrastructure the design calls for next — PostgreSQL and a broker — is
-# declared below under the `future` profile. Those services start only with
-# `--profile future` and nothing connects to them yet; they are here so the
-# migration is a code change against a running dependency rather than a code
-# change and an environment change at once.
+# Redis and PostgreSQL are no longer declared-but-unwired: Redis holds the
+# matchmaking queue and the seat/room directory, PostgreSQL holds the durable
+# data, and both are reached by the code and exercised by `pytest tests/infra`.
+# NATS stays behind the `future` profile until Step 6 gives it a caller.
 #
-#   docker compose up --build          # both roles, as they work today
-#   docker compose --profile future up # plus Postgres and NATS, unwired
+#   docker compose up --build                 # the whole stack
+#   docker compose up --scale ws=2            # two game replicas, one population
+#   docker compose --profile tools run migrate  # re-apply migrations by hand
 
 x-server-image: &server-image
   build: .
   image: kfchess/server:dev
-  volumes:
-    - game-data:/data
-  environment:
+  environment: &server-environment
     # Signs the tokens the API issues and the WebSocket tier verifies. Both
     # roles must agree on it, which is exactly why it is configuration rather
     # than something either process generates for itself — a per-process key
     # would invalidate every token the moment a second replica answered.
     # Sourced from an untracked .env; `cp .env.example .env` and fill it in.
     KFCHESS_TOKEN_SIGNING_KEY: ${KFCHESS_TOKEN_SIGNING_KEY:?}
+    # Selects the PostgreSQL adapter over SQLite. Its presence is the switch;
+    # there is no separate "which database" flag to keep in step with it.
+    KFCHESS_POSTGRES_DSN: postgresql://kfchess:${POSTGRES_PASSWORD}@postgres:5432/kfchess
   restart: unless-stopped
 
 services:
   ws:
     <<: *server-image
+    environment:
+      <<: *server-environment
+      # Turns the process-local queue and room index into shared ones. Without
+      # it two `ws` replicas are two disjoint player populations.
+      KFCHESS_REDIS_URL: redis://redis:6379/0
     # --host 0.0.0.0 is required in a container: the code's default of
     # "localhost" binds the loopback interface only, which no published port
     # can reach from outside the container.
@@ -46,12 +53,18 @@ services:
       - main_ws.py
       - --host
       - 0.0.0.0
-      - --db-path
-      - /data/kfchess.db
       - --log-level
       - INFO
     ports:
-      - "8765:8765"   # WebSocket game socket
+      # A range rather than a fixed port, so `--scale ws=2` works: Compose
+      # assigns each replica the next free host port instead of failing on a
+      # collision.
+      - "8765-8775:8765"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       # The WebSocket role serves no HTTP, so its check is a TCP connect to the
       # game port — local, and touching no database. A health check that reads
@@ -75,12 +88,13 @@ services:
       - main_api.py
       - --host
       - 0.0.0.0
-      - --db-path
-      - /data/kfchess.db
       - --log-level
       - INFO
     ports:
       - "8080:8080"   # HTTP API, plus /healthz, /readyz and /metrics
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       # /healthz, never /readyz and never a real query: liveness asks whether
       # this process is alive, and a replica that cannot reach the database
@@ -96,23 +110,28 @@ services:
       start_period: 10s
       retries: 3
 
+  migrate:
+    <<: *server-image
+    # The pre-deploy job. `CREATE TABLE IF NOT EXISTS` on every startup is fine
+    # for a file one process owns and wrong once fifty replicas start at once
+    # against a shared database; this runs to completion first, and `ws` and
+    # `api` wait on `service_completed_successfully` rather than racing it.
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
   postgres:
-    profiles: [future]
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: kfchess
       # Sourced from the environment (or an untracked .env), never committed —
       # the same rule Server_Design.md applies to the token signing key. Run
       # `cp .env.example .env` and fill it in.
-      #
-      # Deliberately NOT `${POSTGRES_PASSWORD:?}`: Compose interpolates every
-      # service in the file, including ones behind an inactive profile, so the
-      # required-variable form would make a plain `docker compose up` fail over
-      # a container it was never going to start. An unset value still fails
-      # loudly — the postgres image refuses to initialize without a superuser
-      # password and says so — which is the same protection, enforced by the
-      # thing that actually needs the value.
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: kfchess
     ports:
       - "5432:5432"
@@ -120,9 +139,25 @@ services:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kfchess -d kfchess"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # No persistence configured, on purpose. Everything Redis holds here — the
+    # queue, the seat directory, the ownership leases — is rebuilt by the
+    # players reconnecting and the replicas re-registering. Persisting it would
+    # restore a snapshot of who *was* seated where, which is worse than an empty
+    # store: stale routing outlives the restart that should have cleared it.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   nats:
     profiles: [future]
@@ -136,5 +171,4 @@ services:
       - "8222:8222"   # monitoring / metrics endpoint
 
 volumes:
-  game-data:
   postgres-data:

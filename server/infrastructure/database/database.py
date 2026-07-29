@@ -12,18 +12,21 @@ Optimization D: Employs a single persistent connection pattern initialized at se
 with WAL mode enabled for concurrent safety, ensuring clean shutdown without DB locks.
 """
 
-import asyncio
 import logging
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Protocol, Tuple
 
 import aiosqlite
-import bcrypt
 
-from core.config.consts import FILE_ENCODING
 from server.domain.matchmaking.elo import DEFAULT_PLAYER_ELO
+from server.infrastructure.database.password_hashing import (
+    BCRYPT_COST_FACTOR,
+    cost_of,
+    hash_password,
+    needs_rehash,
+    verify_password,
+)
 from server.infrastructure.database.query_executor import SecureQueryExecutor
 
 _LOGGER = logging.getLogger(__name__)
@@ -190,16 +193,10 @@ SELECT_GAME_ID_BY_ROOM_SQL = "SELECT id FROM games WHERE room_id = ?"
 # this replica can reach its database, not whether the schema is populated.
 PING_SQL = "SELECT 1"
 
-# Pinned rather than left to `bcrypt.gensalt()`'s library default, which has
-# moved between releases: the work factor protecting every password in this
-# database must be a deliberate, reviewable number, not a property of whichever
-# bcrypt version the image happened to resolve.
-BCRYPT_COST_FACTOR = 12
-
-# A bcrypt hash names its own cost in the third `$`-delimited field
-# ("$2b$12$..."), which is what makes rehash-on-login possible without storing
-# the cost separately.
-_BCRYPT_COST_PATTERN = re.compile(r"^\$2[aby]?\$(\d{2})\$")
+# Re-exported: BCRYPT_COST_FACTOR is part of this adapter's documented surface
+# (tests and operators read it here), while the hashing itself lives in
+# password_hashing.py so both database adapters share one work factor.
+__all__ = ["BCRYPT_COST_FACTOR", "Database", "SaveOutcome"]
 
 
 class Database:
@@ -269,7 +266,7 @@ class Database:
             insert failed. The two are indistinguishable to the caller by
             design; the real reason is in the server log.
         """
-        pw_hash = await self._hash_password(password_plain)
+        pw_hash = await hash_password(password_plain)
 
         insert = await self._queries.insert_returning_id(
             INSERT_USER_SQL,
@@ -297,7 +294,7 @@ class Database:
             return None
 
         user_id, name, pw_hash, elo = lookup.value
-        if not await self._verify_password(password_plain, pw_hash):
+        if not await verify_password(password_plain, pw_hash):
             return None
 
         await self._rehash_if_below_target_cost(name, pw_hash, password_plain)
@@ -317,61 +314,13 @@ class Database:
         itself already succeeded against a valid hash, and refusing it over a
         failed optimisation would turn a stale cost factor into an outage.
         """
-        if self._cost_of(stored_hash) >= BCRYPT_COST_FACTOR:
+        if not needs_rehash(stored_hash):
             return
 
-        upgraded = await self._hash_password(password_plain)
+        upgraded = await hash_password(password_plain)
         update = await self._queries.execute(UPDATE_PASSWORD_HASH_SQL, (upgraded, username))
         if update.is_ok:
             _LOGGER.info("Rehashed %s's password at cost %d", username, BCRYPT_COST_FACTOR)
-
-    @staticmethod
-    def _cost_of(stored_hash: str) -> int:
-        """The work factor encoded in a bcrypt hash, or 0 if unreadable.
-
-        An unreadable hash reports 0 so it sorts below any target and gets
-        rehashed on the next successful login.
-        """
-        match = _BCRYPT_COST_PATTERN.match(stored_hash or "")
-        return int(match.group(1)) if match else 0
-
-    @staticmethod
-    async def _hash_password(password_plain: str) -> str:
-        """Hash a password on a worker thread.
-
-        bcrypt is synchronous CPU work by design, and at cost 12 it occupies a
-        core for on the order of a quarter of a second. Running it inline would
-        block the same event loop that drives every room's AsyncGameRunner —
-        five missed ticks in every game on this process, per login. Off-loading
-        it is a correctness fix for the simulation, not only a throughput fix
-        for auth.
-        """
-        return await asyncio.to_thread(Database._hash_password_blocking, password_plain)
-
-    @staticmethod
-    def _hash_password_blocking(password_plain: str) -> str:
-        salt = bcrypt.gensalt(rounds=BCRYPT_COST_FACTOR)
-        return bcrypt.hashpw(password_plain.encode(FILE_ENCODING), salt).decode(FILE_ENCODING)
-
-    @staticmethod
-    async def _verify_password(password_plain: str, stored_hash: str) -> bool:
-        """Check a password on a worker thread, for the same reason as hashing."""
-        return await asyncio.to_thread(
-            Database._verify_password_blocking, password_plain, stored_hash
-        )
-
-    @staticmethod
-    def _verify_password_blocking(password_plain: str, stored_hash: str) -> bool:
-        try:
-            return bcrypt.checkpw(
-                password_plain.encode(FILE_ENCODING), stored_hash.encode(FILE_ENCODING)
-            )
-        except ValueError:
-            # A stored value that is not a bcrypt hash at all cannot match any
-            # password; it must read as a failed login rather than an exception
-            # that escapes into the auth path.
-            _LOGGER.error("Stored credential is not a valid bcrypt hash")
-            return False
 
     async def get_user_by_username(self, username: str) -> Optional[Tuple[int, str, int]]:
         """Fetch user profile (user_id, username, elo)."""

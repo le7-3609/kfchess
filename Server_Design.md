@@ -78,12 +78,14 @@ That ratio is why Step 2 comes before any infrastructure work. Sharding a protoc
 | 2 | Fix the wire protocol | `game_room.py`, `broadcast_observer.py`, `protocol_mapper.py` | Steady-state bandwidth per room is measured in hundreds of B/s, not hundreds of KB/s | **Built** — measured below |
 | 3 | Security at the edge | `main_server.py`, `auth_service.py`, `ws_server.py`, `database.py` | TLS terminated, tokens issued, rate limits enforced, writes idempotent | **Built** |
 | 4 | Split the process into roles | `main_server.py` → two entry points | HTTP and WebSocket deploy, restart and scale independently | **Built** |
-| 5 | Move state out of the process | `room_manager.py`, `queue.py`, `database.py` | Two server replicas serve one logical game population | Not started |
+| 5 | Move state out of the process | `room_manager.py`, `queue.py`, `database.py` | Two server replicas serve one logical game population | **Built** — verified below |
 | 6 | Introduce the broker | `broadcast_observer.py`, `ws_server.py` | A player on replica A sees moves computed on replica B | Not started |
 | 7 | Shard the game authority | new `server/coordination/`, `room_manager.py` | Rooms are owned by lease; killing an owner loses only its rooms | Not started |
 | 8 | Kubernetes, autoscaling, persistence pipeline | manifests, new persistence worker | Replica counts track load; a database stall does not stall a game | Not started |
 
-Steps 1 through 4 change this repository and need no new infrastructure; they are implemented. Steps 5 through 8 add infrastructure (Redis, NATS, PostgreSQL, Kubernetes), each piece introduced only once the code has a place to put it.
+Steps 1 through 4 change this repository and need no new infrastructure. Steps 5 through 8 add infrastructure (Redis, NATS, PostgreSQL, Kubernetes), each piece introduced only once the code had a place to put it.
+
+Every backing store is reached through a port with two implementations — one in-process, one against the real service — so `pytest` runs green with no containers at all, and `pytest tests/infra` runs the same expectations against Redis and PostgreSQL. That is not a convenience: an in-memory dict agrees with any contract, including a wrong one, so the second implementation is what actually tests the first.
 
 ### What Steps 1–4 actually landed
 
@@ -106,6 +108,12 @@ Measured over a real socket, two players at one move per player per two seconds:
 | Event stream + reconciliation every 5 s | 2,394 B/s | 92x less |
 
 The steady-state protocol is in the hundreds of bytes per second as the criterion requires. The reconciliation frame is what adds the rest, and its interval is the knob that trades bandwidth against how long a client can stay drifted. Five seconds is sized for the transport events run on *next*: today they share one ordered TCP socket and barely drift, but Step 6 moves them to a fire-and-forget broker where a dropped event must be repaired in seconds.
+
+### What Step 5 landed
+
+**Step 5 — state out of the process.** `MatchmakingQueue` keeps its interface (`join_queue`, `leave_queue`, `try_match`, `check_timeouts`) and gains a store behind it: a Redis sorted set by rating, so the ±100 window is a `ZRANGEBYSCORE` rather than the O(n²) pair scan, plus a second set by join time so pairing still favours the longest wait. The pop is one Lua script that takes both players or neither. Session and room directories are Redis keys with a 10-minute TTL, so `find_room_by_username` no longer scans local rooms. `Database` is joined by `PostgresDatabase` over `asyncpg` — `?` → `$n`, `INSERT OR IGNORE` → `ON CONFLICT`, one connection → a pool — and `SecureQueryExecutor`'s contract is shared verbatim between the two drivers via `query_contract.py`, with all 24 of its tests ported and passing against PostgreSQL. Schema management is Alembic, applied by a job that runs to completion before any replica starts.
+
+*Verified:* `tests/infra/test_redis_matchmaking.py` runs twenty concurrent poppers against ten queued players on one Redis: five games are made, no player is seated twice, and no ticket is left behind. `tests/infra/test_redis_directory.py` proves a seat published by one replica is resolvable from another.
 
 ---
 

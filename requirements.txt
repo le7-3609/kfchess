@@ -6,3 +6,14 @@ aiohttp>=3.9.0
 aiosqlite>=0.20.0
 bcrypt>=4.0.0
 pytest-asyncio>=0.23.0
+
+# Shared fleet state: the matchmaking queue, the seat/room directory, and the
+# ownership leases. Optional at import time — every store has an in-process
+# implementation behind the same port, so the suite runs with no containers.
+redis>=5.0
+
+# PostgreSQL driver and schema management. `Database` (SQLite) remains the
+# default for local runs and tests; `PostgresDatabase` is what a fleet uses.
+asyncpg>=0.29.0
+alembic>=1.13.0
+SQLAlchemy>=2.0.0
