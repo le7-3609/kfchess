@@ -148,7 +148,7 @@ async def test_engine_captures_round_trip_through_database(temp_db):
         moves=rows,
     )
 
-    game_id = await temp_db.save_completed_game(result, result.moves)
+    game_id = (await temp_db.save_completed_game(result, result.moves)).game_id
 
     saved = await temp_db.get_moves(game_id)
     assert len(saved) == 1

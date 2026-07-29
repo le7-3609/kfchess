@@ -1,8 +1,14 @@
-"""CLI entry point for the KungFu Chess multiplayer server."""
+"""CLI entry point running both server roles in one process.
 
-import argparse
-import asyncio
-import logging
+Convenient for local development and for the Compose stack, where one process
+is simpler than two. It is *not* the deployed topology: see `main_ws.py` and
+`main_api.py`, which run the same code as separate, independently scalable
+processes. Running them together means a burst of replay queries — database
+bound, CPU-heavy JSON serialization — competes for the event loop that is
+supposed to be forwarding moves, and deploying a change to the leaderboard
+disconnects every player mid-game.
+"""
+
 import sys
 from pathlib import Path
 
@@ -10,61 +16,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from server.application.auth_service import AuthService
-from server.application.game_query_service import GameQueryService
-from server.infrastructure.database.database import DEFAULT_DB_PATH, Database
-from server.presentation.http_api import DEFAULT_HTTP_PORT, HttpApiServer
-from server.presentation.ws_server import DEFAULT_HOST, DEFAULT_PORT, KFChessServer
+from server.presentation.app_runner import run_combined, run_entry_point
 
-ARG_HOST = "--host"
-ARG_PORT = "--port"
-ARG_HTTP_PORT = "--http-port"
-ARG_DB_PATH = "--db-path"
-ARG_LOG_LEVEL = "--log-level"
-
-DEFAULT_LOG_LEVEL = "INFO"
-LOG_LEVEL_CHOICES = ["DEBUG", "INFO", "WARNING", "ERROR"]
-
-
-async def _async_main(args: argparse.Namespace) -> None:
-    """Own the Database connection's lifetime across the server's run."""
-    database = Database(args.db_path)
-    await database.connect()
-    auth_service = AuthService(database)
-
-    server = KFChessServer(
-        host=args.host, port=args.port, database=database, auth_service=auth_service
-    )
-    http_api = HttpApiServer(
-        GameQueryService(database), host=args.host, port=args.http_port
-    )
-    try:
-        await http_api.start()
-        await server.run_forever()
-    finally:
-        await server.stop()
-        await http_api.stop()
-        await database.close()
+DESCRIPTION = "KungFu Chess multiplayer server (WebSocket + HTTP API in one process)"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="KungFu Chess multiplayer server")
-    parser.add_argument(ARG_HOST, default=DEFAULT_HOST, help="Bind address")
-    parser.add_argument(ARG_PORT, type=int, default=DEFAULT_PORT, help="WebSocket bind port")
-    parser.add_argument(ARG_HTTP_PORT, type=int, default=DEFAULT_HTTP_PORT, help="HTTP API bind port")
-    parser.add_argument(ARG_DB_PATH, default=DEFAULT_DB_PATH, help="SQLite database file path")
-    parser.add_argument(ARG_LOG_LEVEL, default=DEFAULT_LOG_LEVEL, choices=LOG_LEVEL_CHOICES)
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    try:
-        asyncio.run(_async_main(args))
-    except KeyboardInterrupt:
-        logging.info("Server stopped by user.")
+    run_entry_point(DESCRIPTION, run_combined)
 
 
 if __name__ == "__main__":

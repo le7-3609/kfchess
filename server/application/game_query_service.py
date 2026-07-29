@@ -12,7 +12,11 @@ database, which yields tuples, and the HTTP API, which wants named values.
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from server.infrastructure.database.database import DEFAULT_LEADERBOARD_LIMIT, Database
+from server.infrastructure.database.database import (
+    DEFAULT_LEADERBOARD_LIMIT,
+    MAX_LEADERBOARD_LIMIT,
+    Database,
+)
 
 
 @dataclass(frozen=True)
@@ -82,12 +86,23 @@ class GameQueryService:
         return self._replay_from_rows(game_row, move_rows)
 
     async def get_leaderboard(self, limit: int = DEFAULT_LEADERBOARD_LIMIT) -> List[LeaderboardRow]:
-        """Top players by ELO as DTOs, highest first."""
-        rows = await self._database.get_leaderboard(limit)
+        """Top players by ELO as DTOs, highest first.
+
+        *limit* is clamped rather than trusted. It reaches here from a query
+        string, so an unbounded value would let one request read and serialize
+        the entire users table; clamping at this seam means every caller of the
+        read side is covered, not just the HTTP route that has one today.
+        """
+        rows = await self._database.get_leaderboard(self._clamp_limit(limit))
         return [
             LeaderboardRow(username=username, elo=elo, total_games=total_games, wins=wins)
             for username, elo, total_games, wins in rows
         ]
+
+    @staticmethod
+    def _clamp_limit(limit: int) -> int:
+        """Bound a requested page size into [1, MAX_LEADERBOARD_LIMIT]."""
+        return max(1, min(int(limit), MAX_LEADERBOARD_LIMIT))
 
     @staticmethod
     def _replay_from_rows(game_row: Tuple, move_rows: List[Tuple]) -> GameReplay:

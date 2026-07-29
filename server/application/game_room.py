@@ -11,6 +11,7 @@ aggregate this class composes.
 import asyncio
 import inspect
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
@@ -23,7 +24,10 @@ from server.application.broadcast_observer import NetworkBroadcastObserver
 from server.application.capture_log import CaptureLog
 from server.application.game_persistence_service import GamePersistenceService
 from server.application.game_result import GameResult, PersistedMove, persisted_moves_from_log
+from server.application.move_idempotency import MoveIdempotencyCache
 from server.infrastructure.database.database import Database
+from server.infrastructure.logging.json_logging import bind_room
+from server.infrastructure.observability.server_metrics import ServerMetrics, server_metrics
 from server.infrastructure.services.bot_driver import (
     DEFAULT_BOT_MOVE_INTERVAL_SECONDS,
     BotDriver,
@@ -54,9 +58,29 @@ _DISCONNECT_FORFEIT_REASON = GAME_END_REASON_DISCONNECTION_TIMEOUT
 # reconnection countdown, distinct from the wire-frame reason above.
 _FORFEIT_RESULT = "timeout"
 
+# How often a room re-sends the whole board, as drift repair.
+#
+# Measured over a real socket, two players at one move per player per two
+# seconds (see the exit criterion in Server_Design.md's Step 2):
+#
+#   old design, snapshot every tick   219,200 B/s per room
+#   event stream alone                    206 B/s per room   (1064x less)
+#   plus reconciliation at 5s            2,394 B/s per room  (92x less)
+#
+# So the steady-state protocol itself is in the hundreds of bytes per second,
+# and this interval decides how much of the old cost is added back for drift
+# repair. Five seconds is chosen for the transport the events run on *next*:
+# today they share one ordered TCP socket and barely drift at all, but Step 6
+# moves them onto a fire-and-forget broker where a dropped event must be
+# corrected in seconds rather than for the rest of the game. Deployments that
+# keep a reliable event path can raise it and approach the 206 B/s floor.
+DEFAULT_RECONCILIATION_INTERVAL_SECONDS = 5.0
+
 # Duck-typed send hooks a recipient may expose, probed in this order.
 _ATTR_SEND = "send"
 _ATTR_SEND_MESSAGE = "send_message"
+# Seat colour, absent on a spectator.
+_ATTR_COLOR = "color"
 
 
 def _rating_delta(session: Any, new_elo: int) -> Dict[str, int]:
@@ -104,11 +128,21 @@ class GameRoom:
         persistence_service: Optional[GamePersistenceService] = None,
         disconnect_timeout_seconds: int = DEFAULT_DISCONNECT_TIMEOUT_SECONDS,
         on_room_expired: Optional[RoomExpiredCallback] = None,
+        reconciliation_interval_seconds: float = DEFAULT_RECONCILIATION_INTERVAL_SECONDS,
+        metrics: Optional[ServerMetrics] = None,
+        clock_fn: Callable[[], float] = time.monotonic,
     ) -> None:
         self._domain = DomainGameRoom(room_id=room_id)
         self._loop = loop
         self._database = database
         self._persistence_service = persistence_service
+        self._metrics = metrics or server_metrics()
+        self._clock_fn = clock_fn
+        self._reconciliation_interval_seconds = reconciliation_interval_seconds
+        self._last_reconciliation_at = clock_fn()
+        # Bounded per room, because a room is exactly the scope in which a move
+        # id has to be unique.
+        self._seen_moves = MoveIdempotencyCache()
         # Wall-clock instant the game became playable, stamped when the engine
         # is wired. Paired with game-end wall time to bound a saved game in real
         # time (the simulation clock only measures elapsed play, not calendar).
@@ -135,6 +169,8 @@ class GameRoom:
         # Same reasoning as _expiry_task: this races teardown as its own
         # detached task, so a reference must be kept alive until it completes.
         self._elo_settlement_task: Optional[asyncio.Task] = None
+        # Detached snapshot pushes, held for the same reason as the tasks above.
+        self._pending_sends: set = set()
         self._lifecycle_observer = _RoomLifecycleObserver(on_game_ended=self._on_game_ended)
 
     @property
@@ -511,10 +547,35 @@ class GameRoom:
         return self._core.state_repo.get_state().game_over
 
     def add_viewer(self, session: Any) -> None:
-        """Add a spectator to the room."""
+        """Add a spectator to the room.
+
+        A spectator arriving mid-game has no board at all, and the event stream
+        alone would only ever tell them about moves from this instant on — so
+        this is one of the three cases that still warrants a full snapshot.
+        """
         self._domain.add_viewer(session)
         if self._broadcast_observer is not None:
             self._broadcast_observer.add_recipient(session)
+        self._schedule(self._send_snapshot_to(session))
+
+    def _schedule(self, coroutine: Awaitable[None]) -> None:
+        """Run *coroutine* detached, or discard it if there is no loop.
+
+        Some callers into this class are synchronous (seating a viewer, wiring
+        a room) while the work they trigger is a socket write. Without a running
+        loop — an ad-hoc room in a unit test — there is no socket to write to
+        either, so closing the coroutine is the correct no-op rather than an
+        error.
+        """
+        loop = self._resolve_loop()
+        if loop is None:
+            coroutine.close()
+            return
+        task = loop.create_task(coroutine)
+        # The loop holds only weak references to tasks, so a detached one can be
+        # collected mid-flight unless something keeps a reference.
+        self._pending_sends.add(task)
+        task.add_done_callback(self._pending_sends.discard)
 
     def remove_participant(self, session: Any) -> None:
         self._domain.remove_participant(session)
@@ -524,6 +585,7 @@ class GameRoom:
     def _wire_infrastructure_after_init(self) -> None:
         """Attach network broadcast and the tick runner once the room's game initializes."""
         self._started_at = datetime.now(timezone.utc)
+        bind_room(self._domain.room_id)
         core = self._domain.core
         self._core = core
         core.event_bus.subscribe(self._lifecycle_observer, GameEndedEvent)
@@ -539,14 +601,22 @@ class GameRoom:
         self._runner = AsyncGameRunner(
             engine=self._domain.engine,
             on_tick=self._on_tick,
+            on_tick_duration=self._metrics.tick_duration_seconds.observe,
         )
 
     async def start(self) -> None:
-        """Start the background tick runner, and the bot's move loop if one is seated."""
+        """Start the background tick runner, and the bot's move loop if one is seated.
+
+        The opening full snapshot goes out here rather than from the tick loop:
+        it is the client's only starting board, and everything after it is
+        events until the next reconciliation.
+        """
         if self._runner and not self._runner.running:
             await self._runner.start()
         if self._bot_driver and not self._bot_driver.running:
             await self._bot_driver.start()
+        self._last_reconciliation_at = self._clock_fn()
+        await self._broadcast_state()
 
     async def stop(self) -> None:
         """Stop every background task this room owns and set state to FINISHED.
@@ -576,56 +646,141 @@ class GameRoom:
             self._runner = None
         self._domain.mark_finished()
 
-    async def handle_move(self, session: Any, from_sq: str, to_sq: str) -> Result[None, str]:
+    async def handle_move(
+        self, session: Any, from_sq: str, to_sq: str, move_id: Optional[str] = None
+    ) -> Result[None, str]:
         """Process an algebraic move request directly against the GameEngine.
 
         Optimization A: Converts algebraic squares to Position(row, col) and calls
         self._engine.request_move(src, dst) directly, bypassing pixel coordinates.
 
+        A repeated *move_id* is answered with the original Result instead of
+        being executed again — a client that retries after a flaky reconnect
+        must not make the same piece move twice. No state broadcast follows a
+        move: the engine publishes MoveStartedEvent, and that event *is* the
+        update every client needs.
+
         Returns a failed Result rather than raising, so a spectator's move frame
         or a malformed square is answered with an error and leaves the socket
         open instead of tearing down the connection.
         """
+        remembered = self._seen_moves.recall(move_id)
+        if remembered is not None:
+            self._metrics.moves_deduplicated.increment()
+            _LOGGER.info("Replayed move %s in room %s answered from cache", move_id, self.room_id)
+            return remembered
+
+        result = self._execute_move(session, from_sq, to_sq)
+        self._seen_moves.remember(move_id, result)
+        return result
+
+    def _execute_move(self, session: Any, from_sq: str, to_sq: str) -> Result[None, str]:
         try:
             src_pos, dst_pos = AlgebraicParser.parse_move(from_sq, to_sq)
         except ValueError as err:
             return Result.fail(str(err))
-
-        result = self._domain.handle_move(session, from_sq, src_pos, dst_pos)
-        if not result.is_ok:
-            return result
-
-        await self._broadcast_state()
-        return result
+        return self._domain.handle_move(session, from_sq, src_pos, dst_pos)
 
     async def _on_tick(self) -> None:
-        """Callback invoked by AsyncGameRunner on every tick."""
+        """Callback invoked by AsyncGameRunner on every tick.
+
+        Deliberately does *not* broadcast the board. Pieces travel over time
+        rather than teleporting, so a client does not need frame-by-frame
+        positions: it needs to know when a move starts and how long it takes,
+        which `MoveStartedEvent` already carries (`from`, `to`, `arrival_ms`,
+        `at_ms`) and NetworkBroadcastObserver already sends. The client
+        interpolates the travel itself.
+
+        The measured difference is not marginal. The full snapshot is ~5.5 KB
+        and was sent to every recipient 20 times a second — ~219 KB/s for a
+        two-player room, whether or not anything changed. An event frame is
+        ~123 bytes and is sent only when something happens.
+
+        What remains here is the low-frequency reconciliation frame, which
+        repairs any drift from an event a client missed. That is also what makes
+        it safe to move the event channel onto a fire-and-forget transport
+        later: a lost event costs seconds of drift, not a permanently
+        desynchronized game.
+        """
+        await self._broadcast_reconciliation_if_due()
+
+    async def _broadcast_reconciliation_if_due(self) -> None:
+        now = self._clock_fn()
+        if now - self._last_reconciliation_at < self._reconciliation_interval_seconds:
+            return
+        self._last_reconciliation_at = now
         await self._broadcast_state()
 
     async def _broadcast_state(self) -> None:
-        service = self._domain.service
-        if service is None:
-            return
+        """Send every participant a full snapshot, tailored to what they may see.
 
-        snapshot = service.get_snapshot()
+        The board is serialized once per broadcast and the selection-derived
+        fields are attached per recipient — one player's current selection and
+        highlighted squares are that player's alone, and sending them to the
+        opponent both leaks intent and wastes bytes.
+        """
+        snapshot = self._current_snapshot()
         if snapshot is None:
             return
 
-        state_data = SnapshotSerializer.serialize(snapshot)
-        msg = build_game_state_message(state_data)
+        shared_state = SnapshotSerializer.serialize_shared(snapshot)
+        for recipient in self._all_recipients():
+            await self._send_snapshot(recipient, snapshot, shared_state)
 
-        recipients = []
-        if self._domain.white_player:
-            recipients.append(self._domain.white_player)
-        if self._domain.black_player:
-            recipients.append(self._domain.black_player)
+    async def _send_snapshot_to(self, recipient: Any) -> None:
+        """Push the current full snapshot to one recipient.
+
+        The three moments a client legitimately needs a whole board rather than
+        an event: the game starting, a spectator arriving mid-game, and the
+        reconnect resync (which DisconnectHandler owns).
+        """
+        snapshot = self._current_snapshot()
+        if snapshot is None:
+            return
+        await self._send_snapshot(recipient, snapshot, SnapshotSerializer.serialize_shared(snapshot))
+
+    async def _send_snapshot(
+        self, recipient: Any, snapshot: Any, shared_state: Dict[str, Any]
+    ) -> None:
+        state = dict(shared_state)
+        state.update(SnapshotSerializer.selection_fields(snapshot, self._color_of(recipient)))
+        await self._send_to(recipient, build_game_state_message(state))
+
+    def _current_snapshot(self) -> Optional[Any]:
+        service = self._domain.service
+        return service.get_snapshot() if service is not None else None
+
+    def _all_recipients(self) -> List[Any]:
+        recipients = [
+            seat
+            for seat in (self._domain.white_player, self._domain.black_player)
+            if seat is not None
+        ]
         recipients.extend(self._domain.viewers)
+        return recipients
 
-        for rec in recipients:
-            try:
-                if hasattr(rec, _ATTR_SEND):
-                    await rec.send(msg)
-                elif hasattr(rec, _ATTR_SEND_MESSAGE):
-                    await rec.send_message(msg)
-            except Exception as exc:
-                _LOGGER.warning("Failed state broadcast in room %s: %s", self._domain.room_id, exc)
+    @staticmethod
+    def _color_of(recipient: Any) -> Optional[str]:
+        """The seat colour a recipient holds, or None for a spectator.
+
+        A spectator has no selection of their own, so None withholds the
+        selection fields from them — which is the correct answer, not a
+        degraded one.
+        """
+        return getattr(recipient, _ATTR_COLOR, None)
+
+    async def _send_to(self, recipient: Any, message: Dict[str, Any]) -> None:
+        """Write one frame to a recipient, counting a failure rather than raising.
+
+        A room can otherwise be failing to reach a client on every single tick
+        and emit nothing but a debug-level warning; the counter is what makes
+        that visible.
+        """
+        try:
+            if hasattr(recipient, _ATTR_SEND):
+                await recipient.send(message)
+            elif hasattr(recipient, _ATTR_SEND_MESSAGE):
+                await recipient.send_message(message)
+        except Exception as exc:
+            self._metrics.broadcast_failures.increment()
+            _LOGGER.warning("Failed state broadcast in room %s: %s", self._domain.room_id, exc)

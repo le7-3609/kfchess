@@ -15,6 +15,7 @@ from typing import Optional
 
 from server.application.game_result import GameResult
 from server.infrastructure.database.database import Database
+from server.infrastructure.observability.server_metrics import ServerMetrics, server_metrics
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,17 +28,33 @@ class GamePersistenceService:
     GameResult once it has a rateable, two-human outcome.
     """
 
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: Database, metrics: Optional[ServerMetrics] = None) -> None:
         self._database = database
+        self._metrics = metrics or server_metrics()
 
     async def persist_game(self, game_result: GameResult) -> Optional[int]:
         """Save the game, its moves, and both players' stats in one transaction.
 
-        Delegates the all-or-nothing write to the Database. Returns the new
-        game's id, or None if the save was rolled back (e.g. a duplicate
-        room_id from a game-end and forfeit racing the same room).
+        Delegates the all-or-nothing write to the Database. Returns the game's
+        id — whether this call wrote it or found it already written — or None if
+        the save actually failed.
+
+        Finding the row already there is a success, not a warning. A natural
+        game end and a disconnect forfeit can race the same room, and once
+        persistence moves onto an at-least-once stream a redelivered event will
+        reach a worker that already wrote the row. Logging that as "was not
+        persisted", as this used to, describes a healthy system as a broken one.
         """
-        game_id = await self._database.save_completed_game(game_result, game_result.moves)
-        if game_id is None:
+        outcome = await self._database.save_completed_game(game_result, game_result.moves)
+        if outcome is None:
             _LOGGER.warning("Game for room %s was not persisted", game_result.room_id)
-        return game_id
+            return None
+
+        if outcome.already_existed:
+            self._metrics.games_already_persisted.increment()
+            _LOGGER.info(
+                "Room %s was already persisted as game %d", game_result.room_id, outcome.game_id
+            )
+        else:
+            self._metrics.games_persisted.increment()
+        return outcome.game_id

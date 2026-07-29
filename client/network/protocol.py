@@ -31,9 +31,16 @@ MSG_TYPE_OPPONENT_DISCONNECTED = "opponent_disconnected"
 MSG_TYPE_COUNTDOWN_TICK = "countdown_tick"
 MSG_TYPE_OPPONENT_RECONNECTED = "opponent_reconnected"
 MSG_TYPE_FORFEIT_VICTORY = "forfeit_victory"
+MSG_TYPE_PING = "ping"
+MSG_TYPE_PONG = "pong"
+MSG_TYPE_EVENT_GAME_STARTED = "event_game_started"
+MSG_TYPE_EVENT_MOVE_STARTED = "event_move_started"
 MSG_TYPE_EVENT_PIECE_MOVED = "event_piece_moved"
 MSG_TYPE_EVENT_SCORE_UPDATED = "event_score_updated"
 MSG_TYPE_EVENT_PIECE_CAPTURED = "event_piece_captured"
+MSG_TYPE_EVENT_MOVE_ABORTED = "event_move_aborted"
+MSG_TYPE_EVENT_PIECE_PROMOTED = "event_piece_promoted"
+MSG_TYPE_EVENT_GAME_ENDED = "event_game_ended"
 
 # --------------------------------------------------------------------------
 # Auth
@@ -58,6 +65,9 @@ FIELD_ROOM_ID = "room_id"
 
 FIELD_FROM = "from"
 FIELD_TO = "to"
+# Client-generated unique id on an outbound move frame; a retry reuses it so
+# the server answers from its idempotency cache rather than moving twice.
+FIELD_MOVE_ID = "move_id"
 FIELD_STATE = "state"
 FIELD_ROWS = "rows"
 FIELD_COLS = "cols"
@@ -84,6 +94,8 @@ FIELD_ARRIVAL_MS = "arrival_ms"
 
 FIELD_AT_MS = "at_ms"
 FIELD_POS = "pos"
+FIELD_STOPPED_AT = "stopped_at"
+FIELD_TO_PIECE_TYPE = "to_piece_type"
 FIELD_WHITE_SCORE = "white_score"
 FIELD_BLACK_SCORE = "black_score"
 

@@ -9,15 +9,23 @@ pip install -r requirements.txt      # Pillow, pytest, pre-commit
 
 python client/main_gui.py            # Tkinter GUI (prompts for player names, then plays)
 python main.py                       # headless: reads a command script from stdin
-python main_server.py                # WebSocket game server
 
-pytest                               # full suite (~200 tests, a few seconds)
+python main_ws.py                    # WebSocket game server  (port 8765)
+python main_api.py                   # HTTP API + probes      (port 8080)
+python main_server.py                # both roles in one process — local development only
+
+docker compose up --build            # the same two roles as containers
+docker compose --profile future up   # plus Postgres and NATS, declared but unwired
+
+pytest                               # full suite (~770 tests, ~1.5 minutes)
 pytest tests/unit/test_board.py                      # one file
 pytest tests/unit/test_board.py::TestBoard::test_x   # one test
 pytest -k collision                                  # by name
 
-pre-commit run --all-files           # the only hook is pytest; CI (.github/workflows/tests.yml) runs pytest on Python 3.10
+pre-commit run --all-files           # the only hook is pytest; CI (.github/workflows/tests.yml) runs pytest on Python 3.10, builds the image, and runs tests/integration against the Compose stack
 ```
+
+`KFCHESS_TOKEN_SIGNING_KEY` must be set and **identical** for both roles — the API tier signs session tokens with it and the WebSocket tier verifies them. `KFCHESS_PREVIOUS_TOKEN_KEYS` (comma-separated) keeps tokens issued under an outgoing key valid during a rotation, and `KFCHESS_TRUSTED_PROXIES` names the ingress addresses whose `X-Forwarded-For` may be believed. See `.env.example`.
 
 There is no linter or formatter configured, and no pytest config file — discovery is pytest's default over `tests/`.
 
@@ -73,6 +81,13 @@ The core is a pure simulation engine with no UI or network dependency. Keep it t
 - **The rendering path is one-way**: `advance_clock` → `SnapshotBuilder` builds an immutable `GameSnapshot` → `PillowRenderer` composes an `Img` → tkinter only displays the finished frame. Legal-move highlighting reuses `GameEngine.legal_moves_from` rather than reimplementing rules in the view.
 - **Events notify; they never draw.** The engine and resolvers publish `PieceMovedEvent` / `PieceCapturedEvent` / `GameEndedEvent` etc. onto the `EventBus`; `TkGameWindow.on_event` only records view state (capture flashes, scores, a pending game-over prompt) because it runs *mid-tick*, and the next `_refresh()` paints it through `Img`. Events carry plain values, never live `Piece`/`Board` objects. `EventBus.publish` contains subscriber exceptions on purpose — a UI failure must not abandon a half-resolved tick — and dispatch is depth-first, so a derived event (`ScoreUpdatedEvent`) can reach a later subscriber before its cause.
 - **`GameService._adjust_pawn_rules_for_board_height`** rewrites pawn start rows/promotion ranks per installed board, since text-test boards are often smaller than 8×8.
+
+### The server's own boundaries
+
+`server/` keeps four layers whose dependencies point one way — `presentation → application → domain ← infrastructure` — and [tests/unit/test_server_layer_boundaries.py](tests/unit/test_server_layer_boundaries.py) asserts it structurally by reading imports. Two things there are easy to get wrong:
+
+- **[app_runner.py](server/presentation/app_runner.py) is the server's composition root**, the counterpart to `core/bootstrap.py`. All CLI parsing, TLS-context construction, token-service and probe wiring happen there; the three entry scripts (`main_ws.py`, `main_api.py`, `main_server.py`) differ only in which coroutine they hand it.
+- **The wire protocol is event-driven, not snapshot-driven.** `GameRoom._on_tick` deliberately does *not* broadcast the board. A full `game_state` frame goes out in exactly three cases — game start, a spectator joining or reconnect resync, and a low-frequency reconciliation frame — and everything between is `event_*` frames the client interpolates from (`client/network/snapshot_projection.py`). Reintroducing a per-tick broadcast puts ~219 KB/s per room back on the wire against a measured 206 B/s for the event stream. The snapshot is also split per recipient: `selected_pos`/`legal_move_targets`/`castle_targets` belong to the player who selected and must never reach the opponent.
 
 ### Text scripts (`.kfc`)
 

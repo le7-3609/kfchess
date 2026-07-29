@@ -59,6 +59,11 @@ class DisconnectHandler:
     def is_disconnected(self, session: Any) -> bool:
         return session in self._countdown_tasks
 
+    @property
+    def countdown_count(self) -> int:
+        """How many players in this room are riding out a reconnect window."""
+        return len(self._countdown_tasks)
+
     def cancel_all(self) -> None:
         """Cancel any in-flight disconnect countdowns, e.g. on room teardown."""
         for task in self._countdown_tasks.values():

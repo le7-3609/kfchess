@@ -26,7 +26,7 @@ The codebase is built on **Clean Architecture** and follows **SOLID** design pri
 
 * **`core/`** — the core game engine and domain models: `Event`/`EventBus` pub-sub, the `model`/`config` layer (`Position`, `ArrayBoard`, `TextPiece`, `GameState`, `Movement`, `Cooldown`, `Result`, `GameConfig`), pure `rules` (piece validators, `PathChecker`, `ThreatValidator`, `EndgameValidator`, `CastlingValidator`), the `realtime` tick loop (`RealTimeArbiter`, `CollisionResolver`, `ArrivalResolver`, `ProxyBoard`), the `engine` command dispatcher (`GameEngine`), the `input`/`view` DTO and pixel-mapping layer, and `io` (board parsing/printing, moves log, JSON history store, replay). No UI or network dependency lives here.
 * **`client/`** — the Tkinter/Pillow multiplayer GUI. `client/auth/cli_auth.py` runs a terminal login/register handshake against the server before any window opens; `client/network/network_client.py` then owns a background-thread WebSocket connection for the game session itself; `client/main_gui.py` wires both into `client/ui/window/game_window.py`, which renders the board and turns clicks into algebraic-notation move requests (`client/notation/algebraic_notation.py`, `client/network/network_snapshot_decoder.py`).
-* **`server/`** — the asyncio WebSocket server: connection routing and move relay are live today; authentication (`auth_service.py`, `database.py`), matchmaking/ELO (`matchmaker.py`, `elo.py`), and reconnection (`heartbeat.py`, `disconnect_handler.py`) exist as standalone, unit-tested modules that are not yet wired into the connection handler (see [Multiplayer Server](#multiplayer-server)). Imports `core` only, never `client`.
+* **`server/`** — the asyncio WebSocket server and HTTP API, in four layers whose dependencies point one way (`presentation → application → domain ← infrastructure`, asserted structurally by `tests/unit/test_server_layer_boundaries.py`): connection routing and move relay, authentication (`auth_service.py`, `token_service.py`, `database.py`), matchmaking/ELO (`queue.py`, `elo.py`), rooms and persistence, reconnection (`heartbeat.py`, `disconnect_handler.py`), and observability (`observability/`). See [Multiplayer Server](#multiplayer-server). Imports `core` only, never `client`.
 
 Two boundaries hold the whole system together:
 
@@ -38,22 +38,25 @@ This strict separation means the storage, interface, or network layer can be swa
 ---
 ## Multiplayer Server
 
-`server/` is an asyncio-based WebSocket server (built on `websockets`) that turns the local simulation into a networked multiplayer game. It's being built in phases, and what's actually wired into the live connection handler (`ws_server.py`, `game_room.py`) today is deliberately smaller than the set of modules that exist in the package:
+`server/` is an asyncio-based WebSocket server (built on `websockets`) that turns the local simulation into a networked multiplayer game. It runs as **two roles built from one image**, because they have almost nothing in common operationally — restarting the socket tier disconnects every player mid-game, while restarting the API tier costs nothing:
 
-* **Live today — connections, rooms & move relay** (`ws_server.py`, `game_room.py`, `protocol.py`): every new connection is auto-assigned White, then Black, into a single shared `"main_room"`; once both slots are filled the room builds a real `GameService` + `AsyncGameRunner` (real-time, `ChebyshevDistanceDuration`) and starts ticking. Further connections join as spectators. `move` messages are parsed via `AlgebraicParser` (`"e2"` ↔ `Position(6, 4)`), checked against the sender's assigned color, and applied directly through `GameEngine.request_move`; every tick and every accepted move broadcasts a fresh serialized `GameSnapshot` (`protocol.SnapshotSerializer`) to both players and any spectators. `ping` is answered with `pong`; any other message type gets an `error` reply — the handler does not yet branch on `auth` or `play`.
-* **Built, not yet wired — authentication** (`auth_service.py`, `database.py`): registration/login backed by SQLite (`aiosqlite`), `bcrypt` password hashing, and a single persistent WAL-mode connection for concurrent safety. Each module has its own unit tests, but `ws_server.py`'s connection handler doesn't call it — the game connection is unauthenticated. `client/auth/cli_auth.py` performs this handshake over its own short-lived connection before the GUI opens, independently of the connection the game itself is played over.
-* **Built, not yet wired — matchmaking & rating** (`matchmaker.py`, `elo.py`): a queue that pairs opponents within ±100 ELO (60-second timeout), and the standard ELO update formula. Not yet consulted when a connection is assigned to `"main_room"`.
-* **Built, not yet wired — reconnection** (`heartbeat.py`, `disconnect_handler.py`): periodic ping/pong liveness checks and a 30-second reconnection window that would resync a returning player with a full snapshot. Not yet hooked into `ws_server.py`'s disconnect path.
-* **Bots** (`player_interface.py`): a polymorphic player abstraction so a room can host an automated bot player transparently alongside human WebSocket players.
+* **`main_ws.py` — the game socket** (`ws_server.py`, `game_room.py`, `room_manager.py`). Every connection opens with a mandatory `auth` handshake (password, or a token issued by the API tier), then a second frame routes it: `play` enters ELO-bounded matchmaking, `create_room`/`join_room` handle named rooms, `reconnect` rebinds an existing seat. A filled room builds a real `GameService` + `AsyncGameRunner` (real-time, `ChebyshevDistanceDuration`) and ticks at 20 Hz. A queue timeout seats a bot instead of dead-ending the player; further joiners spectate.
+* **`main_api.py` — the HTTP API** (`http_api.py`): completed-game replay and PGN export, the leaderboard, `POST /api/auth/login` and `/api/auth/refresh` for session tokens, plus `/healthz`, `/readyz` and `/metrics`. Replay responses are immutable and carry an `ETag` with a one-year `Cache-Control`, so a CDN can serve every repeat view without touching the database.
+* **`main_server.py`** runs both on one loop, for local development only.
 
-In short: today's server supports exactly one concurrent game (`"main_room"`), open to anyone who connects, with no accounts or ratings enforced on the play path. The module docstrings in `ws_server.py`/`game_room.py` label auth and matchmaking as later phases — treat the corresponding modules as ready components awaiting integration, not as live server behavior.
+The wire protocol is **event-driven, not snapshot-driven**. Because pieces travel over time rather than teleporting, a client is told when a move *starts* and how long it will take (`event_move_started` carries `from`, `to`, `arrival_ms`, `at_ms`) and interpolates the travel itself (`client/network/snapshot_projection.py`). A full board is sent in three cases only: game start, a spectator joining or a reconnect resync, and a low-frequency reconciliation frame that repairs any drift. Measured over a real socket for a two-player room, that is **206 B/s** for the event stream against **219,200 B/s** for the snapshot-per-tick design it replaced. The snapshot is also serialized per recipient, so one player's selection and highlighted squares never reach their opponent.
+
+Supporting behaviour, all wired: bcrypt-hashed accounts in SQLite (`auth_service.py`, `database.py`) at a pinned cost factor, hashed off the event loop so a login cannot stall the game tick; ±100 ELO matchmaking with a 60-second timeout (`queue.py`, `elo.py`); ping/pong heartbeats that close a half-open socket (`heartbeat.py`) and a 30-second reconnection window that resyncs a returning player (`disconnect_handler.py`); rate limits on connections, frames, room creation and HTTP requests; and idempotent writes — a repeated `move_id` is answered from cache, and re-saving a finished game is a no-op rather than a duplicate or an error.
+
+[Server_Design.md](Server_Design.md) is the ordered work plan for scaling this to a fleet; Steps 1–4 (deployability, protocol, edge security, role split) are implemented, and Steps 5–8 (Redis, a broker, ownership leases, Kubernetes) are not.
 
 ---
 ## Technological Stack & Current Status
 
 * **Language**: Python 3 (CI runs on 3.10).
 * **Multiplayer client**: `client/main_gui.py` is a networked client — it authenticates over the terminal (`client/auth/cli_auth.py`), then opens a Tkinter window that plays a real-time game over WebSocket against a running `main_server.py`. It no longer runs a self-contained local game; the local, server-less path (`core/service.py`'s `GameService`) still backs `main.py`, the `.kfc` text-script runner, and bots.
-* **Multiplayer server**: `main_server.py` runs the WebSocket server described above. Connection routing, a single shared game room, and move relay are live; account authentication, ELO-based matchmaking, and reconnection handling exist as separate, tested modules not yet wired into the connection flow (see [Multiplayer Server](#multiplayer-server)).
+* **Multiplayer server**: two roles from one image — `main_ws.py` (game sockets and simulation) and `main_api.py` (history, leaderboard, token issuance, health and metrics endpoints), with `main_server.py` running both for local development. Accounts, ELO matchmaking, named rooms, spectators, bots, reconnection, rate limiting and game-history persistence are all live (see [Multiplayer Server](#multiplayer-server)).
+* **Deployment**: a `Dockerfile` and `docker-compose.yml` bring both roles up on one machine; CI runs the test suite, builds the image tagged with the commit SHA, and runs the integration suite against the Compose stack.
 
 ---
 ## Graphical UI
@@ -84,18 +87,33 @@ A non-graphical entry point is also available via `python main.py`, which reads 
 
 ### Running the multiplayer server
 
+Each role takes the same flags; they differ in which ports they bind.
+
 ```bash
-python main_server.py [--host HOST] [--port PORT] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+python main_ws.py     [--host HOST] [--port PORT]      [--db-path PATH] [--log-level LEVEL] [--tls-cert CERT --tls-key KEY]
+python main_api.py    [--host HOST] [--http-port PORT] [--db-path PATH] [--log-level LEVEL] [--tls-cert CERT --tls-key KEY]
+python main_server.py  # both roles on one loop, for local development
 ```
 
-Defaults to `localhost:8765`. See [Multiplayer Server](#multiplayer-server) for what's actually live versus built-but-unwired; `client/main_gui.py` connects to it automatically once started.
+Defaults are `localhost:8765` for the game socket and `localhost:8080` for the API; `client/main_gui.py` connects to the socket automatically once started.
+
+Set `KFCHESS_TOKEN_SIGNING_KEY` to the **same** value for both roles — the API tier signs session tokens with it, the socket tier verifies them — and see `.env.example` for the key-rotation and trusted-proxy variables. TLS normally terminates at an ingress; the `--tls-cert`/`--tls-key` flags exist so a TLS problem can be reproduced locally without one.
+
+Or run both roles as containers:
+
+```bash
+cp .env.example .env   # then fill in KFCHESS_TOKEN_SIGNING_KEY
+docker compose up --build
+```
+
+The API tier exposes `/healthz` (liveness — deliberately touches nothing external), `/readyz` (readiness — pings the database, and reports not-ready while draining) and `/metrics` (Prometheus text, including the tick-duration histogram that reveals a simulation falling behind wall-clock time).
 
 ---
 ## Tests
 
 The project puts a heavy emphasis on reliability and mathematical accuracy, given the edge cases of real-time movement (e.g., division by zero guards, precise collision resolutions).
 * **Framework**: `pytest`, plus `pytest-asyncio` for the WebSocket server's async tests.
-* **Coverage**: 320+ unit and integration tests across the engine, UI, and server (matchmaking, auth, ELO, rooms, disconnect handling, protocol) — note these server modules are tested in isolation and, per [Multiplayer Server](#multiplayer-server), several aren't yet exercised through the live `ws_server.py` connection path. Integration tests in `tests/integration/scripts/` are executable `.kfc` text scripts that pin collision priorities and rule edge cases across refactors. Always run `pytest` to verify correctness after making changes:
+* **Coverage**: 760+ unit and integration tests across the engine, UI, and server (matchmaking, auth, tokens, ELO, rooms, disconnect handling, rate limiting, health probes, metrics, protocol). The server is exercised both in isolation and end to end: `tests/integration/test_ws_server.py` and `test_ws_protocol.py` drive a real socket against a real `KFChessServer`. Integration tests in `tests/integration/scripts/` are executable `.kfc` text scripts that pin collision priorities and rule edge cases across refactors. Always run `pytest` to verify correctness after making changes:
   ```bash
   pytest                               # full suite
   pytest tests/unit/test_board.py      # one file

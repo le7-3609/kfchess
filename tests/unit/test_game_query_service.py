@@ -49,7 +49,9 @@ async def test_get_replay_maps_game_and_moves(temp_db, two_players):
         PersistedMove(1, "e2", "e4", "P", "white", None, 500.0),
         PersistedMove(2, "d7", "d5", "P", "black", "P", 900.0),
     ]
-    game_id = await temp_db.save_completed_game(_game_result(white_id, black_id, moves=moves), moves)
+    game_id = (
+        await temp_db.save_completed_game(_game_result(white_id, black_id, moves=moves), moves)
+    ).game_id
 
     service = GameQueryService(temp_db)
     replay = await service.get_replay(game_id)

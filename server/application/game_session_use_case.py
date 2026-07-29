@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 from core.model.game_state import Result
 
-from server.application.dtos.frame_fields import FIELD_FROM, FIELD_TO
+from server.application.dtos.frame_fields import FIELD_FROM, FIELD_MOVE_ID, FIELD_TO
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.application.room_manager import RoomManager
 
@@ -28,17 +28,27 @@ class GameSessionUseCase:
         self._matchmaker = matchmaker
 
     async def submit_move(self, session: Any, msg: Dict[str, Any]) -> Result[None, str]:
-        """Route a move frame to the sender's room."""
+        """Route a move frame to the sender's room.
+
+        A client-supplied `move_id`, when present, is passed through so the room
+        can recognise a retry. It is validated as a string here rather than
+        trusted: it becomes a cache key, and a non-string would either fail the
+        lookup silently or make the key unhashable.
+        """
         from_sq = msg.get(FIELD_FROM)
         to_sq = msg.get(FIELD_TO)
         if not from_sq or not to_sq:
             return Result.fail("Move message requires 'from' and 'to' fields")
 
+        move_id = msg.get(FIELD_MOVE_ID)
+        if move_id is not None and not isinstance(move_id, str):
+            return Result.fail("'move_id' must be a string")
+
         room = self._room_manager.find_room_by_session(session)
         if room is None:
             return Result.fail("You are not seated in a game")
 
-        return await room.handle_move(session, from_sq, to_sq)
+        return await room.handle_move(session, from_sq, to_sq, move_id=move_id)
 
     async def reconnect(
         self, authenticated_username: str, claimed_username: Optional[str], websocket: Any

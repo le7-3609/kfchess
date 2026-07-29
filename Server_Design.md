@@ -44,11 +44,11 @@ Five pieces of state exist only inside the process and disappear when it stops:
 
 `Database` opens one `aiosqlite` connection at startup, enables WAL and foreign keys, and runs `CREATE TABLE IF NOT EXISTS` for `users`, `games`, `moves`, and `game_statistics`. Every client-reachable statement goes through `SecureQueryExecutor` (`server/infrastructure/database/query_executor.py`), which rejects stacked statements, enforces placeholder arity, refuses unbindable values, and converts driver failures into a generic `Result.fail` so no SQLite error text ever reaches a client. `save_completed_game` writes the game row, its moves, and both players' recomputed statistics inside a single transaction that rolls back as a unit.
 
-### 1.6 What is not there yet
+### 1.6 What was not there yet
 
-These are gaps in the current code, each one addressed by a numbered step below.
+These were the gaps this document was written against. Steps 1–4 below have since closed them, and Section 3 records what landed; the description is kept because the reasoning in those steps only makes sense against the server they were reacting to.
 
-There is no transport security: `websockets.serve` is called without an `ssl` argument and `web.TCPSite` without an `ssl_context`, so credentials cross the network in plaintext. There is no rate limiting of any kind — the three-attempt auth budget is per connection, and a client may open connections without limit. There is no token: every new socket re-sends the password. `HeartbeatMonitor` (`server/infrastructure/services/heartbeat.py`) is written and unit-tested but never instantiated by `ws_server.py`, and no handler routes an inbound `pong`, so a half-open socket is only noticed when a write fails. Observability is `logging.basicConfig` writing unstructured lines to stdout. CI (`.github/workflows/tests.yml`) runs pytest on Python 3.10 and produces no artifact.
+There was no transport security: `websockets.serve` was called without an `ssl` argument and `web.TCPSite` without an `ssl_context`, so credentials crossed the network in plaintext. There was no rate limiting of any kind — the three-attempt auth budget is per connection, and a client could open connections without limit. There was no token: every new socket re-sent the password. `HeartbeatMonitor` (`server/infrastructure/services/heartbeat.py`) was written and unit-tested but never instantiated by `ws_server.py`, and no handler routed an inbound `pong`, so a half-open socket was only noticed when a write failed. Observability was `logging.basicConfig` writing unstructured lines to stdout. CI (`.github/workflows/tests.yml`) ran pytest on Python 3.10 and produced no artifact.
 
 ---
 
@@ -72,18 +72,40 @@ That ratio is why Step 2 comes before any infrastructure work. Sharding a protoc
 
 ## 3. The order of work
 
-| # | Step | Primary files | Done when |
-|---|---|---|---|
-| 1 | Deployable, observable baseline | `Dockerfile`, `docker-compose.yml`, `http_api.py`, `ws_server.py`, CI workflow | CI publishes a tagged image; `/healthz` and `/readyz` answer; metrics are scraped |
-| 2 | Fix the wire protocol | `game_room.py`, `broadcast_observer.py`, `protocol_mapper.py` | Steady-state bandwidth per room is measured in hundreds of B/s, not hundreds of KB/s |
-| 3 | Security at the edge | `main_server.py`, `auth_service.py`, `ws_server.py`, `database.py` | TLS terminated, tokens issued, rate limits enforced, writes idempotent |
-| 4 | Split the process into roles | `main_server.py` → two entry points | HTTP and WebSocket deploy, restart and scale independently |
-| 5 | Move state out of the process | `room_manager.py`, `queue.py`, `database.py` | Two server replicas serve one logical game population |
-| 6 | Introduce the broker | `broadcast_observer.py`, `ws_server.py` | A player on replica A sees moves computed on replica B |
-| 7 | Shard the game authority | new `server/coordination/`, `room_manager.py` | Rooms are owned by lease; killing an owner loses only its rooms |
-| 8 | Kubernetes, autoscaling, persistence pipeline | manifests, new persistence worker | Replica counts track load; a database stall does not stall a game |
+| # | Step | Primary files | Done when | Status |
+|---|---|---|---|---|
+| 1 | Deployable, observable baseline | `Dockerfile`, `docker-compose.yml`, `http_api.py`, `ws_server.py`, CI workflow | CI publishes a tagged image; `/healthz` and `/readyz` answer; metrics are scraped | **Built** |
+| 2 | Fix the wire protocol | `game_room.py`, `broadcast_observer.py`, `protocol_mapper.py` | Steady-state bandwidth per room is measured in hundreds of B/s, not hundreds of KB/s | **Built** — measured below |
+| 3 | Security at the edge | `main_server.py`, `auth_service.py`, `ws_server.py`, `database.py` | TLS terminated, tokens issued, rate limits enforced, writes idempotent | **Built** |
+| 4 | Split the process into roles | `main_server.py` → two entry points | HTTP and WebSocket deploy, restart and scale independently | **Built** |
+| 5 | Move state out of the process | `room_manager.py`, `queue.py`, `database.py` | Two server replicas serve one logical game population | Not started |
+| 6 | Introduce the broker | `broadcast_observer.py`, `ws_server.py` | A player on replica A sees moves computed on replica B | Not started |
+| 7 | Shard the game authority | new `server/coordination/`, `room_manager.py` | Rooms are owned by lease; killing an owner loses only its rooms | Not started |
+| 8 | Kubernetes, autoscaling, persistence pipeline | manifests, new persistence worker | Replica counts track load; a database stall does not stall a game | Not started |
 
-Steps 1 through 4 change this repository and need no new infrastructure. Steps 5 through 8 add infrastructure, each piece introduced only once the code has a place to put it.
+Steps 1 through 4 change this repository and need no new infrastructure; they are implemented. Steps 5 through 8 add infrastructure (Redis, NATS, PostgreSQL, Kubernetes), each piece introduced only once the code has a place to put it.
+
+### What Steps 1–4 actually landed
+
+- **Probes and drain.** `/healthz` (liveness, touches nothing), `/readyz` (readiness, pings the database), `/metrics`. `ReadinessProbe.begin_draining` reports not-ready while staying alive, and `app_runner` installs the SIGTERM handler that triggers it — the mechanism Step 7's `preStop` drain builds on.
+- **Metrics.** A dependency-free Prometheus registry (`server/infrastructure/observability/`) exporting room count, session count, queue length, active disconnect countdowns, broadcast failures, frame/auth/rate-limit counters, the API tier's RED metrics, and the **tick-duration histogram** fed from `AsyncGameRunner` through an optional callback, so `core` keeps no metrics dependency.
+- **Structured logging.** JSON records with `room_id`/`user_id` carried in context variables, which are per-task and therefore cannot bleed between two rooms ticking on one loop.
+- **Heartbeat.** `HeartbeatMonitor` is constructed, started, registered per session and fed by a `pong` handler; an unanswered ping closes the socket, which frees the seat through the existing teardown path.
+- **Protocol.** The per-tick broadcast is gone. The snapshot is split per recipient so one player's selection never reaches the other, and `move_id` makes a repeated move frame a no-op.
+- **Security.** Optional TLS on both listeners, `X-Forwarded-For` believed only from configured proxies, bcrypt pinned at cost 12 and moved off the event loop with rehash-on-login, HS256 session tokens issued by the API tier and verified by the socket tier, four rate limits (per-IP connections, per-session frames, per-user rooms, HTTP per caller), and `ON CONFLICT (room_id) DO NOTHING` making a finished-game save idempotent.
+- **Roles.** `main_ws.py` and `main_api.py` from one image, `main_server.py` retained for local development.
+
+### Step 2's exit criterion, measured
+
+Measured over a real socket, two players at one move per player per two seconds:
+
+| Protocol | Per room | vs. before |
+|---|---|---|
+| Snapshot every tick (before) | 219,200 B/s | — |
+| Event stream alone | **206 B/s** | 1064x less |
+| Event stream + reconciliation every 5 s | 2,394 B/s | 92x less |
+
+The steady-state protocol is in the hundreds of bytes per second as the criterion requires. The reconciliation frame is what adds the rest, and its interval is the knob that trades bandwidth against how long a client can stay drifted. Five seconds is sized for the transport events run on *next*: today they share one ordered TCP socket and barely drift, but Step 6 moves them to a fire-and-forget broker where a dropped event must be repaired in seconds.
 
 ---
 

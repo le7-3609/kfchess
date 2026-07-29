@@ -41,6 +41,7 @@ from client.network.network_client import (
     STATUS_RECONNECT_FAILED,
 )
 from client.network.network_snapshot_decoder import decode_game_snapshot
+from client.network.snapshot_projection import SnapshotProjector
 from client.notation.algebraic_notation import format_square, parse_square
 from client.ui import consts as ui_consts
 
@@ -78,6 +79,12 @@ class NetworkGameController(IGameController):
         # Remembered from the opening opponent_disconnected frame, because the
         # per-second countdown_tick frames carry no username of their own.
         self._disconnected_opponent_name: Optional[str] = None
+
+        # The server sends a full board only at game start, on reconnect, and
+        # every few seconds as reconciliation; everything between those is an
+        # event. The projector holds the board across that gap and advances its
+        # clock locally, so the renderer still gets a fresh snapshot per frame.
+        self._projector = SnapshotProjector()
 
         self._handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {
             protocol.MSG_TYPE_GAME_STATE: self._on_game_state,
@@ -142,13 +149,28 @@ class NetworkGameController(IGameController):
         self._network_client.set_message_callback(self._inbox.put)
 
     def poll(self) -> None:
-        """Decode every frame queued since the last poll, on the caller's thread."""
+        """Decode every frame queued since the last poll, then repaint.
+
+        The repaint is unconditional rather than event-driven: pieces travel
+        over time, so the board changes on every frame even when no frame
+        arrived. This is where the 20 Hz snapshot stream used to do the same job
+        at 440x the bandwidth.
+        """
         while True:
             try:
                 message = self._inbox.get_nowait()
             except queue.Empty:
-                return
+                break
             self._dispatch(message)
+
+        self._publish_projection()
+
+    def _publish_projection(self) -> None:
+        if self._listener is None:
+            return
+        projected = self._projector.project()
+        if projected is not None:
+            self._listener.on_snapshot(projected)
 
     def submit_move(self, source: Position, target: Position) -> None:
         self._network_client.send_move(format_square(source), format_square(target))
@@ -158,15 +180,28 @@ class NetworkGameController(IGameController):
         self._listener = None
 
     def _dispatch(self, message: Dict[str, Any]) -> None:
-        handler = self._handlers.get(message.get(protocol.FIELD_TYPE))
+        """Route one frame to its handler, and to the projector if it moves pieces.
+
+        A frame can be both: `event_piece_captured` updates the board *and*
+        raises a capture flash, so the projector sees every frame it understands
+        regardless of what else the handler table does with it.
+        """
+        frame_type = message.get(protocol.FIELD_TYPE)
+        if self._projector.handles(frame_type):
+            self._projector.apply_event(message)
+
+        handler = self._handlers.get(frame_type)
         if handler is not None and self._listener is not None:
             handler(message)
 
     def _on_game_state(self, message: Dict[str, Any]) -> None:
+        """Adopt an authoritative board: the opening frame, a reconnect resync,
+        or the periodic reconciliation that repairs any projected drift.
+        """
         state = message.get(protocol.FIELD_STATE)
         if state is None:
             return
-        self._listener.on_snapshot(decode_game_snapshot(state))
+        self._projector.apply_snapshot(decode_game_snapshot(state))
 
     def _on_game_start(self, message: Dict[str, Any]) -> None:
         self._assigned_color = message.get(protocol.FIELD_COLOR)

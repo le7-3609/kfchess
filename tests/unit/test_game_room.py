@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock
 from server.application.game_room import GameRoom
 from server.domain.room.game_room import RoomState
+from server.infrastructure.database.database import SaveOutcome
 from server.domain.room.room_role import RoomRole
 from server.presentation.ws_connection import PlayerSession
 from core.events import GameEndedEvent
@@ -45,9 +46,9 @@ class MockDatabase:
         self.elo_updates[username] = new_elo
         return True
 
-    async def save_completed_game(self, game, moves) -> int:
+    async def save_completed_game(self, game, moves):
         self.saved_games.append((game, list(moves)))
-        return len(self.saved_games)
+        return SaveOutcome(game_id=len(self.saved_games), already_existed=False)
 
 
 def _seated_room(**kwargs):

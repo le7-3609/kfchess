@@ -60,6 +60,7 @@ class AsyncGameRunner:
         tick_rate_hz: float = DEFAULT_TICK_RATE_HZ,
         time_fn: Callable[[], float] = time.monotonic,
         on_tick: Optional[Callable[[], Awaitable[None]]] = None,
+        on_tick_duration: Optional[Callable[[float], None]] = None,
     ) -> None:
         if tick_rate_hz <= 0:
             raise ValueError("tick_rate_hz must be positive")
@@ -67,6 +68,13 @@ class AsyncGameRunner:
         self._tick_interval = 1.0 / tick_rate_hz
         self._time_fn = time_fn
         self._on_tick = on_tick
+        # Handed the wall-clock seconds one tick took, including its on_tick
+        # callback. A tick that overruns its interval means the simulation is
+        # falling behind wall-clock time and every player in every room on this
+        # process feels it — which no CPU percentage reveals, since the loop can
+        # be behind while the machine is mostly idle. A plain callable, so core
+        # stays free of any metrics dependency.
+        self._on_tick_duration = on_tick_duration
 
         self._queue: "asyncio.Queue[QueuedCommand]" = asyncio.Queue()
         self._task: Optional[asyncio.Task] = None
@@ -142,13 +150,31 @@ class AsyncGameRunner:
         elapsed_ms = max(0, int((now - last) * MS_PER_SECOND))
         self._last_tick_time = now
 
-        self._drain_commands()
+        try:
+            self._drain_commands()
 
-        if elapsed_ms > 0:
-            self._engine.advance_clock(elapsed_ms)
+            if elapsed_ms > 0:
+                self._engine.advance_clock(elapsed_ms)
 
-        if self._on_tick is not None:
-            await self._on_tick()
+            if self._on_tick is not None:
+                await self._on_tick()
+        finally:
+            self._report_tick_duration(now)
+
+    def _report_tick_duration(self, started_at: float) -> None:
+        """Hand this tick's duration to the observer, if one is watching.
+
+        In a `finally` so a tick that raised is still measured: a failing tick
+        is exactly the kind that runs long, and dropping its sample would hide
+        the overrun that caused it.
+        """
+        if self._on_tick_duration is None:
+            return
+        try:
+            self._on_tick_duration(self._time_fn() - started_at)
+        except Exception:
+            # Measurement must never be able to stop the simulation.
+            pass
 
     def _drain_commands(self) -> None:
         pending: List[QueuedCommand] = []

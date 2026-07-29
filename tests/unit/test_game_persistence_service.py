@@ -8,16 +8,18 @@ from core.io.moves_log import MoveLogEntry
 from server.application.capture_log import CaptureRecord
 from server.application.game_persistence_service import GamePersistenceService
 from server.application.game_result import GameResult, persisted_moves_from_log
+from server.infrastructure.database.database import SaveOutcome
 
 
 class _RecordingDatabase:
-    def __init__(self, returned_id=7):
+    def __init__(self, returned_id=7, already_existed=False):
         self.calls = []
         self._returned_id = returned_id
+        self._already_existed = already_existed
 
     async def save_completed_game(self, game, moves):
         self.calls.append((game, list(moves)))
-        return self._returned_id
+        return SaveOutcome(game_id=self._returned_id, already_existed=self._already_existed)
 
 
 def _game_result(moves):

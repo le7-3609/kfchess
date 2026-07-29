@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import threading
+import uuid
 from typing import Any, Callable, Dict, Optional
 
 import websockets
@@ -25,6 +26,7 @@ from client.network.protocol import (
     AUTH_ACTION_LOGIN,
     FIELD_ACTION,
     FIELD_FROM,
+    FIELD_MOVE_ID,
     FIELD_PASSWORD,
     FIELD_ROOM_ID,
     FIELD_STATUS,
@@ -37,7 +39,9 @@ from client.network.protocol import (
     MSG_TYPE_ERROR,
     MSG_TYPE_JOIN_ROOM,
     MSG_TYPE_MOVE,
+    MSG_TYPE_PING,
     MSG_TYPE_PLAY,
+    MSG_TYPE_PONG,
     MSG_TYPE_RECONNECT,
 )
 
@@ -165,12 +169,22 @@ class NetworkClient:
 
         Safe to call from the main GUI thread; the actual send happens on the
         background thread via `asyncio.run_coroutine_threadsafe`.
+
+        Each move carries a fresh `move_id`. The server keeps a bounded set of
+        recently-seen ids per room and answers a repeat with the original
+        result, so a frame resent across a reconnect cannot move the same piece
+        twice.
         """
         if self._loop is None:
             _LOGGER.warning("Dropping move %s->%s; network loop is not running", from_square, to_square)
             return
 
-        payload = {FIELD_TYPE: MSG_TYPE_MOVE, FIELD_FROM: from_square, FIELD_TO: to_square}
+        payload = {
+            FIELD_TYPE: MSG_TYPE_MOVE,
+            FIELD_FROM: from_square,
+            FIELD_TO: to_square,
+            FIELD_MOVE_ID: uuid.uuid4().hex,
+        }
         asyncio.run_coroutine_threadsafe(self._send(payload), self._loop)
 
     def send_cancel_search(self) -> None:
@@ -350,7 +364,21 @@ class NetworkClient:
             _LOGGER.warning("Discarding non-object frame: %r", message)
             return
 
+        if message.get(FIELD_TYPE) == MSG_TYPE_PING:
+            self._answer_ping()
+            return
+
         self._publish(message)
+
+    def _answer_ping(self) -> None:
+        """Answer the server's heartbeat, and do not surface it to the GUI.
+
+        Without this the server sees a socket that never pongs and closes it as
+        half-open mid-game. It is handled here rather than in a controller
+        because liveness is a property of the connection, and the connection is
+        what this class owns.
+        """
+        asyncio.ensure_future(self._send({FIELD_TYPE: MSG_TYPE_PONG}))
 
     def _emit_status(self, status: str, extra_fields: Optional[Dict[str, Any]] = None) -> None:
         """Publish a synthetic connection-status update alongside real wire frames."""

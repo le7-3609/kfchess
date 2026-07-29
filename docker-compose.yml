@@ -1,28 +1,49 @@
 # Local, single-machine run of the Kung Fu Chess server.
 #
-# This is the "whole system on one machine" step from Server_Design.md section
-# 3.1 — not a production topology. It runs what exists today: one server
-# process (WebSocket + HTTP API) against SQLite on a named volume.
+# This is the "whole system on one machine" step from Server_Design.md — not a
+# production topology. It runs the two roles the design splits the server into,
+# from one image, differing only in their entry command:
 #
-# The infrastructure the design calls for next — PostgreSQL (section 12) and a
-# broker (section 9) — is declared below under the `future` profile. Those
-# services start only with `--profile future` and nothing connects to them yet;
-# they are here so the migration is a code change against a running dependency
-# rather than a code change and an environment change at once.
+#   ws  -> main_ws.py   long-lived player sockets and the game simulation
+#   api -> main_api.py  history reads, leaderboard, token issuance
 #
-#   docker compose up --build          # the server, as it works today
+# They are separate services here for the same reason they are separate
+# Deployments later: restarting `ws` disconnects every player mid-game, while
+# restarting `api` costs nothing. Keeping them apart locally means the topology
+# under test is the topology that ships.
+#
+# The infrastructure the design calls for next — PostgreSQL and a broker — is
+# declared below under the `future` profile. Those services start only with
+# `--profile future` and nothing connects to them yet; they are here so the
+# migration is a code change against a running dependency rather than a code
+# change and an environment change at once.
+#
+#   docker compose up --build          # both roles, as they work today
 #   docker compose --profile future up # plus Postgres and NATS, unwired
 
+x-server-image: &server-image
+  build: .
+  image: kfchess/server:dev
+  volumes:
+    - game-data:/data
+  environment:
+    # Signs the tokens the API issues and the WebSocket tier verifies. Both
+    # roles must agree on it, which is exactly why it is configuration rather
+    # than something either process generates for itself — a per-process key
+    # would invalidate every token the moment a second replica answered.
+    # Sourced from an untracked .env; `cp .env.example .env` and fill it in.
+    KFCHESS_TOKEN_SIGNING_KEY: ${KFCHESS_TOKEN_SIGNING_KEY:?}
+  restart: unless-stopped
+
 services:
-  server:
-    build: .
-    image: kfchess/server:dev
+  ws:
+    <<: *server-image
     # --host 0.0.0.0 is required in a container: the code's default of
     # "localhost" binds the loopback interface only, which no published port
     # can reach from outside the container.
     command:
       - python
-      - main_server.py
+      - main_ws.py
       - --host
       - 0.0.0.0
       - --db-path
@@ -31,24 +52,49 @@ services:
       - INFO
     ports:
       - "8765:8765"   # WebSocket game socket
-      - "8080:8080"   # HTTP API
-    volumes:
-      - game-data:/data
     healthcheck:
-      # There is no dedicated health endpoint yet, so this borrows a real read
-      # path. Section 16.3 explains why a genuine liveness probe must NOT touch
-      # the database like this one does — that is a gap to close, not a model
-      # to copy into Kubernetes.
+      # The WebSocket role serves no HTTP, so its check is a TCP connect to the
+      # game port — local, and touching no database. A health check that reads
+      # the database turns one slow database into a fleet-wide restart storm,
+      # because every replica fails at once and the restarts hit the struggling
+      # database harder.
       test:
         - CMD
         - python
         - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/leaderboard', timeout=3)
+        - import socket; socket.create_connection(('127.0.0.1', 8765), timeout=3).close()
       interval: 15s
       timeout: 5s
       start_period: 10s
       retries: 3
-    restart: unless-stopped
+
+  api:
+    <<: *server-image
+    command:
+      - python
+      - main_api.py
+      - --host
+      - 0.0.0.0
+      - --db-path
+      - /data/kfchess.db
+      - --log-level
+      - INFO
+    ports:
+      - "8080:8080"   # HTTP API, plus /healthz, /readyz and /metrics
+    healthcheck:
+      # /healthz, never /readyz and never a real query: liveness asks whether
+      # this process is alive, and a replica that cannot reach the database
+      # should be drained (readiness fails, traffic moves elsewhere), not
+      # restarted.
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
   postgres:
     profiles: [future]
@@ -59,12 +105,14 @@ services:
       # the same rule Server_Design.md applies to the token signing key. Run
       # `cp .env.example .env` and fill it in.
       #
-      # The `:?` form fails the run loudly rather than falling back to a
-      # default, which would be identical on every developer's machine. Its
-      # error message is deliberately left empty: any text there sits where a
-      # value would, and secret scanners read it as one. Compose supplies its
-      # own "required variable is missing a value" message.
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      # Deliberately NOT `${POSTGRES_PASSWORD:?}`: Compose interpolates every
+      # service in the file, including ones behind an inactive profile, so the
+      # required-variable form would make a plain `docker compose up` fail over
+      # a container it was never going to start. An unset value still fails
+      # loudly — the postgres image refuses to initialize without a superuser
+      # password and says so — which is the same protection, enforced by the
+      # thing that actually needs the value.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: kfchess
     ports:
       - "5432:5432"
@@ -79,7 +127,9 @@ services:
   nats:
     profiles: [future]
     image: nats:2-alpine
-    # -js enables JetStream, the durable side of the broker split in section 9.1.
+    # -js enables JetStream, the durable side of the broker split: room events
+    # are fire-and-forget (a lost one is repaired by the next reconciliation
+    # frame), while a finished game must never be silently dropped.
     command: ["-js", "-m", "8222"]
     ports:
       - "4222:4222"   # client connections

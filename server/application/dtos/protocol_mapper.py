@@ -7,7 +7,7 @@ Must not own: game logic, network I/O, or state management.
 """
 
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.config import consts
 from core.model.position import Position
@@ -77,10 +77,76 @@ class AlgebraicParser:
 
 
 class SnapshotSerializer:
-    """Serializes GameSnapshot DTO into a JSON-friendly dict for network transport."""
+    """Serializes GameSnapshot DTO into a JSON-friendly dict for network transport.
+
+    Split in two on purpose. The board — pieces, movements, cooldowns, clock —
+    is identical for everyone in the room and is serialized once per broadcast.
+    The selection-derived fields (`selected_pos`, `legal_move_targets`,
+    `castle_targets`) belong to exactly one player: they are what *that* player
+    currently has picked up and where it may go. Sending them to the opponent
+    leaks intent, and sending them to a spectator is meaningless.
+    """
 
     @staticmethod
     def serialize(snapshot: GameSnapshot) -> Dict[str, Any]:
+        """The complete snapshot, selection included.
+
+        Used where the recipient is known to own the whole view — the reconnect
+        resync, and any caller that has no per-recipient split to make.
+        """
+        payload = SnapshotSerializer.serialize_shared(snapshot)
+        payload.update(SnapshotSerializer.selection_fields(snapshot))
+        return payload
+
+    @staticmethod
+    def serialize_for(snapshot: GameSnapshot, viewer_color: Optional[str]) -> Dict[str, Any]:
+        """The snapshot as *viewer_color* is allowed to see it."""
+        payload = SnapshotSerializer.serialize_shared(snapshot)
+        payload.update(SnapshotSerializer.selection_fields(snapshot, viewer_color))
+        return payload
+
+    @staticmethod
+    def selection_fields(
+        snapshot: GameSnapshot, viewer_color: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """The selection-derived fields, blanked unless they belong to *viewer_color*.
+
+        Passing no color returns them unconditionally, which is the reconnect
+        case: that recipient is the player whose selection it is, or the caller
+        has already decided it may see everything.
+
+        Ownership is read from the colour of the piece standing on the selected
+        square — the engine holds one selection for the whole game, so the piece
+        is the only thing that says whose it is.
+        """
+        owner = SnapshotSerializer._selection_owner(snapshot)
+        withheld = viewer_color is not None and owner != viewer_color
+        if snapshot.selected_pos is None or withheld:
+            return {
+                ff.FIELD_SELECTED_POS: None,
+                ff.FIELD_LEGAL_MOVE_TARGETS: [],
+                ff.FIELD_CASTLE_TARGETS: [],
+            }
+        return {
+            ff.FIELD_SELECTED_POS: AlgebraicParser.format_square(snapshot.selected_pos),
+            ff.FIELD_LEGAL_MOVE_TARGETS: [
+                AlgebraicParser.format_square(p) for p in snapshot.legal_move_targets
+            ],
+            ff.FIELD_CASTLE_TARGETS: [
+                AlgebraicParser.format_square(p) for p in snapshot.castle_targets
+            ],
+        }
+
+    @staticmethod
+    def _selection_owner(snapshot: GameSnapshot) -> Optional[str]:
+        if snapshot.selected_pos is None:
+            return None
+        selected = snapshot.pieces.get(snapshot.selected_pos)
+        return selected.color if selected is not None else None
+
+    @staticmethod
+    def serialize_shared(snapshot: GameSnapshot) -> Dict[str, Any]:
+        """Everything in the snapshot that is the same for every recipient."""
         pieces_dict: Dict[str, Dict[str, Any]] = {}
         for pos, piece_snap in snapshot.pieces.items():
             sq_str = AlgebraicParser.format_square(pos)
@@ -107,18 +173,11 @@ class SnapshotSerializer:
             })
 
         cooldowns_list = [AlgebraicParser.format_square(p) for p in snapshot.cooldown_positions]
-        legal_targets = [AlgebraicParser.format_square(p) for p in snapshot.legal_move_targets]
-        castle_targets = [AlgebraicParser.format_square(p) for p in snapshot.castle_targets]
-
-        selected = AlgebraicParser.format_square(snapshot.selected_pos) if snapshot.selected_pos else None
 
         return {
             ff.FIELD_ROWS: snapshot.rows,
             ff.FIELD_COLS: snapshot.cols,
             ff.FIELD_PIECES: pieces_dict,
-            ff.FIELD_SELECTED_POS: selected,
-            ff.FIELD_LEGAL_MOVE_TARGETS: legal_targets,
-            ff.FIELD_CASTLE_TARGETS: castle_targets,
             ff.FIELD_ACTIVE_MOVEMENTS: movements_list,
             ff.FIELD_COOLDOWN_POSITIONS: cooldowns_list,
             ff.FIELD_CLOCK_MS: snapshot.clock_ms,

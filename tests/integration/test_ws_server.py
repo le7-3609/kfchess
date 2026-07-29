@@ -55,13 +55,17 @@ async def _authenticate(ws, username: str, action: str = "register", password: s
 
 
 async def _recv_until(ws, msg_type: str, timeout: float = 3.0):
-    """Receive frames until one of `msg_type` arrives, skipping the periodic
-    20Hz `game_state`/`event_*` tick broadcasts that interleave with it once
-    the room's runner is live.
+    """Receive frames until one of `msg_type` arrives, skipping the `event_*`
+    broadcasts and periodic reconciliation snapshots that interleave with it
+    once the room's runner is live.
 
     Needed even for `game_start`: seating the second player initializes the
     game synchronously, so the resulting `event_game_started` broadcast can
     reach the socket before the handshake reply does.
+
+    Server heartbeat pings are answered rather than skipped. A real client
+    replies, and one that does not is closed as half-open — so a test client
+    that ignored them would be dropped mid-test.
     """
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
@@ -70,6 +74,9 @@ async def _recv_until(ws, msg_type: str, timeout: float = 3.0):
         if remaining <= 0:
             raise asyncio.TimeoutError(f"Timed out waiting for {msg_type!r}")
         msg = await _recv_json(ws, timeout=remaining)
+        if msg.get("type") == "ping":
+            await _send_json(ws, {"type": "pong"})
+            continue
         if msg.get("type") == msg_type:
             return msg
 

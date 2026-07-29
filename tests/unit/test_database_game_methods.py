@@ -61,9 +61,10 @@ async def test_save_game_inserts_game_moves_and_stats(temp_db, two_players):
     ]
     game_result = _game_result(white_id, black_id, winner_id=white_id, moves=moves)
 
-    game_id = await temp_db.save_completed_game(game_result, moves)
+    outcome = await temp_db.save_completed_game(game_result, moves)
 
-    assert game_id is not None
+    assert outcome is not None and not outcome.already_existed
+    game_id = outcome.game_id
     conn = temp_db._require_connection()
     async with conn.execute("SELECT room_id, result, winner_id FROM games WHERE id = ?", (game_id,)) as cur:
         assert await cur.fetchone() == ("ROOM01", "checkmate", white_id)
@@ -111,20 +112,34 @@ async def test_statistics_aggregate_across_games(temp_db, two_players):
 
 
 @pytest.mark.asyncio
-async def test_duplicate_room_id_rolls_back(temp_db, two_players):
+async def test_saving_the_same_room_twice_is_an_idempotent_no_op(temp_db, two_players):
+    """A repeated save must resolve to the original row, not a second game and
+    not a failure.
+
+    A natural game end and a disconnect forfeit can race the same room, and an
+    at-least-once persistence stream will redeliver the same finished game — so
+    the second write has to be recognisably a no-op rather than an error the
+    caller cannot distinguish from a real one.
+    """
     white_id, black_id = two_players
     first = _game_result(white_id, black_id, room_id="DUP", winner_id=white_id)
-    assert await temp_db.save_completed_game(first, []) is not None
+    original = await temp_db.save_completed_game(first, [])
+    assert original is not None and not original.already_existed
 
-    # Same room_id violates the UNIQUE constraint; the whole batch must roll back.
     dup_moves = [PersistedMove(1, "e2", "e4", "P", "white", None, 100.0)]
-    assert await temp_db.save_completed_game(first, dup_moves) is None
+    replayed = await temp_db.save_completed_game(first, dup_moves)
+
+    assert replayed is not None
+    assert replayed.already_existed
+    assert replayed.game_id == original.game_id
 
     conn = temp_db._require_connection()
     async with conn.execute("SELECT COUNT(*) FROM games") as cur:
         assert (await cur.fetchone())[0] == 1
     async with conn.execute("SELECT COUNT(*) FROM moves") as cur:
-        assert (await cur.fetchone())[0] == 0  # the duplicate's move never landed
+        # The replay's moves are not appended: the game is already complete, so
+        # writing them again would duplicate every move in the replay.
+        assert (await cur.fetchone())[0] == 0
 
 
 @pytest.mark.asyncio
@@ -151,7 +166,7 @@ async def test_statistics_absent_until_a_game_is_saved(temp_db, two_players):
 async def test_get_game_returns_row_with_usernames(temp_db, two_players):
     white_id, black_id = two_players
     game_result = _game_result(white_id, black_id, winner_id=white_id)
-    game_id = await temp_db.save_completed_game(game_result, [])
+    game_id = (await temp_db.save_completed_game(game_result, [])).game_id
 
     row = await temp_db.get_game(game_id)
     assert row is not None
@@ -178,7 +193,7 @@ async def test_get_moves_ordered_by_move_number(temp_db, two_players):
         PersistedMove(3, "g1", "f3", "N", "white", "p", 1400.0),
     ]
     game_result = _game_result(white_id, black_id, winner_id=white_id, moves=moves)
-    game_id = await temp_db.save_completed_game(game_result, moves)
+    game_id = (await temp_db.save_completed_game(game_result, moves)).game_id
 
     rows = await temp_db.get_moves(game_id)
     assert [r[0] for r in rows] == [1, 2, 3]

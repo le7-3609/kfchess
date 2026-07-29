@@ -12,7 +12,10 @@ Optimization D: Employs a single persistent connection pattern initialized at se
 with WAL mode enabled for concurrent safety, ensuring clean shutdown without DB locks.
 """
 
+import asyncio
 import logging
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Protocol, Tuple
 
@@ -27,6 +30,26 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = "kfchess.db"
 DEFAULT_LEADERBOARD_LIMIT = 100
+# The same number, enforced as a ceiling rather than only a default: a caller
+# that asks for a larger page must be clamped, not obeyed, or one request can
+# make the server read and serialize the whole users table.
+MAX_LEADERBOARD_LIMIT = DEFAULT_LEADERBOARD_LIMIT
+
+
+@dataclass(frozen=True)
+class SaveOutcome:
+    """What a completed-game save did: which row it resolved to, and whether it
+    was already there.
+
+    The distinction matters to the caller. A save that found the room already
+    persisted has succeeded — the game is in the database, which is all the
+    caller wanted — while a save that failed has not. Returning a bare id for
+    both, or `None` for both, collapses those into one indistinguishable answer
+    and makes an at-least-once persistence pipeline impossible to reason about.
+    """
+
+    game_id: int
+    already_existed: bool
 
 
 class SavableMove(Protocol):
@@ -158,6 +181,26 @@ SELECT_USER_PROFILE_SQL = "SELECT id, username, elo FROM users WHERE username = 
 
 UPDATE_USER_ELO_SQL = "UPDATE users SET elo = ? WHERE username = ?"
 
+UPDATE_PASSWORD_HASH_SQL = "UPDATE users SET password_hash = ? WHERE username = ?"
+
+SELECT_GAME_ID_BY_ROOM_SQL = "SELECT id FROM games WHERE room_id = ?"
+
+# The cheapest statement that proves the connection can still round-trip, used
+# by the readiness probe. Deliberately touches no table: readiness asks whether
+# this replica can reach its database, not whether the schema is populated.
+PING_SQL = "SELECT 1"
+
+# Pinned rather than left to `bcrypt.gensalt()`'s library default, which has
+# moved between releases: the work factor protecting every password in this
+# database must be a deliberate, reviewable number, not a property of whichever
+# bcrypt version the image happened to resolve.
+BCRYPT_COST_FACTOR = 12
+
+# A bcrypt hash names its own cost in the third `$`-delimited field
+# ("$2b$12$..."), which is what makes rehash-on-login possible without storing
+# the cost separately.
+_BCRYPT_COST_PATTERN = re.compile(r"^\$2[aby]?\$(\d{2})\$")
+
 
 class Database:
     """Async SQLite persistence adapter."""
@@ -200,6 +243,22 @@ class Database:
             raise RuntimeError("Database connection is not open. Call connect() first.")
         return self._conn
 
+    @property
+    def is_connected(self) -> bool:
+        return self._conn is not None
+
+    async def ping(self) -> bool:
+        """Report whether the connection can still answer a trivial query.
+
+        Readiness (not liveness) depends on this: a replica that cannot reach
+        its database should stop being handed new work, while the games already
+        running on it continue.
+        """
+        if self._conn is None:
+            return False
+        result = await self._queries.fetch_one(PING_SQL)
+        return result.is_ok and result.value is not None
+
     async def create_user(
         self, username: str, password_plain: str, initial_elo: int = DEFAULT_PLAYER_ELO
     ) -> Optional[int]:
@@ -210,9 +269,7 @@ class Database:
             insert failed. The two are indistinguishable to the caller by
             design; the real reason is in the server log.
         """
-        pw_bytes = password_plain.encode(FILE_ENCODING)
-        salt = bcrypt.gensalt()
-        pw_hash = bcrypt.hashpw(pw_bytes, salt).decode(FILE_ENCODING)
+        pw_hash = await self._hash_password(password_plain)
 
         insert = await self._queries.insert_returning_id(
             INSERT_USER_SQL,
@@ -240,12 +297,81 @@ class Database:
             return None
 
         user_id, name, pw_hash, elo = lookup.value
-        pw_bytes = password_plain.encode(FILE_ENCODING)
-        hash_bytes = pw_hash.encode(FILE_ENCODING)
+        if not await self._verify_password(password_plain, pw_hash):
+            return None
 
-        if bcrypt.checkpw(pw_bytes, hash_bytes):
-            return (user_id, name, elo)
-        return None
+        await self._rehash_if_below_target_cost(name, pw_hash, password_plain)
+        return (user_id, name, elo)
+
+    async def _rehash_if_below_target_cost(
+        self, username: str, stored_hash: str, password_plain: str
+    ) -> None:
+        """Upgrade a hash that predates the current cost factor, on successful login.
+
+        Without this the cost can only ever apply to accounts created after it
+        was raised, and every existing password stays at whatever factor was in
+        force when it was set. Login is the only moment the plaintext is
+        available to rehash from, so it is the only place this can happen.
+
+        A failure to write the new hash is deliberately not fatal: the login
+        itself already succeeded against a valid hash, and refusing it over a
+        failed optimisation would turn a stale cost factor into an outage.
+        """
+        if self._cost_of(stored_hash) >= BCRYPT_COST_FACTOR:
+            return
+
+        upgraded = await self._hash_password(password_plain)
+        update = await self._queries.execute(UPDATE_PASSWORD_HASH_SQL, (upgraded, username))
+        if update.is_ok:
+            _LOGGER.info("Rehashed %s's password at cost %d", username, BCRYPT_COST_FACTOR)
+
+    @staticmethod
+    def _cost_of(stored_hash: str) -> int:
+        """The work factor encoded in a bcrypt hash, or 0 if unreadable.
+
+        An unreadable hash reports 0 so it sorts below any target and gets
+        rehashed on the next successful login.
+        """
+        match = _BCRYPT_COST_PATTERN.match(stored_hash or "")
+        return int(match.group(1)) if match else 0
+
+    @staticmethod
+    async def _hash_password(password_plain: str) -> str:
+        """Hash a password on a worker thread.
+
+        bcrypt is synchronous CPU work by design, and at cost 12 it occupies a
+        core for on the order of a quarter of a second. Running it inline would
+        block the same event loop that drives every room's AsyncGameRunner —
+        five missed ticks in every game on this process, per login. Off-loading
+        it is a correctness fix for the simulation, not only a throughput fix
+        for auth.
+        """
+        return await asyncio.to_thread(Database._hash_password_blocking, password_plain)
+
+    @staticmethod
+    def _hash_password_blocking(password_plain: str) -> str:
+        salt = bcrypt.gensalt(rounds=BCRYPT_COST_FACTOR)
+        return bcrypt.hashpw(password_plain.encode(FILE_ENCODING), salt).decode(FILE_ENCODING)
+
+    @staticmethod
+    async def _verify_password(password_plain: str, stored_hash: str) -> bool:
+        """Check a password on a worker thread, for the same reason as hashing."""
+        return await asyncio.to_thread(
+            Database._verify_password_blocking, password_plain, stored_hash
+        )
+
+    @staticmethod
+    def _verify_password_blocking(password_plain: str, stored_hash: str) -> bool:
+        try:
+            return bcrypt.checkpw(
+                password_plain.encode(FILE_ENCODING), stored_hash.encode(FILE_ENCODING)
+            )
+        except ValueError:
+            # A stored value that is not a bcrypt hash at all cannot match any
+            # password; it must read as a failed login rather than an exception
+            # that escapes into the auth path.
+            _LOGGER.error("Stored credential is not a valid bcrypt hash")
+            return False
 
     async def get_user_by_username(self, username: str) -> Optional[Tuple[int, str, int]]:
         """Fetch user profile (user_id, username, elo)."""
@@ -265,34 +391,61 @@ class Database:
 
     async def save_completed_game(
         self, game: SavableGame, moves: List[SavableMove]
-    ) -> Optional[int]:
+    ) -> Optional[SaveOutcome]:
         """Persist a finished game, its moves, and both players' refreshed stats.
 
         The whole operation is a single transaction: the game row, every move
         row, and the recomputed statistics for both players either all land or
-        none do. A duplicate room_id, a bad foreign key, or any other failure
-        rolls the entire batch back and returns None rather than leaving a game
-        with no moves or stale statistics.
+        none do. A bad foreign key or any other failure rolls the entire batch
+        back and returns None rather than leaving a game with no moves or stale
+        statistics.
+
+        Saving the *same* room twice is not a failure. A natural game end and a
+        disconnect forfeit can race the same room, and a redelivered persistence
+        event will do the same once that work moves onto a durable stream. The
+        insert therefore does nothing on a `room_id` conflict and the existing
+        id is returned, flagged as pre-existing — so the caller can tell "already
+        saved" (success) from "could not save" (None), which the previous
+        undifferentiated `None` made impossible.
 
         Returns:
-            The new game's id, or None if the save was rolled back.
+            A SaveOutcome naming the game's id, or None if the save was rolled
+            back.
         """
         conn = self._require_connection()
         try:
-            game_id = await self._insert_game_row(conn, game)
-            await self._insert_move_rows(conn, game_id, moves)
+            outcome = await self._insert_game_row(conn, game)
+            if outcome.already_existed:
+                await conn.commit()
+                _LOGGER.info(
+                    "Room %s is already persisted as game %s; save was a no-op",
+                    game.room_id, outcome.game_id,
+                )
+                return outcome
+
+            await self._insert_move_rows(conn, outcome.game_id, moves)
             await self._recompute_statistics(conn, game.white_player_id)
             await self._recompute_statistics(conn, game.black_player_id)
             await conn.commit()
-            _LOGGER.info("Persisted game %s (room %s) with %d moves", game_id, game.room_id, len(moves))
-            return game_id
+            _LOGGER.info(
+                "Persisted game %s (room %s) with %d moves",
+                outcome.game_id, game.room_id, len(moves),
+            )
+            return outcome
         except Exception as exc:
             await conn.rollback()
             _LOGGER.exception("Rolled back save of room %s: %s", game.room_id, exc)
             return None
 
     @staticmethod
-    async def _insert_game_row(conn: aiosqlite.Connection, game: SavableGame) -> int:
+    async def _insert_game_row(conn: aiosqlite.Connection, game: SavableGame) -> SaveOutcome:
+        """Insert the game row, or resolve the id of the one already there.
+
+        `ON CONFLICT DO NOTHING` rather than `RETURNING id`: RETURNING needs
+        SQLite 3.35+, which the interpreter's bundled library does not
+        guarantee, and the follow-up lookup is only reached on the rare
+        duplicate path anyway.
+        """
         cursor = await conn.execute(
             """
             INSERT INTO games (
@@ -300,6 +453,7 @@ class Database:
                 white_elo_before, white_elo_after, black_elo_before, black_elo_after,
                 started_at, ended_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (room_id) DO NOTHING
             """,
             (
                 game.room_id,
@@ -315,7 +469,14 @@ class Database:
                 game.ended_at.isoformat(),
             ),
         )
-        return cursor.lastrowid
+        if cursor.rowcount:
+            return SaveOutcome(game_id=cursor.lastrowid, already_existed=False)
+
+        async with conn.execute(SELECT_GAME_ID_BY_ROOM_SQL, (game.room_id,)) as existing:
+            row = await existing.fetchone()
+        if row is None:
+            raise RuntimeError(f"Room {game.room_id} conflicted but no row was found")
+        return SaveOutcome(game_id=row[0], already_existed=True)
 
     @staticmethod
     async def _insert_move_rows(

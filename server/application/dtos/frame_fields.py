@@ -27,6 +27,10 @@ FIELD_ACTION = "action"
 FIELD_USERNAME = "username"
 FIELD_PASSWORD = "password"
 FIELD_ELO = "elo"
+# A signed access token, issued by the HTTP tier's /api/auth/login. Present
+# instead of `password` on every connection after the first, so a socket costs a
+# signature check rather than a bcrypt verification.
+FIELD_TOKEN = "token"
 
 # --------------------------------------------------------------------------
 # Seating and rooms
@@ -40,6 +44,10 @@ FIELD_ROOM_ID = "room_id"
 # --------------------------------------------------------------------------
 FIELD_FROM = "from"
 FIELD_TO = "to"
+# Client-generated unique id on a move frame. A retry after a flaky reconnect
+# carries the id of the original attempt, which is what lets the room answer it
+# from cache instead of executing the move twice.
+FIELD_MOVE_ID = "move_id"
 FIELD_STATE = "state"
 FIELD_ROWS = "rows"
 FIELD_COLS = "cols"

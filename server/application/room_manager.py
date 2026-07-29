@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from server.infrastructure.database.database import Database
 from server.application.game_persistence_service import GamePersistenceService
-from server.application.game_room import GameRoom
+from server.application.game_room import DEFAULT_RECONCILIATION_INTERVAL_SECONDS, GameRoom
 from server.domain.room.room_role import RoomRole
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,9 +48,15 @@ class RoomManager:
         database: Optional[Database] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
         persistence_service: Optional[GamePersistenceService] = None,
+        reconciliation_interval_seconds: float = DEFAULT_RECONCILIATION_INTERVAL_SECONDS,
     ) -> None:
         self._database = database
         self._loop = loop
+        # How often each room re-sends the whole board. Held here rather than in
+        # the room because it is a fleet-wide tuning decision — the trade between
+        # steady-state bandwidth and how long a client can stay drifted — not
+        # something one room decides for itself.
+        self._reconciliation_interval_seconds = reconciliation_interval_seconds
         # Built once and shared by every room so each finished game is saved
         # through the same connection; defaults from the database when omitted
         # so callers that only pass a database still get history persistence.
@@ -67,6 +73,28 @@ class RoomManager:
     def all_rooms(self) -> List[GameRoom]:
         return list(self._rooms.values())
 
+    def active_countdown_count(self) -> int:
+        """How many disconnect countdowns are running across every room.
+
+        Exported as a metric because it is the only visible sign of a fleet-wide
+        network problem that has not yet turned into forfeits: a spike here
+        precedes a spike in games lost to disconnection by exactly the countdown
+        duration.
+        """
+        return sum(room.disconnect_handler.countdown_count for room in self._rooms.values())
+
+    def count_rooms_hosted_by(self, username: str) -> int:
+        """How many live rooms *username* currently occupies a seat in.
+
+        Derived from the rooms themselves rather than from a separate tally, so
+        there is no second count that can drift when a room is reaped.
+        """
+        return sum(
+            1
+            for room in self._rooms.values()
+            if room.find_player_by_username(username) is not None
+        )
+
     def create_room(self, creator_session: Any) -> str:
         """Create a new game room with a unique 6-character alphanumeric ID.
 
@@ -80,6 +108,7 @@ class RoomManager:
             database=self._database,
             persistence_service=self._persistence_service,
             on_room_expired=self._reap_room,
+            reconciliation_interval_seconds=self._reconciliation_interval_seconds,
         )
         room.add_player(creator_session)
         self._rooms[room_id] = room

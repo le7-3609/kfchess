@@ -1,17 +1,19 @@
 """WebSocket server — accepts client connections and routes frames to use cases.
 
 Layer: presentation (server/presentation)
-Owns: WebSocket lifecycle, the auth retry loop, frame parsing, and the dispatch
-table mapping a frame type onto an application use case. Turns a use case's
-failed Result into an `error` frame for the requester.
-Must not own: authentication policy (AuthUseCase), pairing and seating
-(MatchmakingUseCase / RoomUseCase), or in-game routing (GameSessionUseCase).
+Owns: WebSocket lifecycle, the auth retry loop, frame parsing, admission
+control at the edge, heartbeat registration, and the dispatch table mapping a
+frame type onto an application use case. Turns a use case's failed Result into
+an `error` frame for the requester.
+Must not own: authentication policy (AuthUseCase), the rate-limit budgets
+themselves (ConnectionGuard), pairing and seating (MatchmakingUseCase /
+RoomUseCase), or in-game routing (GameSessionUseCase).
 """
 
 import asyncio
 import json
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Sequence
 
 try:
     import websockets
@@ -20,14 +22,24 @@ except ImportError:
 
 from server.application.auth_use_case import AuthUseCase
 from server.application.dtos import Identity
+from server.application.game_room import DEFAULT_RECONCILIATION_INTERVAL_SECONDS
 from server.application.game_session_use_case import GameSessionUseCase
 from server.application.matchmaking_use_case import MatchmakingUseCase
 from server.application.room_use_case import RoomUseCase
 from server.application.auth_service import AuthService
+from server.application.token_service import TokenService
 from server.domain.matchmaking.queue import MatchmakingQueue
 from server.domain.room.room_role import RoomRole
 from server.infrastructure.database.database import Database
+from server.infrastructure.logging.json_logging import bind_session
+from server.infrastructure.observability.server_metrics import ServerMetrics, server_metrics
 from server.infrastructure.services.bot_driver import DEFAULT_BOT_MOVE_INTERVAL_SECONDS
+from server.infrastructure.services.heartbeat import (
+    DEFAULT_PING_INTERVAL_SECONDS,
+    DEFAULT_PONG_TIMEOUT_SECONDS,
+    HeartbeatMonitor,
+)
+from server.presentation.connection_guard import ConnectionGuard
 from server.application.dtos.frame_fields import (
     FIELD_MESSAGE,
     FIELD_TYPE,
@@ -76,22 +88,48 @@ class KFChessServer:
         room_manager: Optional[RoomManager] = None,
         matchmaking_poll_interval: float = DEFAULT_MATCHMAKING_POLL_INTERVAL_SECONDS,
         bot_move_interval_seconds: float = DEFAULT_BOT_MOVE_INTERVAL_SECONDS,
+        token_service: Optional[TokenService] = None,
+        ssl_context: Optional[Any] = None,
+        trusted_proxies: Sequence[str] = (),
+        guard: Optional[ConnectionGuard] = None,
+        heartbeat_interval_seconds: float = DEFAULT_PING_INTERVAL_SECONDS,
+        heartbeat_timeout_seconds: float = DEFAULT_PONG_TIMEOUT_SECONDS,
+        reconciliation_interval_seconds: float = DEFAULT_RECONCILIATION_INTERVAL_SECONDS,
+        metrics: Optional[ServerMetrics] = None,
     ) -> None:
         self._host = host
         self._port = port
         self._database = database
         self._auth_service = auth_service
+        self._ssl_context = ssl_context
         self._server = None
         self._sessions: Dict[Any, PlayerSession] = {}
 
         # Injectable so tests can shrink the 60s queue timeout without waiting
         # a real minute for the bot-fallback path.
         self._matchmaker = matchmaker or MatchmakingQueue()
-        self._room_manager = room_manager or RoomManager(database=database)
+        self._room_manager = room_manager or RoomManager(
+            database=database,
+            reconciliation_interval_seconds=reconciliation_interval_seconds,
+        )
         self._matchmaking_poll_interval = matchmaking_poll_interval
         self._matchmaking_task: Optional[asyncio.Task] = None
 
-        self._auth = AuthUseCase(auth_service)
+        self._guard = guard or ConnectionGuard(trusted_proxies=trusted_proxies)
+        self._metrics = metrics or server_metrics()
+        self._bind_metric_sources()
+
+        # A socket whose network vanishes without a TCP FIN is otherwise noticed
+        # only when a write raises — and PlayerSession.send returns silently
+        # when the session is not connected, so it may never be noticed at all,
+        # leaving the seat occupied until the game ends on its own.
+        self._heartbeat = HeartbeatMonitor(
+            ping_interval=heartbeat_interval_seconds,
+            pong_timeout=heartbeat_timeout_seconds,
+            on_disconnect=self._on_heartbeat_timeout,
+        )
+
+        self._auth = AuthUseCase(auth_service, token_service)
         self._matchmaking = MatchmakingUseCase(
             matchmaker=self._matchmaker,
             room_manager=self._room_manager,
@@ -115,7 +153,21 @@ class KFChessServer:
             MSG_JOIN_ROOM: self._handle_join_room,
             MSG_MOVE: self._handle_move,
             MSG_PING: self._handle_ping,
+            MSG_PONG: self._handle_pong,
         }
+
+    def _bind_metric_sources(self) -> None:
+        """Expose the live registries a scrape reads through.
+
+        Bound to accessors rather than pushed on change: every one of these
+        numbers already exists on an object that maintains it, and mirroring
+        them into a metric on every mutation is a second source of truth that
+        can only ever drift.
+        """
+        self._metrics.bind_rooms_active(lambda: self._room_manager.room_count)
+        self._metrics.bind_sessions_active(lambda: len(self._sessions))
+        self._metrics.bind_queue_length(lambda: self._matchmaker.queue_length)
+        self._metrics.bind_countdowns_active(self._room_manager.active_countdown_count)
 
     @property
     def host(self) -> str:
@@ -133,18 +185,35 @@ class KFChessServer:
     def matchmaker(self) -> MatchmakingQueue:
         return self._matchmaker
 
+    @property
+    def heartbeat(self) -> HeartbeatMonitor:
+        return self._heartbeat
+
+    @property
+    def session_count(self) -> int:
+        return len(self._sessions)
+
     async def start(self) -> None:
         """Start accepting connections and begin polling the matchmaking queue."""
         if websockets is None:
             raise RuntimeError("websockets package is not installed")
 
-        self._server = await websockets.serve(self._handle_connection, self._host, self._port)
+        self._server = await websockets.serve(
+            self._handle_connection, self._host, self._port, ssl=self._ssl_context
+        )
         self._matchmaking_task = asyncio.ensure_future(self._matchmaking_loop())
-        _LOGGER.info("KungFu Chess server running on ws://%s:%d", self._host, self._port)
+        await self._heartbeat.start()
+        _LOGGER.info(
+            "KungFu Chess server running on %s://%s:%d",
+            "wss" if self._ssl_context is not None else "ws",
+            self._host,
+            self._port,
+        )
 
     async def stop(self) -> None:
         """Stop matchmaking, tear down every live room, and close the listener."""
         await self._stop_matchmaking_loop()
+        await self._heartbeat.stop()
 
         for room in self._room_manager.all_rooms():
             await room.stop()
@@ -154,6 +223,10 @@ class KFChessServer:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
+        # The source-backed gauges read this server's registries; leaving them
+        # bound after teardown means a later scrape reports a stopped server's
+        # objects as if they were live.
+        self._metrics.unbind_live_gauges()
         _LOGGER.info("Server stopped")
 
     async def _stop_matchmaking_loop(self) -> None:
@@ -202,6 +275,14 @@ class KFChessServer:
         `create_room` and `join_room` behave identically whether they arrive
         as that first frame or later on an idle connection.
         """
+        address = self._guard.client_address(websocket)
+        admission = self._guard.admit_connection(address)
+        if not admission.allowed:
+            self._metrics.connections_rejected.increment()
+            await self._safe_send(websocket, build_error_message(admission.reason))
+            await self._close_quietly(websocket)
+            return
+
         identity = await self._authenticate(websocket)
         if identity is None:
             return
@@ -214,20 +295,60 @@ class KFChessServer:
         if session is None:
             return
 
+        self._heartbeat.register_session(session)
         try:
             async for raw_msg in websocket:
                 await self._process_message(session, raw_msg)
         except Exception as exc:
             _LOGGER.debug("Connection ended for %s: %s", session.username, exc)
         finally:
+            self._heartbeat.unregister_session(session)
+            self._guard.forget_session(self._session_key(session))
             await self._game.handle_connection_closed(session)
             self._sessions.pop(websocket, None)
+
+    def _on_heartbeat_timeout(self, session: Any) -> None:
+        """Close a socket that stopped answering pings.
+
+        Called synchronously from inside the heartbeat sweep, so the close is
+        deferred onto its own task: `_handle_connection`'s `finally` block is
+        the one path that frees a seat, and it only runs once the socket
+        actually closes.
+        """
+        _LOGGER.warning("Closing unresponsive session for %s", getattr(session, "username", "?"))
+        try:
+            asyncio.get_running_loop().create_task(self._close_quietly(session.websocket))
+        except RuntimeError:
+            _LOGGER.debug("No running loop to close the unresponsive socket on")
+
+    @staticmethod
+    async def _close_quietly(websocket: Any) -> None:
+        """Close a socket, tolerating one that is already gone."""
+        try:
+            await websocket.close()
+        except Exception as exc:
+            _LOGGER.debug("Closing a socket raised: %s", exc)
+
+    @staticmethod
+    def _session_key(session: PlayerSession) -> str:
+        """The identity a per-socket frame budget is keyed by.
+
+        The username, not the socket object: a client that reconnects in a loop
+        to shed its own rate limit would otherwise get a fresh budget on every
+        attempt.
+        """
+        return session.username
 
     async def _establish_session(
         self, websocket: Any, handshake: Dict[str, Any], identity: Identity
     ) -> Optional[PlayerSession]:
         """Turn the post-auth handshake frame into a registered, routable session."""
         user_id, username, elo = identity
+
+        # Stamped onto every log record this connection's task emits from here
+        # on, so a game can be traced across processes by field rather than by
+        # reading it out of a message.
+        bind_session(user_id, username)
 
         if handshake.get(FIELD_TYPE) == MSG_RECONNECT:
             session = await self._handle_reconnect_handshake(websocket, handshake, username)
@@ -248,6 +369,12 @@ class KFChessServer:
     async def _authenticate(self, websocket: Any) -> Optional[Identity]:
         """Run the mandatory auth handshake, allowing retries on bad credentials.
 
+        The three-attempt budget is per connection, which on its own bounds
+        nothing — connections are cheap to reopen. The per-username backoff
+        applied here is what actually slows a guess, and it survives the
+        attacker reconnecting because it is keyed by the account under attack
+        rather than by the socket.
+
         Returns the authenticated (user_id, username, elo) identity, or None
         if the socket dropped, sent a malformed/non-auth first frame, or
         exhausted its retry budget on invalid credentials.
@@ -263,19 +390,49 @@ class KFChessServer:
                 )
                 return None
 
-            result = await self._auth.authenticate(frame)
-            if result.is_ok:
-                _, resolved_username, elo = result.value
-                await self._safe_send(websocket, build_auth_success_message(resolved_username, elo))
-                return result.value
+            identity = await self._attempt_authentication(websocket, frame)
+            if identity is not None:
+                return identity
 
-            await self._safe_send(websocket, build_error_message(result.error))
             if attempt == MAX_AUTH_ATTEMPTS:
                 await self._safe_send(
                     websocket, build_error_message("Too many failed authentication attempts")
                 )
                 return None
 
+        return None
+
+    async def _attempt_authentication(
+        self, websocket: Any, frame: Dict[str, Any]
+    ) -> Optional[Identity]:
+        """Resolve one auth frame, applying and updating the per-username backoff.
+
+        Returns the identity on success, or None after answering the refusal —
+        the caller owns the retry budget.
+        """
+        claimed_username = frame.get(FIELD_USERNAME)
+        is_password_attempt = not self._auth.is_token_attempt(frame)
+
+        # Backoff guards credential guessing only. A token either verifies or
+        # does not, and delaying its retry would punish a client whose access
+        # token merely expired.
+        if is_password_attempt and isinstance(claimed_username, str):
+            backoff = self._guard.check_login_backoff(claimed_username)
+            if not backoff.allowed:
+                await self._safe_send(websocket, build_error_message(backoff.reason))
+                return None
+
+        result = await self._auth.authenticate(frame)
+        if result.is_ok:
+            _, resolved_username, elo = result.value
+            self._guard.record_login_success(resolved_username)
+            await self._safe_send(websocket, build_auth_success_message(resolved_username, elo))
+            return result.value
+
+        self._metrics.auth_failures.increment()
+        if is_password_attempt and isinstance(claimed_username, str):
+            self._guard.record_login_failure(claimed_username)
+        await self._safe_send(websocket, build_error_message(result.error))
         return None
 
     async def _read_handshake(self, websocket: Any) -> Optional[Dict[str, Any]]:
@@ -303,6 +460,13 @@ class KFChessServer:
         await self._reply_on_failure(session, await self._matchmaking.cancel(session))
 
     async def _handle_create_room(self, session: PlayerSession) -> None:
+        admission = self._guard.admit_room_creation(
+            session.username, self._room_manager.count_rooms_hosted_by(session.username)
+        )
+        if not admission.allowed:
+            await session.send(build_error_message(admission.reason))
+            return
+
         result = await self._rooms.create(session)
         if not result.is_ok:
             await session.send(build_error_message(result.error))
@@ -322,6 +486,10 @@ class KFChessServer:
 
     async def _handle_ping(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
         await session.send({FIELD_TYPE: MSG_PONG})
+
+    async def _handle_pong(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
+        """Record the client's answer to a server ping, keeping the session alive."""
+        self._heartbeat.record_pong(session)
 
     async def _handle_reconnect_handshake(
         self, websocket: Any, handshake: Dict[str, Any], authenticated_username: str
@@ -352,12 +520,26 @@ class KFChessServer:
             _LOGGER.debug("Failed to send handshake response: %s", exc)
 
     async def _process_message(self, session: PlayerSession, raw_msg: str) -> None:
+        """Parse and dispatch one inbound frame, subject to the session's budget.
+
+        The budget is applied before parsing so a flood costs the server a
+        counter increment rather than a JSON decode, and over-limit frames are
+        answered and dropped rather than closing the socket — a burst is far
+        more often a retry storm from a bad network than an attack.
+        """
+        admission = self._guard.admit_frame(self._session_key(session))
+        if not admission.allowed:
+            self._metrics.frames_rate_limited.increment()
+            await session.send(build_error_message(admission.reason))
+            return
+
         try:
             msg = parse_client_message(raw_msg)
         except ValueError as err:
             await session.send(build_error_message(str(err)))
             return
 
+        self._metrics.frames_received.increment()
         await self._dispatch_message(session, msg)
 
     async def _dispatch_message(self, session: PlayerSession, msg: Dict[str, Any]) -> None:
