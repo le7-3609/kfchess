@@ -48,6 +48,64 @@ The wire protocol is **event-driven, not snapshot-driven**. Because pieces trave
 
 Supporting behaviour, all wired: bcrypt-hashed accounts in SQLite (`auth_service.py`, `database.py`) at a pinned cost factor, hashed off the event loop so a login cannot stall the game tick; ±100 ELO matchmaking with a 60-second timeout (`queue.py`, `elo.py`); ping/pong heartbeats that close a half-open socket (`heartbeat.py`) and a 30-second reconnection window that resyncs a returning player (`disconnect_handler.py`); rate limits on connections, frames, room creation and HTTP requests; and idempotent writes — a repeated `move_id` is answered from cache, and re-saving a finished game is a no-op rather than a duplicate or an error.
 
+### Fleet topology
+
+Each component does exactly one job — hold connections, run games, match players, persist results — which is what lets any one of them be replicated independently of the others. Solid boxes are built and deployed by [deploy/kubernetes/](deploy/kubernetes/); dashed ones are the remaining targets from [Server_Design.md](Server_Design.md).
+
+```mermaid
+flowchart TB
+    clients["Clients<br/><i>client/main_gui.py</i>"]
+    cdn["CDN<br/>static + immutable replays"]
+    ingress["Load Balancer / Ingress<br/><b>TLS terminates here</b>"]
+
+    subgraph api_tier["API tier — main_api.py (stateless)"]
+        api1["HttpApiServer<br/>token issue, leaderboard,<br/>replay + PGN, probes"]
+    end
+
+    subgraph ws_tier["Socket tier — main_ws.py — both halves in one process today"]
+        gw["WS gateway<br/>token verify, sockets,<br/>frame routing"]
+        auth["Game authority<br/>RoomManager + GameRoom<br/>+ core engine, ticks at 20 Hz"]
+        gw <--> auth
+    end
+
+    subgraph broker["NATS"]
+        events["room.&lt;id&gt;.events<br/>core — fire-and-forget"]
+        finished["game.finished<br/>JetStream — durable"]
+    end
+
+    worker["Persistence workers<br/>main_worker.py — batched writes"]
+
+    redis[("Redis<br/>matchmaking queue,<br/>seat/room directory,<br/>ownership leases")]
+    postgres[("PostgreSQL<br/>users, ELO,<br/>games + moves")]
+    wide[("Wide-column store<br/>game + move history")]
+
+    prom["Prometheus<br/>scrapes /metrics on every role"]
+
+    clients --> cdn --> ingress
+    ingress -->|HTTPS| api1
+    ingress -->|WSS| gw
+
+    gw -.->|"subscribe (GatewayRelay)"| events
+    auth -->|publish| events
+    auth -->|game ended| finished
+    finished --> worker --> postgres
+    worker -.-> wide
+
+    auth <--> redis
+    gw <--> redis
+    api1 --> postgres
+    api1 -.-> wide
+
+    prom -.-> api1
+    prom -.-> gw
+    prom -.-> worker
+
+    classDef planned stroke-dasharray: 5 5
+    class cdn,wide planned
+```
+
+The two broker channels do not share a technology, and the reason is failure tolerance rather than familiarity: a dropped room event costs one reconciliation interval, so it runs on NATS core, while a dropped `game.finished` is a game nobody ever wrote, so it runs on JetStream with a durable consumer group. A replica's gateway half subscribes to `room.<id>.events` on behalf of every local member — one reference-counted subscription per room — which is what lets a move computed on one replica reach an opponent socketed on another. The gateway and authority halves are the same process today; splitting them into separate deployments is the unbuilt half of Step 7.
+
 [Server_Design.md](Server_Design.md) is the ordered work plan for scaling this to a fleet. Steps 1–6 are implemented — deployability, the protocol, edge security, the role split, shared state in Redis and PostgreSQL, and room events over NATS. Step 7 is implemented as far as ownership goes: a room is registered only once this instance holds its Redis lease, a lost lease tears the room down here rather than letting a second authority compute it, and a drain refuses new rooms while renewing the ones already running — but the gateway and the game authority are still one process rather than two. Step 8 has its Kubernetes manifests and persistence worker, and lacks the metrics adapter its HPAs need.
 
 ---
